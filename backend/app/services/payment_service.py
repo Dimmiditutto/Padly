@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Protocol
 from urllib.parse import urlencode
 
 import httpx
@@ -13,9 +14,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Booking, BookingPayment, PaymentProvider, PaymentStatus, PaymentWebhookEvent
-from app.services.booking_service import log_event, mark_booking_paid
+from app.models import Booking, BookingPayment, BookingStatus, PaymentProvider, PaymentStatus, PaymentWebhookEvent
+from app.services.booking_service import calculate_deposit, log_event, mark_booking_paid
 from app.services.email_service import email_service
+
+
+class PaymentGateway(Protocol):
+    provider: PaymentProvider
+
+    def create_checkout(self, booking: Booking) -> PaymentInitResult:
+        ...
 
 
 @dataclass
@@ -36,7 +44,7 @@ class StripeGateway:
         session = stripe.checkout.Session.create(
             mode='payment',
             success_url=f"{settings.app_url}/booking/success?booking={booking.public_reference}",
-            cancel_url=f"{settings.app_url}/booking/cancelled?booking={booking.public_reference}",
+            cancel_url=f"{settings.app_url}/api/payments/stripe/cancel?booking={booking.public_reference}",
             client_reference_id=booking.public_reference,
             metadata={'booking_id': booking.id, 'public_reference': booking.public_reference},
             line_items=[
@@ -94,7 +102,7 @@ class PayPalGateway:
             ],
             'application_context': {
                 'return_url': f'{settings.app_url}/api/payments/paypal/return?booking={booking.public_reference}',
-                'cancel_url': f'{settings.app_url}/booking/cancelled?booking={booking.public_reference}',
+                'cancel_url': f'{settings.app_url}/api/payments/paypal/cancel?booking={booking.public_reference}',
                 'brand_name': settings.app_name,
                 'user_action': 'PAY_NOW',
             },
@@ -124,36 +132,246 @@ class PayPalGateway:
         response.raise_for_status()
         return response.json()
 
+    def verify_webhook(self, request: Request, payload: dict) -> None:
+        if not settings.paypal_webhook_id or not settings.paypal_client_id or not settings.paypal_client_secret:
+            return
+
+        token = self._access_token()
+        if not token:
+            return
+
+        body = {
+            'auth_algo': request.headers.get('paypal-auth-algo'),
+            'cert_url': request.headers.get('paypal-cert-url'),
+            'transmission_id': request.headers.get('paypal-transmission-id'),
+            'transmission_sig': request.headers.get('paypal-transmission-sig'),
+            'transmission_time': request.headers.get('paypal-transmission-time'),
+            'webhook_id': settings.paypal_webhook_id,
+            'webhook_event': payload,
+        }
+        response = httpx.post(
+            f'{settings.paypal_base_url}/v1/notifications/verify-webhook-signature',
+            headers={**self._headers(), 'Authorization': f'Bearer {token}'},
+            json=body,
+            timeout=20,
+        )
+        response.raise_for_status()
+        verification_status = response.json().get('verification_status')
+        if verification_status != 'SUCCESS':
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Webhook PayPal non verificato')
+
 
 stripe_gateway = StripeGateway()
 paypal_gateway = PayPalGateway()
+GATEWAYS: dict[PaymentProvider, PaymentGateway] = {
+    PaymentProvider.STRIPE: stripe_gateway,
+    PaymentProvider.PAYPAL: paypal_gateway,
+}
 
 
-def start_payment_for_booking(db: Session, booking: Booking, provider: PaymentProvider) -> PaymentInitResult:
-    if booking.status not in {booking.status.__class__.PENDING_PAYMENT, booking.status.__class__.CONFIRMED}:
-        raise HTTPException(status_code=400, detail='Stato prenotazione non compatibile con il pagamento')
+def _to_decimal(value: Decimal | str | int | float | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value)).quantize(Decimal('0.01'))
 
-    if provider == PaymentProvider.STRIPE:
-        result = stripe_gateway.create_checkout(booking)
-    elif provider == PaymentProvider.PAYPAL:
-        result = paypal_gateway.create_checkout(booking)
-    else:
-        raise HTTPException(status_code=400, detail='Provider pagamento non supportato')
 
-    booking.payment_provider = provider
-    booking.payment_status = PaymentStatus.INITIATED
-    booking.payment_reference = result.provider_reference
+def _parse_provider_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _expected_booking_amount(booking: Booking) -> Decimal:
+    expected = _to_decimal(calculate_deposit(booking.duration_minutes))
+    current = _to_decimal(booking.deposit_amount)
+    if current != expected:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Importo caparra non coerente con la durata prenotata')
+    return expected
+
+
+def _assert_valid_provider(provider: PaymentProvider) -> None:
+    if provider not in {PaymentProvider.STRIPE, PaymentProvider.PAYPAL}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Provider pagamento non supportato')
+
+
+def _assert_payment_amount(booking: Booking, *, amount: Decimal | str | int | float | None, currency: str = 'EUR') -> Decimal:
+    if currency.upper() != 'EUR':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Valuta pagamento non valida')
+
+    expected = _expected_booking_amount(booking)
+    actual = _to_decimal(amount) or expected
+    if actual != expected:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Importo pagamento non coerente con la caparra')
+    return actual
+
+
+def _find_booking_payment(
+    db: Session,
+    booking: Booking,
+    *,
+    provider: PaymentProvider,
+    provider_order_id: str | None = None,
+) -> BookingPayment | None:
+    stmt = select(BookingPayment).where(BookingPayment.booking_id == booking.id, BookingPayment.provider == provider)
+    if provider_order_id:
+        payment = db.scalar(stmt.where(BookingPayment.provider_order_id == provider_order_id).limit(1))
+        if payment:
+            return payment
+    return db.scalar(stmt.order_by(BookingPayment.created_at.desc()).limit(1))
+
+
+def _find_booking_by_payment_reference(
+    db: Session,
+    *,
+    provider: PaymentProvider,
+    provider_order_id: str | None = None,
+    provider_capture_id: str | None = None,
+) -> Booking | None:
+    if provider_order_id:
+        payment = db.scalar(
+            select(BookingPayment)
+            .where(BookingPayment.provider == provider, BookingPayment.provider_order_id == provider_order_id)
+            .limit(1)
+        )
+        if payment:
+            return db.scalar(select(Booking).where(Booking.id == payment.booking_id))
+
+    if provider_capture_id:
+        payment = db.scalar(
+            select(BookingPayment)
+            .where(BookingPayment.provider == provider, BookingPayment.provider_capture_id == provider_capture_id)
+            .limit(1)
+        )
+        if payment:
+            return db.scalar(select(Booking).where(Booking.id == payment.booking_id))
+
+    return None
+
+
+def _ensure_booking_payment(
+    db: Session,
+    booking: Booking,
+    *,
+    provider: PaymentProvider,
+    provider_order_id: str | None = None,
+    checkout_url: str | None = None,
+) -> BookingPayment:
+    payment = _find_booking_payment(db, booking, provider=provider, provider_order_id=provider_order_id)
+    if payment:
+        if provider_order_id:
+            payment.provider_order_id = provider_order_id
+        if checkout_url:
+            payment.checkout_url = checkout_url
+        return payment
 
     payment = BookingPayment(
         booking_id=booking.id,
         provider=provider,
         status=PaymentStatus.INITIATED,
-        amount=booking.deposit_amount,
+        amount=_expected_booking_amount(booking),
         currency='EUR',
+        provider_order_id=provider_order_id,
+        checkout_url=checkout_url,
+    )
+    db.add(payment)
+    db.flush()
+    return payment
+
+
+def _confirm_payment(
+    db: Session,
+    booking: Booking,
+    *,
+    provider: PaymentProvider,
+    provider_order_id: str | None,
+    provider_capture_id: str | None,
+    amount: Decimal | str | int | float | None,
+    currency: str = 'EUR',
+    occurred_at: datetime | None = None,
+) -> bool:
+    actual_amount = _assert_payment_amount(booking, amount=amount, currency=currency)
+    payment = _ensure_booking_payment(
+        db,
+        booking,
+        provider=provider,
+        provider_order_id=provider_order_id,
+    )
+    payment.amount = actual_amount
+    payment.currency = currency.upper()
+    if provider_order_id:
+        payment.provider_order_id = provider_order_id
+    if provider_capture_id:
+        payment.provider_capture_id = provider_capture_id
+
+    already_confirmed = booking.payment_status == PaymentStatus.PAID and booking.status == BookingStatus.CONFIRMED
+    booking = mark_booking_paid(
+        db,
+        booking,
+        provider=provider,
+        reference=provider_capture_id or provider_order_id or payment.provider_order_id or booking.public_reference,
+        occurred_at=occurred_at,
+    )
+
+    if booking.payment_status == PaymentStatus.PAID and booking.status == BookingStatus.CONFIRMED:
+        payment.status = PaymentStatus.PAID
+        return not already_confirmed
+
+    if booking.status == BookingStatus.EXPIRED:
+        payment.status = PaymentStatus.EXPIRED
+    elif booking.status == BookingStatus.CANCELLED:
+        payment.status = PaymentStatus.CANCELLED
+    return False
+
+
+def mark_checkout_cancelled(db: Session, booking_reference: str, provider: PaymentProvider, *, reason: str) -> Booking:
+    _assert_valid_provider(provider)
+    booking = db.scalar(select(Booking).where(Booking.public_reference == booking_reference))
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Prenotazione non trovata')
+
+    if booking.payment_status == PaymentStatus.PAID or booking.status != BookingStatus.PENDING_PAYMENT:
+        return booking
+
+    booking.payment_provider = provider
+    booking.payment_status = PaymentStatus.CANCELLED
+    payment = _find_booking_payment(db, booking, provider=provider)
+    if payment and payment.status != PaymentStatus.PAID:
+        payment.status = PaymentStatus.CANCELLED
+    log_event(db, booking, 'PAYMENT_CANCELLED', reason, actor='payment')
+    return booking
+
+
+def _notify_booking_confirmed(db: Session, booking: Booking, *, was_confirmed: bool) -> None:
+    if not was_confirmed:
+        return
+    email_service.booking_confirmation(db, booking)
+    email_service.admin_notification(db, booking)
+
+
+def start_payment_for_booking(db: Session, booking: Booking, provider: PaymentProvider) -> PaymentInitResult:
+    _assert_valid_provider(provider)
+    _expected_booking_amount(booking)
+
+    if booking.status not in {booking.status.__class__.PENDING_PAYMENT, booking.status.__class__.CONFIRMED}:
+        raise HTTPException(status_code=400, detail='Stato prenotazione non compatibile con il pagamento')
+
+    result = GATEWAYS[provider].create_checkout(booking)
+
+    booking.payment_provider = provider
+    booking.payment_status = PaymentStatus.INITIATED
+    booking.payment_reference = result.provider_reference
+
+    payment = _ensure_booking_payment(
+        db,
+        booking,
+        provider=provider,
         provider_order_id=result.provider_reference,
         checkout_url=result.checkout_url,
     )
-    db.add(payment)
+    payment.status = PaymentStatus.INITIATED
     log_event(db, booking, 'PAYMENT_INITIATED', f'Checkout {provider.value} avviato', actor='payment')
     return result
 
@@ -186,9 +404,22 @@ def handle_stripe_webhook(db: Session, request: Request, raw_payload: bytes) -> 
         reference = data.get('client_reference_id') or data.get('metadata', {}).get('public_reference')
         booking = db.scalar(select(Booking).where(Booking.public_reference == reference))
         if booking:
-            mark_booking_paid(db, booking, provider=PaymentProvider.STRIPE, reference=data.get('id', event_id))
-            email_service.booking_confirmation(db, booking)
-            email_service.admin_notification(db, booking)
+            was_confirmed = _confirm_payment(
+                db,
+                booking,
+                provider=PaymentProvider.STRIPE,
+                provider_order_id=data.get('id'),
+                provider_capture_id=data.get('payment_intent'),
+                amount=(Decimal(str(data.get('amount_total', 0))) / Decimal('100')) if data.get('amount_total') is not None else None,
+                currency=(data.get('currency') or 'eur').upper(),
+                occurred_at=datetime.fromtimestamp(event.get('created', int(datetime.now(UTC).timestamp())), UTC),
+            )
+            _notify_booking_confirmed(db, booking, was_confirmed=was_confirmed)
+    elif event_type == 'checkout.session.expired':
+        reference = data.get('client_reference_id') or data.get('metadata', {}).get('public_reference')
+        booking = db.scalar(select(Booking).where(Booking.public_reference == reference))
+        if booking:
+            mark_checkout_cancelled(db, reference, PaymentProvider.STRIPE, reason='Sessione Stripe scaduta o annullata')
 
 
 def handle_paypal_return(db: Session, booking_reference: str, token: str) -> Booking:
@@ -197,13 +428,25 @@ def handle_paypal_return(db: Session, booking_reference: str, token: str) -> Boo
         raise HTTPException(status_code=404, detail='Prenotazione non trovata')
 
     capture = paypal_gateway.capture_order(token)
-    booking = mark_booking_paid(db, booking, provider=PaymentProvider.PAYPAL, reference=capture.get('id', token))
-    email_service.booking_confirmation(db, booking)
-    email_service.admin_notification(db, booking)
+    capture_block = ((capture.get('purchase_units') or [{}])[0].get('payments') or {}).get('captures', [{}])[0]
+    amount_block = capture_block.get('amount', {})
+    was_confirmed = _confirm_payment(
+        db,
+        booking,
+        provider=PaymentProvider.PAYPAL,
+        provider_order_id=token,
+        provider_capture_id=capture_block.get('id', capture.get('id', token)),
+        amount=amount_block.get('value'),
+        currency=amount_block.get('currency_code', 'EUR'),
+        occurred_at=_parse_provider_datetime(capture_block.get('create_time') or capture.get('create_time')),
+    )
+    _notify_booking_confirmed(db, booking, was_confirmed=was_confirmed)
     return booking
 
 
-def handle_paypal_webhook(db: Session, payload: dict) -> None:
+def handle_paypal_webhook(db: Session, request: Request, payload: dict) -> None:
+    paypal_gateway.verify_webhook(request, payload)
+
     event_id = payload.get('id') or f"paypal-{payload.get('event_type', 'unknown')}"
     if _already_processed(db, 'paypal', event_id):
         return
@@ -211,21 +454,52 @@ def handle_paypal_webhook(db: Session, payload: dict) -> None:
     event_type = payload.get('event_type', 'UNKNOWN')
     _record_webhook(db, 'paypal', event_id, event_type, payload)
     resource = payload.get('resource', {})
-    reference = resource.get('custom_id') or resource.get('invoice_id') or resource.get('supplementary_data', {}).get('related_ids', {}).get('order_id')
+    reference = resource.get('custom_id') or resource.get('invoice_id')
+    provider_order_id = resource.get('supplementary_data', {}).get('related_ids', {}).get('order_id') or resource.get('id')
+    provider_capture_id = resource.get('id')
 
+    booking = None
     if reference:
         booking = db.scalar(select(Booking).where(Booking.public_reference == reference))
-        if booking and event_type in {'PAYMENT.CAPTURE.COMPLETED', 'CHECKOUT.ORDER.APPROVED'}:
-            mark_booking_paid(db, booking, provider=PaymentProvider.PAYPAL, reference=resource.get('id', event_id))
-            email_service.booking_confirmation(db, booking)
-            email_service.admin_notification(db, booking)
+    if not booking:
+        booking = _find_booking_by_payment_reference(
+            db,
+            provider=PaymentProvider.PAYPAL,
+            provider_order_id=provider_order_id,
+            provider_capture_id=provider_capture_id,
+        )
+
+    if booking:
+        if booking and event_type == 'PAYMENT.CAPTURE.COMPLETED':
+            amount_block = resource.get('amount', {})
+            was_confirmed = _confirm_payment(
+                db,
+                booking,
+                provider=PaymentProvider.PAYPAL,
+                provider_order_id=provider_order_id,
+                provider_capture_id=provider_capture_id,
+                amount=amount_block.get('value'),
+                currency=amount_block.get('currency_code', 'EUR'),
+                occurred_at=_parse_provider_datetime(resource.get('create_time')),
+            )
+            _notify_booking_confirmed(db, booking, was_confirmed=was_confirmed)
+        elif booking and event_type in {'CHECKOUT.ORDER.CANCELLED', 'PAYMENT.CAPTURE.DENIED'}:
+            mark_checkout_cancelled(db, booking.public_reference, PaymentProvider.PAYPAL, reason='Pagamento PayPal non completato')
 
 
 def handle_mock_payment(db: Session, booking_reference: str, provider: PaymentProvider) -> Booking:
     booking = db.scalar(select(Booking).where(Booking.public_reference == booking_reference))
     if not booking:
         raise HTTPException(status_code=404, detail='Prenotazione non trovata')
-    booking = mark_booking_paid(db, booking, provider=provider, reference=f'mock-{provider.value.lower()}-{booking.public_reference}')
-    email_service.booking_confirmation(db, booking)
-    email_service.admin_notification(db, booking)
+    was_confirmed = _confirm_payment(
+        db,
+        booking,
+        provider=provider,
+        provider_order_id=booking.payment_reference,
+        provider_capture_id=f'mock-{provider.value.lower()}-{booking.public_reference}',
+        amount=booking.deposit_amount,
+        currency='EUR',
+        occurred_at=datetime.now(UTC),
+    )
+    _notify_booking_confirmed(db, booking, was_confirmed=was_confirmed)
     return booking

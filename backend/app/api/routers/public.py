@@ -16,19 +16,21 @@ from app.schemas.public import (
     PublicBookingCreateResponse,
     PublicConfigResponse,
 )
-from app.services.booking_service import build_daily_slots, calculate_deposit, cancel_booking, create_public_booking
+from app.services.booking_service import acquire_single_court_lock, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking
 from app.services.payment_service import start_payment_for_booking
+from app.services.settings_service import get_booking_rules
 
 router = APIRouter(prefix='/public', tags=['Public'])
 
 
 @router.get('/config', response_model=PublicConfigResponse)
-def get_public_config() -> PublicConfigResponse:
+def get_public_config(db: Session = Depends(get_db)) -> PublicConfigResponse:
+    booking_rules = get_booking_rules(db)
     return PublicConfigResponse(
         app_name=settings.app_name,
         timezone=settings.timezone,
-        booking_hold_minutes=settings.booking_hold_minutes,
-        cancellation_window_hours=settings.cancellation_window_hours,
+        booking_hold_minutes=booking_rules['booking_hold_minutes'],
+        cancellation_window_hours=booking_rules['cancellation_window_hours'],
         stripe_enabled=bool(settings.stripe_secret_key),
         paypal_enabled=bool(settings.paypal_client_id and settings.paypal_client_secret),
     )
@@ -50,19 +52,20 @@ def get_availability(
 
 @router.post('/bookings', response_model=PublicBookingCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_booking(payload: PublicBookingCreateRequest, db: Session = Depends(get_db)) -> PublicBookingCreateResponse:
-    booking = create_public_booking(
-        db,
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        phone=payload.phone,
-        email=payload.email,
-        note=payload.note,
-        booking_date=payload.booking_date,
-        start_time_value=payload.start_time,
-        duration_minutes=payload.duration_minutes,
-        payment_provider=payload.payment_provider,
-    )
-    db.commit()
+    with acquire_single_court_lock(db):
+        booking = create_public_booking(
+            db,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            phone=payload.phone,
+            email=payload.email,
+            note=payload.note,
+            booking_date=payload.booking_date,
+            start_time_value=payload.start_time,
+            duration_minutes=payload.duration_minutes,
+            payment_provider=payload.payment_provider,
+        )
+        db.commit()
     db.refresh(booking)
     return PublicBookingCreateResponse(booking=booking, checkout_ready=False, next_action_url=f"/api/public/bookings/{booking.id}/checkout")
 
@@ -100,8 +103,9 @@ def cancel_public_booking(cancel_token: str, db: Session = Depends(get_db)) -> S
     if not booking:
         raise HTTPException(status_code=404, detail='Link annullamento non valido')
 
+    booking_rules = get_booking_rules(db)
     hours_until_start = (booking.start_at - datetime.now(UTC)).total_seconds() / 3600
-    if hours_until_start < settings.cancellation_window_hours:
+    if hours_until_start < booking_rules['cancellation_window_hours']:
         raise HTTPException(status_code=400, detail='La finestra di cancellazione è terminata')
 
     cancel_booking(db, booking, actor='public', reason='Annullamento richiesto dal cliente')

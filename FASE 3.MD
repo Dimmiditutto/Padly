@@ -1,5 +1,3 @@
-# BLOCCO COMUNE DA TENERE IN TESTA A OGNI FASE
-
 Agisci come un Senior Full-Stack Engineer, Software Architect pragmatico, Product Designer mobile-first, Payments Integrator e DevOps Engineer per Railway.
 
 Stai costruendo una web app completa di prenotazione per 1 solo campo da padel, pronta per essere sviluppata in repository e deployata su Railway.

@@ -1,19 +1,44 @@
+import { CalendarClock, ClipboardList, Repeat2, Settings2 } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { StatusBadge } from '../components/StatusBadge';
-import { api } from '../services/api';
-import type { BookingSummary, ReportResponse } from '../types';
+import { AdminBookingCard } from '../components/AdminBookingCard';
+import { AlertBanner } from '../components/AlertBanner';
+import { AppBrand } from '../components/AppBrand';
+import { EmptyState } from '../components/EmptyState';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { SectionCard } from '../components/SectionCard';
+import {
+  createAdminBooking,
+  createBlackout,
+  createRecurring,
+  getAdminReport,
+  getAdminSession,
+  getAdminSettings,
+  listAdminBookings,
+  listAdminEvents,
+  listBlackouts,
+  logoutAdmin,
+  markAdminBalancePaid,
+  previewRecurring,
+  updateAdminBookingStatus,
+  updateAdminSettings,
+} from '../services/adminApi';
+import type { AdminEvent, AdminManualBookingPayload, AdminSettings, BlackoutItem, BookingSummary, RecurringOccurrence, ReportResponse } from '../types';
+import { formatCurrency, formatDateTime, toDateInputValue } from '../utils/format';
 
-const today = new Date().toISOString().slice(0, 10);
+const today = toDateInputValue(new Date());
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [report, setReport] = useState<ReportResponse | null>(null);
-  const [events, setEvents] = useState<Array<{ id: string; event_type: string; actor: string; message: string; created_at: string }>>([]);
-  const [feedback, setFeedback] = useState('');
-  const [filters, setFilters] = useState({ booking_date: '', status: '', customer: '' });
-  const [manualForm, setManualForm] = useState({
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  const [blackouts, setBlackouts] = useState<BlackoutItem[]>([]);
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState<{ tone: 'error' | 'success'; message: string } | null>(null);
+  const [filters, setFilters] = useState({ booking_date: '', status: '', payment_provider: '', customer: '' });
+  const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
     last_name: 'Rossi',
     phone: '3331234567',
@@ -31,34 +56,48 @@ export function AdminDashboardPage() {
     end_at: `${today}T13:30`,
   });
   const [recurringForm, setRecurringForm] = useState({ label: 'Allenamento fisso', weekday: 2, start_date: today, weeks_count: 6, start_time: '20:00', duration_minutes: 90 });
-  const [recurringPreview, setRecurringPreview] = useState<Array<{ booking_date: string; start_time: string; end_time: string; available: boolean; reason?: string | null }>>([]);
+  const [recurringPreview, setRecurringPreview] = useState<RecurringOccurrence[]>([]);
 
   useEffect(() => {
     void bootstrap();
   }, []);
 
   async function bootstrap() {
+    setLoading(true);
     try {
-      await api.get('/admin/auth/me');
-      await Promise.all([loadBookings(), loadReport(), loadEvents()]);
+      await getAdminSession();
+      await Promise.all([loadBookings(), loadReport(), loadEvents(), loadBlackouts(), loadSettings()]);
     } catch {
       navigate('/admin/login');
+      return;
+    } finally {
+      setLoading(false);
     }
   }
 
   async function loadBookings() {
-    const response = await api.get<{ items: BookingSummary[] }>('/admin/bookings', { params: filters });
-    setBookings(response.data.items);
+    const response = await listAdminBookings(filters);
+    setBookings(response.items);
   }
 
   async function loadReport() {
-    const response = await api.get<ReportResponse>('/admin/reports/summary');
-    setReport(response.data);
+    const response = await getAdminReport();
+    setReport(response);
   }
 
   async function loadEvents() {
-    const response = await api.get<Array<{ id: string; event_type: string; actor: string; message: string; created_at: string }>>('/admin/events');
-    setEvents(response.data);
+    const response = await listAdminEvents();
+    setEvents(response);
+  }
+
+  async function loadBlackouts() {
+    const response = await listBlackouts();
+    setBlackouts(response);
+  }
+
+  async function loadSettings() {
+    const response = await getAdminSettings();
+    setSettings(response);
   }
 
   async function applyFilters(event: FormEvent<HTMLFormElement>) {
@@ -68,91 +107,112 @@ export function AdminDashboardPage() {
 
   async function createManualBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFeedback('');
+    setFeedback(null);
     try {
-      await api.post('/admin/bookings', manualForm);
-      setFeedback('Prenotazione manuale creata con successo.');
+      await createAdminBooking(manualForm);
+      setFeedback({ tone: 'success', message: 'Prenotazione manuale creata con successo.' });
       await Promise.all([loadBookings(), loadReport(), loadEvents()]);
     } catch (error: any) {
-      setFeedback(error?.response?.data?.detail || 'Creazione prenotazione non riuscita.');
+      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione prenotazione non riuscita.' });
     }
   }
 
   async function createBlackout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFeedback('');
+    setFeedback(null);
     try {
-      await api.post('/admin/blackouts', blackoutForm);
-      setFeedback('Blackout creato correttamente.');
-      await Promise.all([loadBookings(), loadEvents()]);
+      await createBlackout(blackoutForm);
+      setFeedback({ tone: 'success', message: 'Blackout creato correttamente.' });
+      await Promise.all([loadBookings(), loadEvents(), loadBlackouts()]);
     } catch (error: any) {
-      setFeedback(error?.response?.data?.detail || 'Creazione blackout non riuscita.');
+      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione blackout non riuscita.' });
     }
   }
 
   async function previewRecurring(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
-      const response = await api.post<{ occurrences: Array<{ booking_date: string; start_time: string; end_time: string; available: boolean; reason?: string | null }> }>('/admin/recurring/preview', recurringForm);
-      setRecurringPreview(response.data.occurrences);
+      const response = await previewRecurring(recurringForm);
+      setRecurringPreview(response.occurrences);
     } catch (error: any) {
-      setFeedback(error?.response?.data?.detail || 'Preview ricorrenza non disponibile.');
+      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Preview ricorrenza non disponibile.' });
     }
   }
 
   async function createRecurringSeries() {
-    setFeedback('');
+    setFeedback(null);
     try {
-      const response = await api.post<{ created_count: number; skipped_count: number }>('/admin/recurring', recurringForm);
-      setFeedback(`Serie creata. Occorrenze create: ${response.data.created_count}. Saltate: ${response.data.skipped_count}.`);
+      const response = await createRecurring(recurringForm);
+      setFeedback({ tone: 'success', message: `Serie creata. Occorrenze create: ${response.created_count}. Saltate: ${response.skipped_count}.` });
       await Promise.all([loadBookings(), loadReport(), loadEvents()]);
     } catch (error: any) {
-      setFeedback(error?.response?.data?.detail || 'Creazione serie ricorrente non riuscita.');
+      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione serie ricorrente non riuscita.' });
     }
   }
 
   async function markBookingState(bookingId: string, status: 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
-    await api.post(`/admin/bookings/${bookingId}/status`, { status });
+    await updateAdminBookingStatus(bookingId, { status });
     await Promise.all([loadBookings(), loadReport(), loadEvents()]);
   }
 
   async function markBalancePaid(bookingId: string) {
-    await api.post(`/admin/bookings/${bookingId}/balance-paid`);
+    await markAdminBalancePaid(bookingId);
     await Promise.all([loadBookings(), loadEvents()]);
   }
 
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!settings) return;
+    setFeedback(null);
+    try {
+      const response = await updateAdminSettings({
+        booking_hold_minutes: settings.booking_hold_minutes,
+        cancellation_window_hours: settings.cancellation_window_hours,
+        reminder_window_hours: settings.reminder_window_hours,
+      });
+      setSettings(response);
+      setFeedback({ tone: 'success', message: 'Regole operative aggiornate.' });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Aggiornamento settings non riuscito.' });
+    }
+  }
+
   async function logout() {
-    await api.post('/admin/auth/logout');
+    await logoutAdmin();
     navigate('/admin/login');
   }
 
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
-      <div className='mx-auto max-w-7xl space-y-6'>
+      <div className='page-shell space-y-6'>
         <div className='flex flex-col gap-3 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft sm:flex-row sm:items-center sm:justify-between'>
           <div>
-            <p className='text-sm font-semibold text-cyan-200'>Dashboard admin</p>
+            <AppBrand light />
+            <p className='mt-4 text-sm font-semibold text-cyan-200'>Dashboard admin</p>
             <h1 className='text-3xl font-bold'>Controllo prenotazioni e operatività</h1>
           </div>
           <button onClick={logout} className='btn-secondary'>Esci</button>
         </div>
 
-        {feedback && <div className='rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-800'>{feedback}</div>}
+        {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+
+        {loading ? <LoadingBlock label='Sto sincronizzando dashboard, report e log…' /> : null}
 
         <div className='grid gap-4 md:grid-cols-4'>
           <StatCard title='Prenotazioni totali' value={String(report?.total_bookings ?? 0)} />
           <StatCard title='Confermate' value={String(report?.confirmed_bookings ?? 0)} />
           <StatCard title='In attesa' value={String(report?.pending_bookings ?? 0)} />
-          <StatCard title='Caparre incassate' value={`€${report?.collected_deposits ?? 0}`} />
+          <StatCard title='Caparre incassate' value={formatCurrency(report?.collected_deposits ?? 0)} />
         </div>
 
         <div className='grid gap-6 xl:grid-cols-[1.2fr_0.8fr]'>
           <div className='space-y-6'>
-            <div className='surface-card'>
-              <div className='mb-4 flex items-center justify-between'>
-                <h2 className='section-title'>Prenotazioni</h2>
-                <button className='btn-secondary' onClick={() => void loadBookings()}>Aggiorna</button>
-              </div>
+            <SectionCard
+              title='Prenotazioni'
+              description='Filtra, controlla stato e apri il dettaglio completo di ogni richiesta.'
+              actions={<button className='btn-secondary' onClick={() => void loadBookings()}>Aggiorna</button>}
+              elevated
+            >
 
               <form className='mb-4 grid gap-3 md:grid-cols-4' onSubmit={applyFilters}>
                 <input className='text-input' type='date' value={filters.booking_date} onChange={(e) => setFilters((prev) => ({ ...prev, booking_date: e.target.value }))} />
@@ -165,53 +225,48 @@ export function AdminDashboardPage() {
                   <option value='NO_SHOW'>NO_SHOW</option>
                   <option value='EXPIRED'>EXPIRED</option>
                 </select>
+                <select className='text-input' value={filters.payment_provider} onChange={(e) => setFilters((prev) => ({ ...prev, payment_provider: e.target.value }))}>
+                  <option value=''>Tutti i pagamenti</option>
+                  <option value='STRIPE'>STRIPE</option>
+                  <option value='PAYPAL'>PAYPAL</option>
+                  <option value='NONE'>NONE</option>
+                </select>
                 <input className='text-input' placeholder='Cliente o riferimento' value={filters.customer} onChange={(e) => setFilters((prev) => ({ ...prev, customer: e.target.value }))} />
                 <button className='btn-primary' type='submit'>Filtra</button>
               </form>
 
-              <div className='space-y-3'>
-                {bookings.map((booking) => (
-                  <div key={booking.id} className='rounded-2xl border border-slate-200 p-4'>
-                    <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                      <div>
-                        <div className='flex items-center gap-2'>
-                          <p className='font-semibold text-slate-950'>{booking.public_reference}</p>
-                          <StatusBadge status={booking.status} />
-                        </div>
-                        <p className='mt-1 text-sm text-slate-600'>{booking.customer_name || 'Cliente non associato'} • {booking.customer_phone || '—'}</p>
-                        <p className='text-sm text-slate-600'>{booking.booking_date_local} • {booking.duration_minutes} min • Caparra €{booking.deposit_amount}</p>
-                      </div>
-                      <div className='flex flex-wrap gap-2'>
-                        <button className='btn-secondary' onClick={() => void markBalancePaid(booking.id)}>Saldo al campo</button>
-                        <button className='btn-secondary' onClick={() => void markBookingState(booking.id, 'COMPLETED')}>Completed</button>
-                        <button className='btn-secondary' onClick={() => void markBookingState(booking.id, 'NO_SHOW')}>No-show</button>
-                        <button className='btn-secondary' onClick={() => void markBookingState(booking.id, 'CANCELLED')}>Annulla</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+              {bookings.length === 0 ? (
+                <EmptyState icon={ClipboardList} title='Nessuna prenotazione per questi filtri' description='Allarga i filtri oppure crea una prenotazione manuale dal pannello laterale.' />
+              ) : (
+                <div className='space-y-3'>
+                  {bookings.map((booking) => (
+                    <AdminBookingCard key={booking.id} booking={booking} onMarkBalancePaid={markBalancePaid} onUpdateStatus={markBookingState} />
+                  ))}
+                </div>
+              )}
+            </SectionCard>
 
-            <div className='surface-card'>
-              <h2 className='section-title'>Log essenziali</h2>
-              <div className='mt-4 space-y-2'>
-                {events.map((event) => (
-                  <div key={event.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm'>
-                    <div className='flex items-center justify-between gap-3'>
-                      <span className='font-semibold text-slate-800'>{event.event_type}</span>
-                      <span className='text-xs text-slate-500'>{new Date(event.created_at).toLocaleString('it-IT')}</span>
+            <SectionCard title='Log essenziali' description='Traccia sintetica di booking, pagamenti e operazioni admin.'>
+              {events.length === 0 ? (
+                <EmptyState icon={CalendarClock} title='Nessun evento recente' description='I log business compariranno qui dopo le prime operazioni.' />
+              ) : (
+                <div className='space-y-2'>
+                  {events.map((event) => (
+                    <div key={event.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm'>
+                      <div className='flex items-center justify-between gap-3'>
+                        <span className='font-semibold text-slate-800'>{event.event_type}</span>
+                        <span className='text-xs text-slate-500'>{formatDateTime(event.created_at)}</span>
+                      </div>
+                      <p className='mt-1 text-slate-600'>{event.message}</p>
                     </div>
-                    <p className='mt-1 text-slate-600'>{event.message}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
           </div>
 
           <div className='space-y-6'>
-            <div className='surface-card'>
-              <h2 className='section-title'>Prenotazione manuale</h2>
+            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.'>
               <form className='mt-4 space-y-3' onSubmit={createManualBooking}>
                 <input className='text-input' placeholder='Nome' value={manualForm.first_name} onChange={(e) => setManualForm((prev) => ({ ...prev, first_name: e.target.value }))} />
                 <input className='text-input' placeholder='Cognome' value={manualForm.last_name} onChange={(e) => setManualForm((prev) => ({ ...prev, last_name: e.target.value }))} />
@@ -224,12 +279,12 @@ export function AdminDashboardPage() {
                 <select className='text-input' value={manualForm.duration_minutes} onChange={(e) => setManualForm((prev) => ({ ...prev, duration_minutes: Number(e.target.value) }))}>
                   {[60, 90, 120, 150, 180, 210, 240, 270, 300].map((value) => <option key={value} value={value}>{value} minuti</option>)}
                 </select>
+                <textarea className='text-input min-h-20' placeholder='Nota interna o dettaglio cliente' value={manualForm.note} onChange={(e) => setManualForm((prev) => ({ ...prev, note: e.target.value }))} />
                 <button className='btn-primary w-full' type='submit'>Crea prenotazione</button>
               </form>
-            </div>
+            </SectionCard>
 
-            <div className='surface-card'>
-              <h2 className='section-title'>Blocca fascia oraria</h2>
+            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.'>
               <form className='mt-4 space-y-3' onSubmit={createBlackout}>
                 <input className='text-input' value={blackoutForm.title} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, title: e.target.value }))} />
                 <input className='text-input' value={blackoutForm.reason} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, reason: e.target.value }))} />
@@ -237,10 +292,21 @@ export function AdminDashboardPage() {
                 <input className='text-input' type='datetime-local' value={blackoutForm.end_at} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, end_at: e.target.value }))} />
                 <button className='btn-primary w-full' type='submit'>Crea blackout</button>
               </form>
-            </div>
+              <div className='mt-4 space-y-2'>
+                {blackouts.length === 0 ? (
+                  <EmptyState icon={CalendarClock} title='Nessun blackout attivo' description='Le chiusure compariranno qui appena create.' />
+                ) : (
+                  blackouts.slice(0, 3).map((blackout) => (
+                    <div key={blackout.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700'>
+                      <p className='font-semibold text-slate-900'>{blackout.title}</p>
+                      <p className='mt-1'>{formatDateTime(blackout.start_at)} → {formatDateTime(blackout.end_at)}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </SectionCard>
 
-            <div className='surface-card'>
-              <h2 className='section-title'>Serie ricorrente</h2>
+            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza nello stesso anno solare e controlla subito i conflitti.'>
               <form className='mt-4 space-y-3' onSubmit={previewRecurring}>
                 <input className='text-input' value={recurringForm.label} onChange={(e) => setRecurringForm((prev) => ({ ...prev, label: e.target.value }))} />
                 <div className='grid grid-cols-2 gap-2'>
@@ -277,7 +343,35 @@ export function AdminDashboardPage() {
                   ))}
                 </div>
               )}
-            </div>
+            </SectionCard>
+
+            <SectionCard title='Regole operative' description='Controlla hold pagamento, cancellazione e reminder.'>
+              {!settings ? (
+                <LoadingBlock label='Sto caricando le impostazioni admin…' />
+              ) : (
+                <form className='space-y-3' onSubmit={saveSettings}>
+                  <div className='grid gap-3 sm:grid-cols-3'>
+                    <div>
+                      <label className='field-label'>Hold pagamento</label>
+                      <input className='text-input' type='number' min={5} max={120} value={settings.booking_hold_minutes} onChange={(e) => setSettings((prev) => prev ? { ...prev, booking_hold_minutes: Number(e.target.value) } : prev)} />
+                    </div>
+                    <div>
+                      <label className='field-label'>Finestra cancellazione</label>
+                      <input className='text-input' type='number' min={1} max={168} value={settings.cancellation_window_hours} onChange={(e) => setSettings((prev) => prev ? { ...prev, cancellation_window_hours: Number(e.target.value) } : prev)} />
+                    </div>
+                    <div>
+                      <label className='field-label'>Reminder</label>
+                      <input className='text-input' type='number' min={1} max={168} value={settings.reminder_window_hours} onChange={(e) => setSettings((prev) => prev ? { ...prev, reminder_window_hours: Number(e.target.value) } : prev)} />
+                    </div>
+                  </div>
+                  <div className='surface-muted'>
+                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Provider</p>
+                    <p className='mt-2 text-sm text-slate-700'>Stripe: <strong>{settings.stripe_enabled ? 'configurato' : 'mock/demo'}</strong> • PayPal: <strong>{settings.paypal_enabled ? 'configurato' : 'mock/demo'}</strong></p>
+                  </div>
+                  <button className='btn-primary w-full' type='submit'>Salva regole</button>
+                </form>
+              )}
+            </SectionCard>
           </div>
         </div>
       </div>

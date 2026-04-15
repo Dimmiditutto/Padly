@@ -1,4 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from threading import Barrier
+
+from fastapi.testclient import TestClient
+
+from app.main import app
 
 
 def future_date(days: int = 2) -> str:
@@ -65,3 +71,33 @@ def test_prevent_double_booking_on_same_slot(client):
 
     second = client.post('/api/public/bookings', json={**payload, 'email': 'other@example.com', 'phone': '3330009999'})
     assert second.status_code == 409
+
+
+def test_prevent_concurrent_double_booking_on_same_slot():
+    selected_date = future_date(4)
+    barrier = Barrier(2)
+    payload = {
+        'first_name': 'Marco',
+        'last_name': 'Neri',
+        'note': '',
+        'booking_date': selected_date,
+        'start_time': '19:30',
+        'duration_minutes': 90,
+        'payment_provider': 'STRIPE',
+        'privacy_accepted': True,
+    }
+
+    def submit(email: str, phone: str) -> int:
+        with TestClient(app) as threaded_client:
+            barrier.wait()
+            response = threaded_client.post(
+                '/api/public/bookings',
+                json={**payload, 'email': email, 'phone': phone},
+            )
+            return response.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(submit, 'marco1@example.com', '3331010101')
+        second = executor.submit(submit, 'marco2@example.com', '3332020202')
+
+    assert sorted([first.result(), second.result()]) == [201, 409]

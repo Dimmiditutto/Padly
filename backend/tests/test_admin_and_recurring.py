@@ -47,3 +47,27 @@ def test_admin_manual_booking_and_recurring_preview(client):
     occurrences = preview.json()['occurrences']
     assert len(occurrences) == 4
     assert any(not item['available'] for item in occurrences)
+
+
+def test_admin_settings_update_reflected_in_public_config(client):
+    admin_login(client)
+
+    update = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 30,
+            'cancellation_window_hours': 48,
+            'reminder_window_hours': 12,
+        },
+    )
+    assert update.status_code == 200
+    updated_payload = update.json()
+    assert updated_payload['booking_hold_minutes'] == 30
+    assert updated_payload['cancellation_window_hours'] == 48
+    assert updated_payload['reminder_window_hours'] == 12
+
+    public_config = client.get('/api/public/config')
+    assert public_config.status_code == 200
+    public_payload = public_config.json()
+    assert public_payload['booking_hold_minutes'] == 30
+    assert public_payload['cancellation_window_hours'] == 48

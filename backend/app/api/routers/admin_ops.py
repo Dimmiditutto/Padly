@@ -16,7 +16,7 @@ from app.schemas.admin import (
     RecurringSeriesPreviewRequest,
     ReportResponse,
 )
-from app.services.booking_service import create_blackout, create_recurring_series, preview_recurring_occurrences
+from app.services.booking_service import acquire_single_court_lock, create_blackout, create_recurring_series, preview_recurring_occurrences
 from app.services.report_service import get_dashboard_report
 
 router = APIRouter(prefix='/admin', tags=['Admin Operations'])
@@ -47,8 +47,9 @@ def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_cur
 
 @router.post('/blackouts')
 def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> dict:
-    blackout = create_blackout(db, title=payload.title, reason=payload.reason, start_at=_parse_datetime(payload.start_at), end_at=_parse_datetime(payload.end_at), actor=admin.email)
-    db.commit()
+    with acquire_single_court_lock(db):
+        blackout = create_blackout(db, title=payload.title, reason=payload.reason, start_at=_parse_datetime(payload.start_at), end_at=_parse_datetime(payload.end_at), actor=admin.email)
+        db.commit()
     db.refresh(blackout)
     return {'id': blackout.id, 'message': 'Blackout creato'}
 
@@ -70,17 +71,18 @@ def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depe
 
 @router.post('/recurring', response_model=RecurringCreateResponse)
 def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCreateResponse:
-    series, created, skipped = create_recurring_series(
-        db,
-        label=payload.label,
-        weekday=payload.weekday,
-        start_date=payload.start_date,
-        weeks_count=payload.weeks_count,
-        start_time_value=payload.start_time,
-        duration_minutes=payload.duration_minutes,
-        actor=admin.email,
-    )
-    db.commit()
+    with acquire_single_court_lock(db):
+        series, created, skipped = create_recurring_series(
+            db,
+            label=payload.label,
+            weekday=payload.weekday,
+            start_date=payload.start_date,
+            weeks_count=payload.weeks_count,
+            start_time_value=payload.start_time,
+            duration_minutes=payload.duration_minutes,
+            actor=admin.email,
+        )
+        db.commit()
     return RecurringCreateResponse(series_id=series.id, created_count=len(created), skipped_count=len(skipped), skipped=skipped)
 
 

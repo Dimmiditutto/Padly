@@ -1,9 +1,11 @@
-import { AlertTriangle, CircleX, LoaderCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleX, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../services/api';
+import { AlertBanner } from '../components/AlertBanner';
 import { StatusBadge } from '../components/StatusBadge';
 import type { BookingSummary } from '../types';
+import { getPublicBookingStatus } from '../services/publicApi';
+import { formatCurrency } from '../utils/format';
 
 export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled' | 'error' }) {
   const [searchParams] = useSearchParams();
@@ -17,9 +19,9 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
     let mounted = true;
     const fetchStatus = async () => {
       try {
-        const response = await api.get<{ booking: BookingSummary }>(`/public/bookings/${bookingRef}/status`);
+        const response = await getPublicBookingStatus(bookingRef);
         if (mounted) {
-          setBooking(response.data.booking);
+          setBooking(response.booking);
           setLoading(false);
         }
       } catch {
@@ -47,7 +49,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
         ) : variant === 'success' ? (
           <div className='space-y-4'>
             <div className='mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700'>
-              <AlertTriangle size={26} />
+              <CheckCircle2 size={26} />
             </div>
             <h1 className='text-2xl font-bold text-slate-950'>Pagamento ricevuto</h1>
             <p className='text-sm text-slate-600'>La conferma finale arriva appena il sistema chiude il controllo sullo slot.</p>
@@ -58,9 +60,10 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
                   <StatusBadge status={booking.status} />
                 </div>
                 <p className='mt-2 text-sm text-slate-600'>Durata: {booking.duration_minutes} minuti</p>
-                <p className='text-sm text-slate-600'>Caparra: €{booking.deposit_amount}</p>
+                <p className='text-sm text-slate-600'>Caparra: {formatCurrency(booking.deposit_amount)}</p>
               </div>
             )}
+            <AlertBanner tone='info'>Se hai chiuso la pagina troppo presto, questa schermata si aggiorna da sola finché lo stato prenotazione non si stabilizza.</AlertBanner>
           </div>
         ) : variant === 'cancelled' ? (
           <div className='space-y-4'>

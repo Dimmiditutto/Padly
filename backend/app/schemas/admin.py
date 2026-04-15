@@ -90,3 +90,19 @@ class ReportResponse(BaseModel):
     pending_bookings: int
     cancelled_bookings: int
     collected_deposits: float
+
+
+class AdminSettingsResponse(BaseModel):
+    timezone: str
+    currency: str
+    booking_hold_minutes: int
+    cancellation_window_hours: int
+    reminder_window_hours: int
+    stripe_enabled: bool
+    paypal_enabled: bool
+
+
+class AdminSettingsUpdateRequest(BaseModel):
+    booking_hold_minutes: int = Field(ge=5, le=120)
+    cancellation_window_hours: int = Field(ge=1, le=168)
+    reminder_window_hours: int = Field(ge=1, le=168)

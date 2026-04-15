@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.services.booking_service import expire_pending_bookings, upcoming_reminders
 from app.services.email_service import email_service
+from app.services.settings_service import get_booking_rules
 
 scheduler = AsyncIOScheduler(timezone=settings.timezone)
 
@@ -21,7 +22,8 @@ def expire_pending_job() -> None:
 
 def reminder_job() -> None:
     with SessionLocal() as db:
-        bookings = upcoming_reminders(db)
+        booking_rules = get_booking_rules(db)
+        bookings = upcoming_reminders(db, hours_ahead=booking_rules['reminder_window_hours'])
         for booking in bookings:
             email_service.reminder(db, booking)
             booking.reminder_sent_at = datetime.now(UTC)

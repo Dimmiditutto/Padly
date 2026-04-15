@@ -9,7 +9,7 @@ from app.core.db import get_db
 from app.models import Admin, Booking, BookingStatus
 from app.schemas.admin import AdminBookingCreateRequest, AdminBookingStatusUpdate, BookingListResponse
 from app.schemas.common import BookingSummary, SimpleMessage
-from app.services.booking_service import cancel_booking, create_admin_booking, list_bookings, log_event
+from app.services.booking_service import acquire_single_court_lock, cancel_booking, create_admin_booking, list_bookings, log_event
 
 router = APIRouter(prefix='/admin/bookings', tags=['Admin Bookings'])
 
@@ -38,20 +38,21 @@ def get_booking_detail(booking_id: str, db: Session = Depends(get_db), admin: Ad
 
 @router.post('', response_model=BookingSummary)
 def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingSummary:
-    booking = create_admin_booking(
-        db,
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        phone=payload.phone,
-        email=payload.email,
-        note=payload.note,
-        booking_date=payload.booking_date,
-        start_time_value=payload.start_time,
-        duration_minutes=payload.duration_minutes,
-        payment_provider=payload.payment_provider,
-        actor=admin.email,
-    )
-    db.commit()
+    with acquire_single_court_lock(db):
+        booking = create_admin_booking(
+            db,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            phone=payload.phone,
+            email=payload.email,
+            note=payload.note,
+            booking_date=payload.booking_date,
+            start_time_value=payload.start_time,
+            duration_minutes=payload.duration_minutes,
+            payment_provider=payload.payment_provider,
+            actor=admin.email,
+        )
+        db.commit()
     db.refresh(booking)
     return booking
 

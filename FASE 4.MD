@@ -1,5 +1,3 @@
-# BLOCCO COMUNE DA TENERE IN TESTA A OGNI FASE
-
 Agisci come un Senior Full-Stack Engineer, Software Architect pragmatico, Product Designer mobile-first, Payments Integrator e DevOps Engineer per Railway.
 
 Stai costruendo una web app completa di prenotazione per 1 solo campo da padel, pronta per essere sviluppata in repository e deployata su Railway.
@@ -238,6 +236,153 @@ Esegui una validazione della fase verificando almeno:
 - assenza di blocchi per la fase 5
 
 Chiudi con:
-- `FASE VALIDATA - si può procedere`
+- `FASE VALIDATA - si può procedere` e fermati
 oppure
 - `FASE NON VALIDATA - non procedere alla fase successiva`
+
+---
+
+# OUTPUT FASE 4
+
+## 1. Payment architecture
+
+Layer reale implementato in `backend/app/services/payment_service.py`.
+
+- `PaymentGateway` definisce il contratto dei provider.
+- `StripeGateway` e `PayPalGateway` isolano la logica specifica provider.
+- `PaymentInitResult` uniforma l’output di checkout verso il frontend.
+- Helper centrali:
+  - `_assert_valid_provider`
+  - `_assert_payment_amount`
+  - `_ensure_booking_payment`
+  - `_find_booking_by_payment_reference`
+  - `_confirm_payment`
+  - `mark_checkout_cancelled`
+- La logica business resta concentrata tra `payment_service.py` e `booking_service.py`, evitando side effect sparsi nei router.
+- `booking_payments` è la fonte dati persistente per stato provider, `provider_order_id`, `provider_capture_id`, `checkout_url` e importo/currency.
+- `payment_webhook_events` implementa idempotenza cross-provider via `event_id` univoco.
+
+## 2. Stripe
+
+Implementazione reale completata:
+
+- creazione `checkout.session` server-side
+- `client_reference_id` coerente con `booking.public_reference`
+- `success_url` verso frontend stato pagamento
+- `cancel_url` verso backend `/api/payments/stripe/cancel` per sincronizzare lo stato prima del redirect frontend
+- metadata coerenti con booking reference e provider
+- webhook `POST /api/payments/stripe/webhook`
+- verifica firma Stripe se `STRIPE_WEBHOOK_SECRET` è configurato
+- fallback JSON locale per test/mock senza segreto webhook
+- validazione forte di importo e valuta prima della conferma
+- aggiornamento coerente di `booking` e `booking_payments`
+- protezione da doppia conferma tramite deduplica eventi e controllo booking già confermato
+- gestione esplicita di checkout scaduto/cancellato
+
+## 3. PayPal
+
+Implementazione reale completata:
+
+- create order server-side con `purchase_units`
+- `custom_id` e `invoice_id` coerenti con `booking.public_reference`
+- `return_url` e `cancel_url` reali
+- capture order server-side in `GET /api/payments/paypal/return`
+- salvataggio `provider_order_id` e `provider_capture_id`
+- webhook `POST /api/payments/paypal/webhook`
+- verifica webhook PayPal via API provider se `PAYPAL_WEBHOOK_ID` è configurato
+- deduplica eventi via `payment_webhook_events`
+- risoluzione robusta della prenotazione sia tramite `custom_id`/`invoice_id` sia tramite riferimenti già salvati in `booking_payments`
+- gestione coerente di:
+  - `PAYMENT.CAPTURE.COMPLETED`
+  - `CHECKOUT.ORDER.CANCELLED`
+  - `PAYMENT.CAPTURE.DENIED`
+
+## 4. Booking payment flow
+
+Flusso end-to-end implementato:
+
+- la prenotazione pubblica nasce in stato `PENDING_PAYMENT`
+- il checkout viene avviato tramite `POST /api/public/bookings/{booking_id}/checkout`
+- Stripe e PayPal vengono scelti dall’utente prima della creazione booking
+- pagamento riuscito:
+  - `booking.status = CONFIRMED`
+  - `booking.payment_status = PAID`
+  - `booking_payments.status = PAID`
+- pagamento annullato:
+  - booking resta retryable
+  - `booking.status = PENDING_PAYMENT`
+  - `booking.payment_status = CANCELLED`
+- pagamento incompleto o mancato:
+  - timeout gestito da `expire_pending_bookings`
+  - `booking.status = EXPIRED`
+  - `booking.payment_status = EXPIRED`
+  - slot nuovamente disponibile
+- callback lenta ma valida:
+  - se l’evento provider è avvenuto entro la finestra di hold, la conferma viene accettata anche se il webhook arriva dopo
+- callback tardiva non valida:
+  - se il pagamento risulta davvero successivo alla scadenza, viene ignorato e tracciato a log business
+
+## 5. Sicurezza pagamenti
+
+Misure implementate:
+
+- validazione server-side del provider richiesto
+- validazione importo atteso rispetto alla durata prenotata
+- validazione currency EUR
+- verifica firma webhook Stripe quando disponibile
+- verifica webhook PayPal quando disponibile
+- gestione retry eventi senza doppia conferma
+- anti doppia conferma con controllo su booking già confermato e stato pagamenti già consolidato
+- sincronizzazione esplicita tra `booking` e `booking_payments`
+- audit log business per conferma, annullamento, timeout, pagamento tardivo ignorato
+
+## 6. Frontend integration points
+
+Punti di integrazione già definiti e coerenti con il frontend attuale:
+
+- `frontend/src/pages/PublicBookingPage.tsx`
+  - invia `payment_provider` nella creazione booking
+  - chiama `POST /api/public/bookings/{booking_id}/checkout`
+  - reindirizza a `checkout_url` restituito dal backend
+- `frontend/src/pages/PaymentStatusPage.tsx`
+  - gestisce viste `success`, `cancelled`, `error`
+  - dopo `success` esegue polling su `GET /api/public/bookings/{public_reference}/status`
+  - mostra lo stato finale coerente letto dal backend
+- cancel flow:
+  - provider reindirizza prima al backend cancel endpoint
+  - backend aggiorna lo stato e poi reindirizza il browser alla pagina frontend `booking/cancelled`
+- recupero stato finale:
+  - unica fonte di verità: endpoint pubblico status booking
+
+## Verifica di fine fase
+
+### Controlli eseguiti
+
+- PASS - suite backend eseguita nel virtualenv di progetto: `10 passed, 1 warning`
+- PASS - creazione checkout Stripe verificata nei test di pagamento
+- PASS - create/capture PayPal verificato con callback server-side
+- PASS - gestione webhook Stripe verificata con deduplica evento
+- PASS - gestione webhook PayPal verificata con riconciliazione booking/payment
+- PASS - coerenza booking `CONFIRMED` dopo pagamento riuscito
+- PASS - gestione pagamento annullato via cancel route backend
+- PASS - gestione mancato pagamento e rilascio slot
+- PASS - gestione timeout `PENDING_PAYMENT`
+- PASS - protezione da doppia conferma via webhook Stripe ripetuto
+- PASS - nessun blocco tecnico evidente per la Fase 5
+
+### Criticità rilevate
+
+- confronto datetime naive/aware sul percorso di webhook tardivo in ambiente SQLite di test
+- cancel flow inizialmente troppo frontend-centrico e quindi non sufficiente a sincronizzare subito lo stato server
+- webhook PayPal da rendere più robusto in assenza di `custom_id` sul payload finale
+
+### Correzioni applicate
+
+- aggiunta normalizzazione UTC in `booking_service.py` per confronti consistenti tra timestamp provider e scadenza booking
+- introdotti endpoint backend dedicati per cancel Stripe e PayPal
+- aggiornati i `cancel_url` dei provider verso il backend
+- rafforzata la risoluzione della booking nei webhook PayPal tramite riferimenti pagamento persistiti
+- aggiunti test automatici dedicati in `backend/tests/test_payment_flows.py`
+- allineato il workspace VS Code al virtualenv locale tramite `.vscode/settings.json`
+
+FASE VALIDATA - si può procedere

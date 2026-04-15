@@ -1,10 +1,16 @@
-import { Calendar, Clock3, CreditCard, ShieldCheck } from 'lucide-react';
+import { Calendar, CheckCircle2, Clock3, CreditCard, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
-import { api } from '../services/api';
-import type { AvailabilityResponse, BookingSummary, PaymentProvider, TimeSlot } from '../types';
+import { AlertBanner } from '../components/AlertBanner';
+import { AppBrand } from '../components/AppBrand';
+import { LoadingBlock } from '../components/LoadingBlock';
+import { SectionCard } from '../components/SectionCard';
+import { SlotGrid } from '../components/SlotGrid';
+import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
+import type { BookingSummary, PaymentProvider, PublicConfig, TimeSlot } from '../types';
+import { formatCurrency, toDateInputValue } from '../utils/format';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
-const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const today = toDateInputValue(new Date());
 
 const playerRates = [
   'Tesserati: €7/ora per giocatore',
@@ -14,14 +20,16 @@ const playerRates = [
 ];
 
 export function PublicBookingPage() {
-  const [bookingDate, setBookingDate] = useState(tomorrow);
+  const [bookingDate, setBookingDate] = useState(today);
   const [duration, setDuration] = useState(90);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [depositAmount, setDepositAmount] = useState<number>(20);
+  const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
   const [selectedTime, setSelectedTime] = useState('');
+  const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<string>('');
+  const [feedback, setFeedback] = useState<{ tone: 'error' | 'success' | 'info'; message: string } | null>(null);
   const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>('STRIPE');
   const [lastBooking, setLastBooking] = useState<BookingSummary | null>(null);
   const [formData, setFormData] = useState({
@@ -34,21 +42,35 @@ export function PublicBookingPage() {
   });
 
   useEffect(() => {
+    void loadConfig();
+  }, []);
+
+  useEffect(() => {
     void loadAvailability();
   }, [bookingDate, duration]);
 
+  async function loadConfig() {
+    setLoadingConfig(true);
+    try {
+      const config = await getPublicConfig();
+      setPublicConfig(config);
+    } catch {
+      setFeedback({ tone: 'error', message: 'Non riesco a caricare la configurazione pubblica del booking.' });
+    } finally {
+      setLoadingConfig(false);
+    }
+  }
+
   async function loadAvailability() {
     setLoadingSlots(true);
-    setFeedback('');
+    setFeedback(null);
     setSelectedTime('');
     try {
-      const response = await api.get<AvailabilityResponse>('/public/availability', {
-        params: { date: bookingDate, duration_minutes: duration },
-      });
-      setSlots(response.data.slots);
-      setDepositAmount(Number(response.data.deposit_amount));
+      const response = await getAvailability(bookingDate, duration);
+      setSlots(response.slots);
+      setDepositAmount(Number(response.deposit_amount));
     } catch (error) {
-      setFeedback('Non riesco a caricare gli slot disponibili in questo momento.');
+      setFeedback({ tone: 'error', message: 'Non riesco a caricare gli slot disponibili in questo momento.' });
     } finally {
       setLoadingSlots(false);
     }
@@ -62,15 +84,15 @@ export function PublicBookingPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedTime) {
-      setFeedback('Seleziona prima un orario disponibile.');
+      setFeedback({ tone: 'error', message: 'Seleziona prima un orario disponibile.' });
       return;
     }
 
     setSubmitting(true);
-    setFeedback('');
+    setFeedback(null);
 
     try {
-      const bookingResponse = await api.post<{ booking: BookingSummary }>('/public/bookings', {
+      const bookingResponse = await createPublicBooking({
         ...formData,
         booking_date: bookingDate,
         start_time: selectedTime,
@@ -78,12 +100,12 @@ export function PublicBookingPage() {
         payment_provider: paymentProvider,
       });
 
-      const booking = bookingResponse.data.booking;
+      const booking = bookingResponse.booking;
       setLastBooking(booking);
-      const checkoutResponse = await api.post<{ checkout_url: string }>(`/public/bookings/${booking.id}/checkout`);
-      window.location.assign(checkoutResponse.data.checkout_url);
+      const checkoutResponse = await createPublicCheckout(booking.id);
+      window.location.assign(checkoutResponse.checkout_url);
     } catch (error: any) {
-      setFeedback(error?.response?.data?.detail || 'Non è stato possibile avviare la prenotazione.');
+      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Non è stato possibile avviare la prenotazione.' });
     } finally {
       setSubmitting(false);
     }
@@ -91,10 +113,11 @@ export function PublicBookingPage() {
 
   return (
     <div className='min-h-screen text-slate-900'>
-      <div className='mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8'>
+      <div className='page-shell max-w-6xl'>
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-            <p className='mb-3 inline-flex rounded-full border border-cyan-400/30 px-3 py-1 text-xs font-semibold text-cyan-200'>Padel booking • 1 campo</p>
+            <AppBrand light />
+            <p className='mt-4 inline-flex rounded-full border border-cyan-400/30 px-3 py-1 text-xs font-semibold text-cyan-200'>Padel booking pubblico • mobile first</p>
             <h1 className='text-3xl font-bold tracking-tight sm:text-4xl'>Prenota il tuo match in pochi minuti</h1>
             <p className='mt-3 max-w-xl text-sm text-slate-300 sm:text-base'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo.</p>
             <div className='mt-5 grid gap-3 sm:grid-cols-3'>
@@ -106,8 +129,21 @@ export function PublicBookingPage() {
 
           <div className='surface-card bg-gradient-to-br from-white to-cyan-50'>
             <p className='text-sm font-semibold text-cyan-700'>Caparra online</p>
-            <div className='mt-2 text-4xl font-bold text-slate-950'>€{depositAmount}</div>
+            <div className='mt-2 text-4xl font-bold text-slate-950'>{formatCurrency(depositAmount)}</div>
             <p className='mt-2 text-sm text-slate-600'>Fino a 90 minuti paghi €20. Poi si aggiungono €10 per ogni ulteriore blocco da 30 minuti.</p>
+            {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' /></div> : null}
+            {publicConfig ? (
+              <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                <div className='surface-muted'>
+                  <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
+                  <p className='mt-2 text-sm font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
+                </div>
+                <div className='surface-muted'>
+                  <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
+                  <p className='mt-2 text-sm font-medium text-slate-900'>{publicConfig.cancellation_window_hours} ore prima</p>
+                </div>
+              </div>
+            ) : null}
             <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-sm text-slate-100'>
               <p className='font-semibold'>Tariffe indicative per giocatore</p>
               <ul className='mt-2 space-y-1 text-slate-300'>
@@ -122,15 +158,15 @@ export function PublicBookingPage() {
 
         <main className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
           <section className='space-y-6'>
-            <div className='surface-card'>
+            <SectionCard title='Scegli data e durata' description='Il campo è aperto 24/7. La disponibilità cambia in tempo reale.' elevated>
               <div className='mb-4 flex items-center gap-2'>
                 <Calendar size={18} className='text-cyan-600' />
-                <h2 className='section-title'>Scegli data e durata</h2>
+                <p className='text-sm font-semibold text-slate-700'>Selezione slot</p>
               </div>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <div>
                   <label className='field-label'>Data</label>
-                  <input className='text-input' type='date' value={bookingDate} min={tomorrow} onChange={(e) => setBookingDate(e.target.value)} />
+                  <input className='text-input' type='date' value={bookingDate} min={today} onChange={(e) => setBookingDate(e.target.value)} />
                 </div>
                 <div>
                   <label className='field-label'>Durata</label>
@@ -145,38 +181,32 @@ export function PublicBookingPage() {
               <div className='mt-5'>
                 <div className='mb-3 flex items-center justify-between'>
                   <p className='text-sm font-semibold text-slate-700'>Orari disponibili</p>
-                  {loadingSlots && <p className='text-sm text-slate-500'>Caricamento...</p>}
+                  {loadingSlots && <p className='text-sm text-slate-500'>Aggiornamento in corso…</p>}
                 </div>
-                <div className='grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5'>
-                  {slots.map((slot) => (
-                    <button
-                      key={`${slot.start_time}-${slot.end_time}`}
-                      type='button'
-                      onClick={() => slot.available && setSelectedTime(slot.start_time)}
-                      disabled={!slot.available}
-                      className={`rounded-2xl border px-3 py-3 text-sm font-medium transition ${
-                        selectedTime === slot.start_time
-                          ? 'border-cyan-600 bg-cyan-50 text-cyan-800'
-                          : slot.available
-                            ? 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
-                            : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                      }`}
-                    >
-                      {slot.start_time}
-                    </button>
-                  ))}
-                </div>
+                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={slots} selectedTime={selectedTime} onSelect={setSelectedTime} />}
                 {selectedSlot && (
                   <p className='mt-3 text-sm text-emerald-700'>Hai selezionato {selectedSlot.start_time} → {selectedSlot.end_time}</p>
                 )}
               </div>
-            </div>
+            </SectionCard>
+
+            <SectionCard title='Come funziona' description='Un flusso lineare e leggibile, ottimizzato per smartphone.'>
+              <div className='grid gap-3 sm:grid-cols-3'>
+                <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
+                <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
+                <StepCard index='3' title='Versa la caparra' description='Completa il checkout e ricevi subito la conferma.' />
+              </div>
+            </SectionCard>
           </section>
 
           <section className='space-y-6'>
-            <div className='surface-card'>
-              <h2 className='section-title'>Completa la prenotazione</h2>
-              <p className='mt-1 text-sm text-slate-600'>Inserisci i tuoi dati e scegli come versare la caparra.</p>
+            <SectionCard title='Completa la prenotazione' description='Inserisci i tuoi dati e scegli come versare la caparra.' elevated>
+              {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+              {lastBooking && !feedback ? (
+                <AlertBanner tone='success' title='Richiesta creata'>
+                  Codice {lastBooking.public_reference}. Ti sto reindirizzando al checkout della caparra.
+                </AlertBanner>
+              ) : null}
 
               <form className='mt-5 space-y-4' onSubmit={handleSubmit}>
                 <div className='grid gap-4 sm:grid-cols-2'>
@@ -205,6 +235,7 @@ export function PublicBookingPage() {
 
                 <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                   <p className='text-sm font-semibold text-slate-800'>Metodo pagamento caparra</p>
+                  <p className='mt-1 text-xs text-slate-500'>Stripe e PayPal restano selezionabili anche in ambiente demo, usando il flusso mock del backend.</p>
                   <div className='mt-3 grid gap-2 sm:grid-cols-2'>
                     {(['STRIPE', 'PAYPAL'] as PaymentProvider[]).map((provider) => (
                       <button
@@ -224,8 +255,8 @@ export function PublicBookingPage() {
                   <p className='mt-2'>Data: <strong>{bookingDate}</strong></p>
                   <p>Inizio: <strong>{selectedTime || 'Seleziona uno slot'}</strong></p>
                   <p>Durata: <strong>{duration} minuti</strong></p>
-                  <p>Caparra online: <strong>€{depositAmount}</strong></p>
-                  <p className='mt-2 text-xs text-slate-600'>Il saldo residuo viene pagato direttamente al campo.</p>
+                  <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p>
+                  <p className='mt-2 text-xs text-slate-600'>Il saldo residuo viene pagato direttamente al campo. Nessuna registrazione obbligatoria.</p>
                 </div>
 
                 <label className='flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
@@ -239,19 +270,27 @@ export function PublicBookingPage() {
                   <span>Accetto il trattamento dei dati per la gestione della prenotazione.</span>
                 </label>
 
-                {feedback && <div className='rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700'>{feedback}</div>}
-                {lastBooking && !feedback && (
-                  <div className='rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700'>Richiesta creata con codice {lastBooking.public_reference}. Reindirizzamento al pagamento in corso…</div>
-                )}
-
                 <button className='btn-primary w-full' type='submit' disabled={submitting || loadingSlots}>
                   {submitting ? 'Sto preparando il checkout…' : 'Continua al pagamento della caparra'}
                 </button>
               </form>
-            </div>
+            </SectionCard>
           </section>
         </main>
       </div>
+    </div>
+  );
+}
+
+function StepCard({ index, title, description }: { index: string; title: string; description: string }) {
+  return (
+    <div className='surface-muted'>
+      <div className='inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-sm'>
+        <CheckCircle2 size={18} />
+      </div>
+      <p className='mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Step {index}</p>
+      <h3 className='mt-2 text-base font-semibold text-slate-950'>{title}</h3>
+      <p className='mt-2 text-sm text-slate-600'>{description}</p>
     </div>
   );
 }
