@@ -208,11 +208,21 @@ npm run dev
 - `APP_URL=https://tuo-dominio`
 - `SECRET_KEY=<valore forte>`
 - `DATABASE_URL=<url postgres railway>`
+- `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire i job
 - `ADMIN_EMAIL=<email reale>`
 - `ADMIN_PASSWORD=<password forte>`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`
 - parametri SMTP per email reali
+
+### Strategia job su Railway
+
+- lo scheduler APScheduler gira nel processo web FastAPI gia presente nel repository
+- abilita `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
+- eventuali repliche web o processi aggiuntivi devono avere `SCHEDULER_ENABLED=false`
+- se mantieni una sola istanza backend attiva, lascia `SCHEDULER_ENABLED=true` su quella sola istanza
+- l'healthcheck resta invariato su `/api/health`
+- il lock applicativo e il lock advisory PostgreSQL riducono il rischio di doppia esecuzione anche in caso di overlap breve, ma la configurazione corretta resta avere una sola istanza scheduler attiva
 
 ## Verifica di fine fase
 

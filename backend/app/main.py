@@ -53,10 +53,10 @@ async def lifespan(_: FastAPI):
             except IntegrityError:
                 db.rollback()
 
-    if settings.app_env != 'test':
+    if settings.app_env != 'test' and settings.scheduler_enabled:
         start_scheduler()
     yield
-    if settings.app_env != 'test':
+    if settings.app_env != 'test' and settings.scheduler_enabled:
         stop_scheduler()
 
 

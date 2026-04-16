@@ -6,9 +6,12 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+import app.main as main_module
 from app.main import app
-from app.models import Booking, BookingPayment, EmailNotificationLog, PaymentProvider, PaymentStatus, PaymentWebhookEvent
+from app.core.scheduler import expire_pending_job, reminder_job
+from app.models import Booking, BookingEventLog, BookingPayment, BookingSource, BookingStatus, Customer, EmailNotificationLog, PaymentProvider, PaymentStatus, PaymentWebhookEvent
 from app.services.booking_service import expire_pending_bookings, single_court_mutex
+from app.services.email_service import email_service
 from app.services.payment_service import GATEWAYS, PaymentInitResult
 
 
@@ -84,6 +87,39 @@ def create_booking_without_checkout(
     )
     assert booking_response.status_code == 201
     return selected_date, booking_response.json()['booking']
+
+
+def create_admin_like_booking(*, email: str, phone: str, first_name: str = 'Admin', last_name: str = 'Booking') -> str:
+    with SessionLocal() as db:
+        customer = Customer(
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            email=email,
+            note='Booking admin test',
+        )
+        db.add(customer)
+        db.flush()
+
+        start_at = datetime.now(UTC) + timedelta(hours=6)
+        booking = Booking(
+            public_reference='PB-ADMIN01',
+            customer_id=customer.id,
+            start_at=start_at,
+            end_at=start_at + timedelta(minutes=90),
+            duration_minutes=90,
+            booking_date_local=start_at.date(),
+            status=BookingStatus.CONFIRMED,
+            deposit_amount=0,
+            payment_provider=PaymentProvider.NONE,
+            payment_status=PaymentStatus.UNPAID,
+            note='Prenotazione confermata da admin',
+            created_by='admin@padelbooking.app',
+            source=BookingSource.ADMIN_MANUAL,
+        )
+        db.add(booking)
+        db.commit()
+        return booking.public_reference
 
 
 def test_stripe_webhook_confirms_booking_and_is_idempotent(client):
@@ -555,6 +591,323 @@ def test_runtime_expiry_sends_single_expired_notification(client):
         assert expired == []
         assert stored_booking.status.value == 'EXPIRED'
         assert len(emails) == 1
+
+
+def test_expire_pending_job_updates_booking_and_logs_single_event(client):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='expire-job@example.com',
+        phone='3331110023',
+        start_time='21:45',
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+
+    expire_pending_job()
+    expire_pending_job()
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        emails = db.scalars(
+            select(EmailNotificationLog).where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_expired',
+            )
+        ).all()
+        events = db.scalars(
+            select(BookingEventLog).where(
+                BookingEventLog.booking_id == stored_booking.id,
+                BookingEventLog.event_type == 'BOOKING_EXPIRED',
+            )
+        ).all()
+
+        assert stored_booking.status == BookingStatus.EXPIRED
+        assert stored_booking.payment_status == PaymentStatus.EXPIRED
+        assert len(emails) == 1
+        assert len(events) == 1
+
+
+def test_bootstrap_does_not_start_scheduler_when_disabled(monkeypatch):
+    calls: list[str] = []
+
+    def fake_start() -> None:
+        calls.append('start')
+
+    def fake_stop() -> None:
+        calls.append('stop')
+
+    monkeypatch.setattr(settings, 'app_env', 'development')
+    monkeypatch.setattr(settings, 'scheduler_enabled', False)
+    monkeypatch.setattr(main_module, 'start_scheduler', fake_start)
+    monkeypatch.setattr(main_module, 'stop_scheduler', fake_stop)
+
+    with TestClient(app):
+        pass
+
+    assert calls == []
+
+
+def test_expire_pending_job_waits_for_single_court_lock(client):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='expire-lock@example.com',
+        phone='3331110028',
+        start_time='22:15',
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+
+    done = Event()
+
+    def run_job() -> None:
+        try:
+            expire_pending_job()
+        finally:
+            done.set()
+
+    single_court_mutex.acquire()
+    worker = Thread(target=run_job)
+    try:
+        worker.start()
+        worker.join(timeout=0.2)
+        assert worker.is_alive()
+    finally:
+        single_court_mutex.release()
+
+    worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert done.is_set()
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        assert stored_booking.status == BookingStatus.EXPIRED
+
+
+def test_email_service_fails_explicitly_without_smtp_outside_local_env(client, monkeypatch):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='email-failed@example.com',
+        phone='3331110024',
+        start_time='22:00',
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'staging')
+    monkeypatch.setattr(settings, 'smtp_host', None)
+    monkeypatch.setattr(settings, 'smtp_username', None)
+    monkeypatch.setattr(settings, 'smtp_password', None)
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        status_value = email_service.booking_confirmation(db, stored_booking)
+        db.commit()
+        email_log = db.scalar(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_confirmation',
+            )
+            .order_by(EmailNotificationLog.created_at.desc())
+        )
+
+        assert status_value == 'FAILED'
+        assert email_log is not None
+        assert email_log.status == 'FAILED'
+        assert email_log.error == 'SMTP non configurato'
+        assert email_log.sent_at is None
+
+
+def test_reminder_job_marks_booking_when_delivery_is_recorded(client):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='reminder-sent@example.com',
+        phone='3331110025',
+        start_time='18:15',
+        days=3,
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.status = BookingStatus.CONFIRMED
+        stored_booking.payment_status = PaymentStatus.PAID
+        stored_booking.expires_at = None
+        stored_booking.start_at = datetime.now(UTC) + timedelta(hours=6)
+        stored_booking.end_at = stored_booking.start_at + timedelta(minutes=stored_booking.duration_minutes)
+        stored_booking.booking_date_local = stored_booking.start_at.date()
+        db.commit()
+
+    reminder_job()
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        email_log = db.scalar(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_reminder',
+            )
+            .order_by(EmailNotificationLog.created_at.desc())
+        )
+        events = db.scalars(
+            select(BookingEventLog).where(
+                BookingEventLog.booking_id == stored_booking.id,
+                BookingEventLog.event_type == 'BOOKING_REMINDER_SENT',
+            )
+        ).all()
+
+        assert stored_booking.reminder_sent_at is not None
+        assert email_log is not None
+        assert email_log.status == 'SKIPPED'
+        assert len(events) == 1
+        assert events[0].payload == {'email_status': 'SKIPPED'}
+
+
+def test_reminder_template_keeps_payment_details_for_public_paid_booking(client, monkeypatch):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='reminder-html-public@example.com',
+        phone='3331110029',
+        start_time='18:00',
+        days=3,
+    )
+
+    captured: dict[str, str] = {}
+
+    def fake_send(db, *, booking, to_email, template, subject, html):
+        captured['html'] = html
+        captured['template'] = template
+        return 'SKIPPED'
+
+    monkeypatch.setattr(email_service, 'send', fake_send)
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.status = BookingStatus.CONFIRMED
+        stored_booking.payment_status = PaymentStatus.PAID
+        stored_booking.expires_at = None
+        status_value = email_service.reminder(db, stored_booking)
+
+    assert status_value == 'SKIPPED'
+    assert captured['template'] == 'booking_reminder'
+    assert 'Caparra' in captured['html']
+    assert 'Provider caparra' in captured['html']
+    assert 'Saldo residuo' in captured['html']
+
+
+def test_reminder_template_hides_payment_details_for_admin_booking_without_online_payment(monkeypatch):
+    public_reference = create_admin_like_booking(
+        email='reminder-html-admin@example.com',
+        phone='3331110030',
+    )
+
+    captured: dict[str, str] = {}
+
+    def fake_send(db, *, booking, to_email, template, subject, html):
+        captured['html'] = html
+        captured['template'] = template
+        return 'SKIPPED'
+
+    monkeypatch.setattr(email_service, 'send', fake_send)
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == public_reference))
+        status_value = email_service.reminder(db, stored_booking)
+
+    assert status_value == 'SKIPPED'
+    assert captured['template'] == 'booking_reminder'
+    assert 'Caparra' not in captured['html']
+    assert 'Provider caparra' not in captured['html']
+    assert 'Saldo residuo' not in captured['html']
+    assert 'registrata dal circolo o dal sistema interno' in captured['html']
+
+
+def test_reminder_job_does_not_mark_failed_delivery_as_sent(client, monkeypatch):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='PAYPAL',
+        email='reminder-failed@example.com',
+        phone='3331110026',
+        start_time='18:45',
+        days=3,
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'staging')
+    monkeypatch.setattr(settings, 'smtp_host', None)
+    monkeypatch.setattr(settings, 'smtp_username', None)
+    monkeypatch.setattr(settings, 'smtp_password', None)
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.status = BookingStatus.CONFIRMED
+        stored_booking.payment_status = PaymentStatus.PAID
+        stored_booking.expires_at = None
+        stored_booking.start_at = datetime.now(UTC) + timedelta(hours=5)
+        stored_booking.end_at = stored_booking.start_at + timedelta(minutes=stored_booking.duration_minutes)
+        stored_booking.booking_date_local = stored_booking.start_at.date()
+        db.commit()
+
+    reminder_job()
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        email_log = db.scalar(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_reminder',
+            )
+            .order_by(EmailNotificationLog.created_at.desc())
+        )
+        events = db.scalars(
+            select(BookingEventLog).where(
+                BookingEventLog.booking_id == stored_booking.id,
+                BookingEventLog.event_type == 'BOOKING_REMINDER_SENT',
+            )
+        ).all()
+
+        assert stored_booking.reminder_sent_at is None
+        assert email_log is not None
+        assert email_log.status == 'FAILED'
+        assert email_log.error == 'SMTP non configurato'
+        assert events == []
+
+
+def test_reminder_job_skips_non_confirmed_bookings(client):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='reminder-pending@example.com',
+        phone='3331110027',
+        start_time='19:15',
+        days=3,
+    )
+
+    reminder_job()
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        email_log = db.scalar(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_reminder',
+            )
+            .order_by(EmailNotificationLog.created_at.desc())
+        )
+
+        assert stored_booking.status == BookingStatus.PENDING_PAYMENT
+        assert stored_booking.reminder_sent_at is None
+        assert email_log is None
 
 
 def test_checkout_fails_closed_in_production_without_provider_credentials(client, monkeypatch):

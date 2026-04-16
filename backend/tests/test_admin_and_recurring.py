@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
-from app.models import Booking
+from app.models import Booking, BookingEventLog
 
 
 def future_date(days: int = 5) -> str:
@@ -249,3 +249,60 @@ def test_admin_manual_booking_rejects_legacy_status_field(client):
     payload = response.json()
     assert payload['detail'] == 'Dati richiesta non validi'
     assert payload['errors'][0]['type'] == 'extra_forbidden'
+
+
+def test_recurring_creation_logs_created_and_skipped_occurrences(client):
+    admin_login(client)
+    selected_date = future_date(9)
+    weekday = datetime.fromisoformat(selected_date).weekday()
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Sara',
+            'last_name': 'Blu',
+            'phone': '3334441111',
+            'email': 'sara-recurring@example.com',
+            'note': 'Prenotazione staff',
+            'booking_date': selected_date,
+            'start_time': '20:00',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    recurring = client.post(
+        '/api/admin/recurring',
+        json={
+            'label': 'Corso serale',
+            'weekday': weekday,
+            'start_date': selected_date,
+            'weeks_count': 3,
+            'start_time': '20:00',
+            'duration_minutes': 90,
+        },
+    )
+    assert recurring.status_code == 200
+    payload = recurring.json()
+    assert payload['created_count'] == 2
+    assert payload['skipped_count'] == 1
+    assert payload['skipped'][0]['reason'] == 'Lo slot non è più disponibile'
+
+    with SessionLocal() as db:
+        skipped_logs = db.scalars(
+            select(BookingEventLog).where(BookingEventLog.event_type == 'RECURRING_OCCURRENCE_SKIPPED')
+        ).all()
+        created_logs = db.scalars(
+            select(BookingEventLog).where(BookingEventLog.event_type == 'RECURRING_OCCURRENCE_CREATED')
+        ).all()
+        series_log = db.scalar(
+            select(BookingEventLog).where(BookingEventLog.event_type == 'RECURRING_SERIES_CREATED')
+        )
+
+        assert len(skipped_logs) == 1
+        assert skipped_logs[0].payload['label'] == 'Corso serale'
+        assert skipped_logs[0].payload['reason'] == 'Lo slot non è più disponibile'
+        assert len(created_logs) == 2
+        assert series_log is not None
+        assert series_log.payload == {'created_count': 2, 'skipped_count': 1}

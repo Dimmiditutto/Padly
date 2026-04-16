@@ -552,6 +552,20 @@ def create_recurring_series(db: Session, *, label: str, weekday: int, start_date
         for occurrence in occurrences:
             if not occurrence['available']:
                 skipped.append(occurrence)
+                log_event(
+                    db,
+                    None,
+                    'RECURRING_OCCURRENCE_SKIPPED',
+                    f"Occorrenza ricorrente saltata: {label}",
+                    actor=actor,
+                    payload={
+                        'label': label,
+                        'booking_date': occurrence['booking_date'].isoformat(),
+                        'start_time': occurrence['start_time'],
+                        'end_time': occurrence['end_time'],
+                        'reason': occurrence['reason'],
+                    },
+                )
                 continue
 
             booking_date = occurrence['booking_date']
@@ -572,6 +586,21 @@ def create_recurring_series(db: Session, *, label: str, weekday: int, start_date
                 recurring_series_id=series.id,
             )
             db.add(booking)
+            db.flush()
+            log_event(
+                db,
+                booking,
+                'RECURRING_OCCURRENCE_CREATED',
+                'Occorrenza creata dalla serie ricorrente',
+                actor=actor,
+                payload={
+                    'series_id': series.id,
+                    'label': label,
+                    'booking_date': booking_date.isoformat(),
+                    'start_time': occurrence['start_time'],
+                    'end_time': occurrence['end_time'],
+                },
+            )
             created.append(booking)
 
         log_event(db, None, 'RECURRING_SERIES_CREATED', f'Serie ricorrente creata: {label}', actor=actor, payload={'created_count': len(created), 'skipped_count': len(skipped)})

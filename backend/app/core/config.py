@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     admin_password: str = 'ChangeMe123!'
     database_url: str = 'sqlite:///./padelbooking.db'
     timezone: str = 'Europe/Rome'
+    scheduler_enabled: bool = True
     booking_hold_minutes: int = 15
     cancellation_window_hours: int = 24
     smtp_host: str | None = None
