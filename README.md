@@ -157,30 +157,68 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `POST /api/payments/paypal/webhook`
 - `GET /api/health`
 
-## Avvio locale
+## Environment e URL operative
 
-### 1. Variabili ambiente
+### File `.env`
 
-Copia `.env.example` in `.env` e compila almeno:
+- copia `.env.example` in `.env` nella root del repository
+- il backend legge automaticamente il file `.env` dalla root anche se i comandi vengono lanciati da `backend/`
+- in locale/test puoi lasciare SQLite
+- su Railway devi impostare le stesse variabili come environment variables del servizio
 
-- `DATABASE_URL`
+### Variabili minime in locale/test
+
 - `SECRET_KEY`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
-- credenziali Stripe e/o PayPal se vuoi il flusso reale
+- `DATABASE_URL` opzionale se vuoi tenere il default SQLite
+- credenziali Stripe e/o PayPal solo se vuoi provare i provider reali invece del comportamento mock ammesso in development/test
+- i placeholder presenti in `.env.example` sono ammessi solo come base locale; non sono valori sicuri per produzione
 
-### 2. Backend
+### Variabili minime in produzione/Railway
+
+- `APP_ENV=production`
+- `APP_URL=https://tuo-dominio-pubblico`
+- `SECRET_KEY=<valore forte>`
+- `ADMIN_EMAIL=<email reale>`
+- `ADMIN_PASSWORD=<password forte>`
+- `DATABASE_URL=<connection string PostgreSQL Railway>`
+- `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` se usi Stripe
+- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` se usi PayPal
+- `PAYPAL_BASE_URL=https://api-m.paypal.com` in produzione PayPal
+
+In produzione il bootstrap fallisce esplicitamente se `SECRET_KEY`, `ADMIN_EMAIL` o `ADMIN_PASSWORD` restano mancanti, vuoti o uguali ai placeholder di `.env.example`.
+
+### URL webhook e redirect derivati da `APP_URL`
+
+Con `APP_URL=https://tuo-dominio` il codice usa automaticamente:
+
+- Stripe webhook: `https://tuo-dominio/api/payments/stripe/webhook`
+- Stripe cancel redirect: `https://tuo-dominio/api/payments/stripe/cancel?booking=...`
+- Stripe success redirect: `https://tuo-dominio/booking/success?booking=...`
+- PayPal return: `https://tuo-dominio/api/payments/paypal/return?booking=...`
+- PayPal cancel: `https://tuo-dominio/api/payments/paypal/cancel?booking=...`
+- PayPal webhook: `https://tuo-dominio/api/payments/paypal/webhook`
+
+Quando cambi dominio Railway o colleghi un custom domain, aggiorna `APP_URL` e riallinea anche le configurazioni webhook nei provider.
+
+## Avvio locale
+
+### 1. Backend
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
+cp .env.example .env
 cd backend
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 3. Frontend
+### 2. Frontend
 
 ```bash
 cd frontend
@@ -188,96 +226,118 @@ npm install
 npm run dev
 ```
 
+### 3. Check locale rapido
+
+- API health: `http://127.0.0.1:8000/api/health`
+- SPA servita dal backend: `http://127.0.0.1:8000/`
+- frontend Vite in sviluppo: `http://127.0.0.1:5173/`
+
+## Test e validazione locale
+
+### Backend
+
+```bash
+cd backend
+../.venv/bin/python -m pytest tests -q
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm run build
+npm run test:run
+```
+
+## Docker
+
+Il `Dockerfile` in root:
+
+- esegue build frontend Vite in stage separato
+- copia la build in `frontend_dist`
+- installa dipendenze backend
+- esegue `alembic upgrade head`
+- avvia Uvicorn sulla porta `PORT` fornita da Railway oppure `8000`
+- espone un `HEALTHCHECK` interno verso `GET /api/health`
+
+### Build immagine
+
+```bash
+docker build -t padelbooking:local .
+```
+
+### Smoke test container
+
+```bash
+docker run --rm --env-file .env -e PORT=8000 -p 8000:8000 padelbooking:local
+```
+
+In un secondo terminale:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+curl -I http://127.0.0.1:8000/
+```
+
+Per smoke locali puoi lasciare `DATABASE_URL=sqlite:///./padelbooking.db`. In produzione il container deve usare PostgreSQL Railway.
+
 ## Deploy su Railway
 
 ### Passi concreti
 
-1. crea un nuovo progetto Railway collegato al repository
-2. aggiungi un servizio PostgreSQL Railway
-3. configura le env vars del servizio app usando `.env.example`
-4. imposta `DATABASE_URL` con la connection string Railway PostgreSQL
-5. Railway userà il `Dockerfile` presente in root
-6. al deploy partiranno migrazione Alembic e app FastAPI
-7. verifica `https://tuo-dominio/api/health`
-8. testa il flusso booking e login admin
-9. opzionale: collega un custom domain dal pannello Railway
+1. crea un nuovo progetto Railway collegato a questo repository
+2. aggiungi un servizio PostgreSQL Railway al progetto
+3. crea o usa il servizio applicativo basato sul `Dockerfile` in root
+4. configura nel servizio app le env vars minime partendo da `.env.example`
+5. imposta `DATABASE_URL` con la connection string PostgreSQL fornita da Railway
+6. imposta `APP_ENV=production`
+7. imposta `APP_URL` con il dominio pubblico Railway assegnato al servizio
+8. imposta `SCHEDULER_ENABLED=true` solo sull'istanza che deve eseguire reminder e scadenze
+9. se usi repliche aggiuntive, imposta `SCHEDULER_ENABLED=false` su quelle repliche
+10. configura SMTP reale se vuoi invio email operativo
+11. configura Stripe e/o PayPal se vuoi i provider reali in produzione
+12. avvia il deploy: il container esegue automaticamente `alembic upgrade head` e poi Uvicorn
+13. verifica nei log che migrazioni e bootstrap siano completati senza errori
+14. verifica `GET /api/health`
+15. verifica che `GET /` serva la SPA buildata
+16. verifica login admin e flusso booking base
 
-### Env vars minime produzione
+### Strategia scheduler su Railway
 
-- `APP_ENV=production`
-- `APP_URL=https://tuo-dominio`
-- `SECRET_KEY=<valore forte>`
-- `DATABASE_URL=<url postgres railway>`
-- `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire i job
-- `ADMIN_EMAIL=<email reale>`
-- `ADMIN_PASSWORD=<password forte>`
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`
-- parametri SMTP per email reali
+- lo scheduler APScheduler gira dentro il processo FastAPI gia presente nel servizio web
+- la strategia supportata e pragmatica: una sola istanza con scheduler attivo
+- se usi una sola istanza backend, lascia `SCHEDULER_ENABLED=true`
+- se usi piu repliche web, solo una deve avere `SCHEDULER_ENABLED=true`
+- il lock applicativo e il lock advisory PostgreSQL riducono il rischio di overlap breve, ma non sostituiscono la corretta configurazione di una sola istanza scheduler attiva
+- l'healthcheck Railway resta `GET /api/health`
 
-### Strategia job su Railway
+### Configurazione provider dopo il deploy
 
-- lo scheduler APScheduler gira nel processo web FastAPI gia presente nel repository
-- abilita `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
-- eventuali repliche web o processi aggiuntivi devono avere `SCHEDULER_ENABLED=false`
-- se mantieni una sola istanza backend attiva, lascia `SCHEDULER_ENABLED=true` su quella sola istanza
-- l'healthcheck resta invariato su `/api/health`
-- il lock applicativo e il lock advisory PostgreSQL riducono il rischio di doppia esecuzione anche in caso di overlap breve, ma la configurazione corretta resta avere una sola istanza scheduler attiva
+#### Stripe
 
-## Verifica di fine fase
+- webhook endpoint: `${APP_URL}/api/payments/stripe/webhook`
+- il redirect di successo usa `${APP_URL}/booking/success?booking=...`
+- il redirect di annullamento usa `${APP_URL}/api/payments/stripe/cancel?booking=...`
 
-### Fase 1
-- Controlli eseguiti: coerenza architettura, schema dati, struttura repo
-- Esito: PASS
-- Gate di avanzamento: FASE VALIDATA - si può procedere
+#### PayPal
 
-### Fase 2
-- Controlli eseguiti: test backend, creazione booking, anti-overlap, admin login, ricorrenze
-- Esito: PASS
-- Evidenza: `3 passed` su pytest
-- Gate di avanzamento: FASE VALIDATA - si può procedere
+- in produzione usa `PAYPAL_BASE_URL=https://api-m.paypal.com`
+- return URL: `${APP_URL}/api/payments/paypal/return?booking=...`
+- cancel URL: `${APP_URL}/api/payments/paypal/cancel?booking=...`
+- webhook endpoint: `${APP_URL}/api/payments/paypal/webhook`
 
-### Fase 3
-- Controlli eseguiti: build frontend, type-check TypeScript, integrazione API client
-- Esito: PASS
-- Evidenza: build Vite completata con successo
-- Gate di avanzamento: FASE VALIDATA - si può procedere
+### Custom domain
 
-### Fase 4
-- Controlli eseguiti: avvio checkout Stripe/PayPal, mock fallback locale, webhook handlers idempotenti
-- Esito: PASS
-- Gate di avanzamento: FASE VALIDATA - si può procedere
+Se colleghi un custom domain:
 
-### Fase 5
-- Controlli eseguiti: log business, email log, reminder e scadenze scheduler
-- Esito: PASS
-- Gate di avanzamento: FASE VALIDATA - si può procedere
+1. associa il dominio dal pannello Railway
+2. aggiorna `APP_URL` con il nuovo dominio pubblico
+3. riallinea Stripe e PayPal con i nuovi URL webhook e redirect
+4. riesegui i check su `/api/health`, SPA e login admin
 
-### Fase 6
-- Controlli eseguiti: Dockerfile, env vars, healthcheck, configurazione Railway
-- Esito: PASS strutturale
-- Gate di avanzamento: FASE VALIDATA - si può procedere
+## Limiti noti reali
 
-### Fase 7
-- Controlli eseguiti: smoke test booking pubblico, admin flow, casi limite principali da checklist
-- Esito: PASS su smoke e test automatici presenti
-- Gate di avanzamento: FASE VALIDATA - si può procedere
-
-## Checklist test minima
-
-- [x] booking pubblico 90 minuti
-- [x] conferma caparra e stato `CONFIRMED`
-- [x] prevenzione doppia prenotazione sullo stesso slot
-- [x] login admin e prenotazione manuale
-- [x] preview ricorrenza con conflitti
-- [ ] collegamento provider reali in ambiente di produzione
-- [ ] verifica SMTP reale in ambiente di produzione
-- [ ] smoke test post deploy Railway con dominio finale
-
-## Hardening successivo consigliato
-
-- CSRF token sulle mutate admin se si estende l’area riservata
-- rate limiting distribuito con Redis per traffico elevato
-- invio email tramite provider dedicato come Resend o Postmark
-- logging centralizzato con Sentry o OpenTelemetry
-- refund automatico nei rari casi di pagamento tardivo su slot ormai occupato
+- SQLite resta supportato solo per locale/test; Railway deve usare PostgreSQL
+- in development/test i pagamenti mock possono restare disponibili; in produzione servono provider reali configurati
+- senza SMTP configurato le email vengono segnate come `SKIPPED` in locale/test e come `FAILED` in ambienti operativi
+- lo scheduler in-process e volutamente semplice e richiede disciplina di deploy su Railway per evitare duplicazioni

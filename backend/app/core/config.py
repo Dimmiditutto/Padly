@@ -1,12 +1,27 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import EmailStr
+from pydantic import EmailStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+ROOT_DIR = Path(__file__).resolve().parents[3]
+INSECURE_SECRET_KEYS = {
+    'change-me-super-secret',
+    'replace-with-a-long-random-secret',
+}
+INSECURE_ADMIN_EMAILS = {
+    'admin@padelbooking.app',
+    'replace-with-real-admin@example.com',
+}
+INSECURE_ADMIN_PASSWORDS = {
+    'ChangeMe123!',
+    'replace-with-a-strong-password',
+}
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(env_file=str(ROOT_DIR / '.env'), env_file_encoding='utf-8', extra='ignore')
 
     app_name: str = 'PadelBooking'
     app_env: str = 'development'
@@ -27,12 +42,50 @@ class Settings(BaseSettings):
     smtp_from: str = 'noreply@example.com'
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
-    stripe_publishable_key: str | None = None
     paypal_client_id: str | None = None
     paypal_client_secret: str | None = None
     paypal_base_url: str = 'https://api-m.sandbox.paypal.com'
     paypal_webhook_id: str | None = None
     rate_limit_per_minute: int = 60
+
+    @staticmethod
+    def _is_blank(value: str | None) -> bool:
+        return not value or not str(value).strip()
+
+    @field_validator('app_url')
+    @classmethod
+    def normalize_app_url(cls, value: str) -> str:
+        normalized = value.rstrip('/')
+        return normalized or value
+
+    def insecure_production_settings(self) -> list[str]:
+        if not self.is_production:
+            return []
+
+        issues: list[str] = []
+        secret_key = (self.secret_key or '').strip()
+        admin_email = str(self.admin_email).strip().lower()
+        admin_password = (self.admin_password or '').strip()
+
+        if self._is_blank(secret_key) or secret_key in INSECURE_SECRET_KEYS:
+            issues.append('SECRET_KEY mancante o placeholder')
+        if self._is_blank(admin_email) or admin_email in INSECURE_ADMIN_EMAILS:
+            issues.append('ADMIN_EMAIL mancante o placeholder')
+        if self._is_blank(admin_password) or admin_password in INSECURE_ADMIN_PASSWORDS:
+            issues.append('ADMIN_PASSWORD mancante o placeholder')
+
+        return issues
+
+    def assert_production_runtime_safe(self) -> None:
+        issues = self.insecure_production_settings()
+        if not issues:
+            return
+
+        joined = ', '.join(issues)
+        raise RuntimeError(
+            'Configurazione produzione non sicura: '
+            f'{joined}. Imposta valori reali prima di avviare l\'app.'
+        )
 
     @property
     def is_production(self) -> bool:
@@ -40,9 +93,8 @@ class Settings(BaseSettings):
 
     @property
     def frontend_dist(self) -> Path:
-        root = Path(__file__).resolve().parents[3]
-        docker_path = root / 'frontend_dist'
-        local_path = root / 'frontend' / 'dist'
+        docker_path = ROOT_DIR / 'frontend_dist'
+        local_path = ROOT_DIR / 'frontend' / 'dist'
         return docker_path if docker_path.exists() else local_path
 
 

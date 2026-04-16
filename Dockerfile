@@ -1,7 +1,7 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
@@ -15,4 +15,5 @@ COPY backend ./backend
 COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
 WORKDIR /app/backend
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 CMD sh -c 'curl -fsS "http://127.0.0.1:${PORT:-8000}/api/health" >/dev/null || exit 1'
 CMD ["bash", "-lc", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

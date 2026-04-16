@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from threading import Event, Thread
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -651,6 +652,17 @@ def test_bootstrap_does_not_start_scheduler_when_disabled(monkeypatch):
     assert calls == []
 
 
+def test_production_bootstrap_fails_fast_with_insecure_security_defaults(monkeypatch):
+    monkeypatch.setattr(settings, 'app_env', 'production')
+    monkeypatch.setattr(settings, 'secret_key', 'change-me-super-secret')
+    monkeypatch.setattr(settings, 'admin_email', 'admin@padelbooking.app')
+    monkeypatch.setattr(settings, 'admin_password', 'ChangeMe123!')
+
+    with pytest.raises(RuntimeError, match='Configurazione produzione non sicura'):
+        with TestClient(app):
+            pass
+
+
 def test_expire_pending_job_waits_for_single_court_lock(client):
     _, booking = create_booking_without_checkout(
         client,
@@ -723,6 +735,64 @@ def test_email_service_fails_explicitly_without_smtp_outside_local_env(client, m
         assert email_log.status == 'FAILED'
         assert email_log.error == 'SMTP non configurato'
         assert email_log.sent_at is None
+
+
+def test_public_booking_rejects_semantically_invalid_start_time(client):
+    response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Mario',
+            'last_name': 'Rossi',
+            'phone': '3331110031',
+            'email': 'invalid-time-public@example.com',
+            'note': 'Test orario invalido',
+            'booking_date': future_date(),
+            'start_time': '25:00',
+            'duration_minutes': 90,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload['detail'] == 'Dati richiesta non validi'
+    assert any(error['loc'][-1] == 'start_time' for error in payload['errors'])
+
+
+def test_public_cancellation_logs_single_email_notification(client):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='cancel-email-public@example.com',
+        phone='3331110032',
+        start_time='19:45',
+        days=3,
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        cancel_token = stored_booking.cancel_token
+
+    first = client.post(f'/api/public/bookings/cancel/{cancel_token}')
+    second = client.post(f'/api/public/bookings/cancel/{cancel_token}')
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        email_logs = db.scalars(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_cancelled',
+            )
+            .order_by(EmailNotificationLog.created_at.asc())
+        ).all()
+
+        assert stored_booking.status == BookingStatus.CANCELLED
+        assert len(email_logs) == 1
+        assert email_logs[0].status == 'SKIPPED'
 
 
 def test_reminder_job_marks_booking_when_delivery_is_recorded(client):

@@ -16,6 +16,10 @@ PBKDF2_ROUNDS = 29000
 PBKDF2_SALT_BYTES = 16
 
 
+def ensure_security_configuration_ready() -> None:
+    settings.assert_production_runtime_safe()
+
+
 def _b64encode(value: bytes) -> str:
     return base64.b64encode(value).decode('ascii').rstrip('=')
 
@@ -59,6 +63,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_admin_token(subject: str, expires_hours: int = 12) -> str:
+    ensure_security_configuration_ready()
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
         'sub': subject,
@@ -70,6 +75,7 @@ def create_admin_token(subject: str, expires_hours: int = 12) -> str:
 
 
 def decode_admin_token(token: str) -> dict[str, Any]:
+    ensure_security_configuration_ready()
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
     except jwt.PyJWTError as exc:

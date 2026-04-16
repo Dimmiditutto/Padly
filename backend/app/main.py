@@ -44,6 +44,8 @@ def normalize_rate_limit_path(path: str) -> str:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.assert_production_runtime_safe()
+
     with SessionLocal() as db:
         admin = db.query(Admin).filter(Admin.email == str(settings.admin_email)).first()
         if not admin:

@@ -41,6 +41,7 @@ L’admin deve poter gestire:
 - valuta: EUR
 - deploy su Railway
 - backend: FastAPI + SQLAlchemy + PostgreSQL + Alembic + Pydantic v2
+- in locale/test il repository può continuare a usare SQLite se già presente; non cambiare questa base solo per questa fase
 - frontend: React + TypeScript + Vite + Tailwind CSS
 - niente overengineering
 - niente dipendenze inutili
@@ -154,86 +155,188 @@ Non considerare completata una fase solo perché il codice è stato scritto. Una
 
 Mantieni sempre il focus sull’implementazione reale.
 
-# PROMPT FASE 6 — DOCKER, RAILWAY, README, DEPLOY
+# PROMPT FASE 6 — CONSOLIDAMENTO DEPLOY: DOCKER, RAILWAY, README, HEALTHCHECK
 
 Usa il blocco comune come contesto fisso e considera validate le Fasi 1, 2, 3, 4 e 5.
 
-Ora esegui solo la **Fase 6**.
+Considera inoltre questo stato attuale del repository come vincolo operativo:
+- esistono già `Dockerfile`, `.dockerignore`, `.env.example`, `README.md` e `railway.json` in root
+- il `Dockerfile` fa già build del frontend Vite e copia l’output in `frontend_dist`
+- `backend/app/main.py` serve già la SPA buildata e gestisce fallback su `frontend_dist` o `frontend/dist`
+- esiste già `GET /api/health`
+- `backend/app/core/config.py` espone già le env principali, incluso `SCHEDULER_ENABLED`
+- l’avvio container esegue già migrazioni Alembic e poi Uvicorn
+- il deploy previsto dal repository è un solo servizio applicativo che serve backend API + frontend statico, con PostgreSQL Railway separato
+
+Ora esegui solo la **Fase 6** come fase di consolidamento deploy e documentazione operativa. Non ripartire da zero.
 
 ## Obiettivo della fase
 
-Rendere il progetto realmente deployabile su Railway.
+Portare gli artefatti di deploy già presenti a uno stato realmente coerente, verificato e pronto per Railway.
+
+## Regole specifiche per questa fase
+
+- non rigenerare file già corretti solo per uniformità
+- non introdurre `docker-compose`, `Procfile`, Nginx, supervisor, CI/CD, servizi separati frontend/backend o altre infrastrutture se non esiste un blocker reale
+- mantieni l’architettura corrente: un solo container applicativo che serve API e frontend buildato
+- mantieni SQLite in locale/test se il repository la usa già; PostgreSQL resta il target Railway
+- non aggiungere env vars non consumate dal codice
+- se un’informazione è derivabile da `APP_URL` o dalle route esistenti, documentala nel `README.md` invece di inventare nuove config
+- non spostare endpoint o bootstrap esistenti per ragioni estetiche
+- preferisci patch minime e verificabili
+
+## Perimetro file previsto
+
+Lavora prima sui file già presenti. Modificali solo se emerge un gap reale:
+- `Dockerfile`
+- `.dockerignore`
+- `.env.example`
+- `railway.json`
+- `README.md`
+- `backend/app/main.py`
+- `backend/app/core/config.py`
+- file backend direttamente coinvolti in healthcheck o startup solo se davvero necessario
 
 ## Output richiesto
 
-Fornisci tutto ciò che serve per build, deploy e gestione ambiente:
+Implementa o completa solo i gap reali.
 
 ## 1. Docker e runtime
-Genera:
-- `Dockerfile` reale e funzionante
-- eventuale `.dockerignore`
-- strategia build frontend + backend
-- start command chiaro
-- serving static frontend in produzione
 
-## 2. Environment
-Genera:
-- `.env.example`
-- elenco variabili ambiente con spiegazione sintetica
-- configurazioni per database, auth, Stripe, PayPal, email, app URLs, webhook URLs
+Parti da `Dockerfile` e `.dockerignore` esistenti.
 
-## 3. Migrazioni e startup
-Definisci e implementa:
-- comando migrazioni
-- comando avvio
-- eventuali script helper
-- strategia coerente per avvio su Railway
+Verifica e correggi solo se serve:
+- build multi-stage frontend + backend coerente con la struttura reale del repository
+- copia dell’output frontend in `frontend_dist`
+- start command coerente con il runtime reale: migrazioni Alembic + Uvicorn
+- uso corretto di `PORT` in ambiente Railway
+- dipendenze di sistema davvero necessarie e niente step inutili
+- `.dockerignore` coerente con root repo, build output, cache, virtualenv e database locali
+- nessun secondo runtime dedicato al frontend
 
-## 4. Healthcheck
-Implementa endpoint healthcheck reale e utile.
+Non introdurre script helper separati se il `CMD` attuale basta già.
 
-## 5. README
-Genera un README serio che includa:
+## 2. Serving frontend e bootstrap applicazione
+
+Parti da `backend/app/main.py` e `backend/app/core/config.py`.
+
+Verifica e correggi solo se serve:
+- serving della SPA da `/`
+- fallback corretto per asset statici e route frontend
+- compatibilità tra `frontend_dist` in container e `frontend/dist` in locale
+- coerenza CORS con `APP_URL` e sviluppo locale
+- bootstrap scheduler già esistente senza rompere il deploy Railway
+
+Non creare un frontend service separato se il backend serve già correttamente la build.
+
+## 3. Environment reale
+
+Parti da `.env.example` e dalle settings esistenti.
+
+Allinea e completa solo ciò che il codice usa davvero:
+- app name, env, url e api prefix
+- secret/admin auth
+- database
+- timezone e scheduler
+- SMTP
+- Stripe
+- PayPal
+- rate limit
+
+Richieste:
+- distingui chiaramente variabili minime obbligatorie da variabili opzionali
+- mantieni chiara la differenza tra locale/test e produzione
+- non forzare PostgreSQL in locale se il repository continua a funzionare con SQLite
+- se gli URL webhook sono derivati da `APP_URL` e dalle route esistenti, documentali nel README senza introdurre env dedicate inutili
+
+## 4. Railway config e startup
+
+Parti da `railway.json`, `Dockerfile`, README e startup reale.
+
+Verifica e correggi solo se serve:
+- builder `DOCKERFILE`
+- `healthcheckPath` coerente con `/api/health`
+- restart policy sensata
+- strategia deploy con un solo servizio applicativo + database Railway
+- strategia migrazioni coerente con il comando di start già presente
+- strategia `SCHEDULER_ENABLED` coerente con il deploy reale:
+  - una sola istanza designata con scheduler attivo
+  - eventuali repliche web con `SCHEDULER_ENABLED=false`
+
+Non introdurre worker, cron separati o process types aggiuntivi se il repository non li richiede davvero.
+
+## 5. README operativo
+
+Parti dal `README.md` esistente e portalo a livello operativo senza riscriverlo inutilmente da zero.
+
+Deve includere in modo coerente con i file reali:
 - overview progetto
 - stack
-- avvio locale
+- struttura repository
 - setup env
-- migrazioni
-- run backend/frontend o run unificato
-- test principali
-- deploy Railway
+- avvio locale backend e frontend
+- migrazioni Alembic
+- test backend e frontend
+- build Docker
+- smoke test container
+- deploy Railway passo-passo
+- healthcheck
+- strategia scheduler su Railway
+- note pratiche su Stripe, PayPal, SMTP e URL webhook reali
+- eventuali limiti noti reali, senza teoria inutile
 
-## 6. Guida deploy Railway passo passo
-Scrivi guida concreta, sequenziale e precisa per:
-- creazione progetto Railway
-- collegamento repo
-- aggiunta PostgreSQL
-- set env vars
-- build
-- deploy
-- migrazioni
-- verifica healthcheck
-- verifica frontend
-- verifica pagamenti
-- eventuale dominio/custom domain
+## 6. Guida deploy Railway concreta
+
+Scrivi o completa una guida sequenziale e precisa che copra almeno:
+1. creazione progetto Railway
+2. collegamento repository
+3. aggiunta PostgreSQL Railway
+4. configurazione env vars minime
+5. build Docker
+6. primo deploy
+7. esecuzione migrazioni tramite start command già previsto
+8. verifica `GET /api/health`
+9. verifica SPA servita dal backend
+10. verifica login admin
+11. verifica pagamenti Stripe e PayPal con URL reali coerenti al dominio Railway
+12. eventuale custom domain
+
+La guida deve essere coerente con un solo servizio applicativo che serve frontend + API.
+
+## 7. Validazione obbligatoria
+
+Esegui una validazione reale della fase. Copri almeno:
+- test backend
+- build frontend
+- test frontend
+- `docker build`
+- smoke test del container
+- coerenza env vars/settings
+- coerenza `railway.json`
+- coerenza `README.md`
+- assenza di blocchi per la fase 7
+
+Se un controllo non è eseguibile nel contesto corrente, dichiaralo esplicitamente e usa il controllo equivalente più vicino. Non segnare PASS senza evidenza.
 
 ## Requisiti di qualità
-- niente deploy “teorico”
+
+- niente deploy teorico o scollegato dal repository reale
+- niente env inventate
 - niente file Docker incompleti
-- niente env vaghe
-- tutto coerente con repo reale
+- niente refactor ampio fuori perimetro
+- niente documentazione che contraddice il runtime effettivo
+- patch minime, concrete e verificabili
 
 ## Verifica di fine fase
-Esegui una validazione della fase verificando almeno:
-- build completa
-- Docker build
-- avvio container
-- variabili ambiente coerenti
-- connessione database
-- migrazioni
-- healthcheck
-- coerenza deploy Railway
-- assenza di blocchi per la fase 7
+
+Esegui e riporta almeno:
+- controlli eseguiti
+- esito PASS / FAIL / NOT APPLICABLE
+- criticità rilevate
+- correzioni applicate
+- gate finale:
+  - `FASE VALIDATA - si può procedere`
+  - `FASE NON VALIDATA - non procedere alla fase successiva`
 
 Chiudi con:
 - `FASE VALIDATA - si può procedere` e fermati

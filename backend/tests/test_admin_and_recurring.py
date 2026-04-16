@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
-from app.models import Booking, BookingEventLog
+from app.models import Booking, BookingEventLog, EmailNotificationLog
 
 
 def future_date(days: int = 5) -> str:
@@ -135,6 +135,57 @@ def test_admin_blackout_rejects_invalid_datetime(client):
 
     assert response.status_code == 422
     assert response.json()['detail'] == 'Data/ora non valida'
+
+
+def test_admin_manual_booking_rejects_semantically_invalid_start_time(client):
+    admin_login(client)
+
+    response = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Gianni',
+            'last_name': 'Rosa',
+            'phone': '3331212122',
+            'email': 'invalid-time-admin@example.com',
+            'note': 'Prenotazione staff',
+            'booking_date': future_date(8),
+            'start_time': '25:00',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload['detail'] == 'Dati richiesta non validi'
+    assert any(error['loc'][-1] == 'start_time' for error in payload['errors'])
+
+
+def test_recurring_routes_handle_past_dates_without_500(client):
+    admin_login(client)
+    past_date = (date.today() - timedelta(days=14)).isoformat()
+    payload = {
+        'label': 'Corso scaduto',
+        'weekday': date.today().weekday(),
+        'start_date': past_date,
+        'weeks_count': 2,
+        'start_time': '18:00',
+        'duration_minutes': 90,
+    }
+
+    preview = client.post('/api/admin/recurring/preview', json=payload)
+    assert preview.status_code == 200
+    preview_payload = preview.json()
+    assert len(preview_payload['occurrences']) == 2
+    assert all(not item['available'] for item in preview_payload['occurrences'])
+    assert all(item['reason'] == 'Puoi prenotare solo slot futuri' for item in preview_payload['occurrences'])
+
+    creation = client.post('/api/admin/recurring', json=payload)
+    assert creation.status_code == 200
+    creation_payload = creation.json()
+    assert creation_payload['created_count'] == 0
+    assert creation_payload['skipped_count'] == 2
+    assert all(item['reason'] == 'Puoi prenotare solo slot futuri' for item in creation_payload['skipped'])
 
 
 def test_admin_status_transitions_are_guarded_for_pending_and_cancelled_bookings(client):
@@ -306,3 +357,44 @@ def test_recurring_creation_logs_created_and_skipped_occurrences(client):
         assert len(created_logs) == 2
         assert series_log is not None
         assert series_log.payload == {'created_count': 2, 'skipped_count': 1}
+
+
+def test_admin_cancellation_logs_single_email_notification(client):
+    admin_login(client)
+    selected_date = future_date(10)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Elena',
+            'last_name': 'Verdi',
+            'phone': '3335551112',
+            'email': 'cancel-email-admin@example.com',
+            'note': 'Prenotazione admin per test email',
+            'booking_date': selected_date,
+            'start_time': '20:30',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    first = client.post(f"/api/admin/bookings/{manual.json()['id']}/cancel")
+    second = client.post(f"/api/admin/bookings/{manual.json()['id']}/cancel")
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    with SessionLocal() as db:
+        booking = db.scalar(select(Booking).where(Booking.id == manual.json()['id']))
+        email_logs = db.scalars(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.booking_id == booking.id,
+                EmailNotificationLog.template == 'booking_cancelled',
+            )
+            .order_by(EmailNotificationLog.created_at.asc())
+        ).all()
+
+        assert booking.status.value == 'CANCELLED'
+        assert len(email_logs) == 1
+        assert email_logs[0].status == 'SKIPPED'

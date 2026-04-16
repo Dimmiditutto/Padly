@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from fastapi.encoders import jsonable_encoder
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -16,7 +17,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=422,
             content={
                 'detail': 'Dati richiesta non validi',
-                'errors': exc.errors(),
+                'errors': jsonable_encoder(exc.errors()),
             },
         )
 

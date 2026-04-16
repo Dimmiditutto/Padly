@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models import PaymentProvider
 from app.schemas.common import BookingCustomerData, BookingSummary
-from app.schemas.public import VALID_DURATIONS
+from app.schemas.public import VALID_DURATIONS, validate_hhmm_time
 
 
 class AdminLoginRequest(BaseModel):
@@ -33,6 +33,11 @@ class AdminBookingCreateRequest(BookingCustomerData):
             raise ValueError('Durata non valida')
         return value
 
+    @field_validator('start_time')
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return validate_hhmm_time(value)
+
 
 class AdminBookingStatusUpdate(BaseModel):
     status: Literal['CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']
@@ -59,6 +64,11 @@ class RecurringSeriesPreviewRequest(BaseModel):
         if value not in VALID_DURATIONS:
             raise ValueError('Durata non valida')
         return value
+
+    @field_validator('start_time')
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return validate_hhmm_time(value)
 
 
 class RecurringOccurrence(BaseModel):

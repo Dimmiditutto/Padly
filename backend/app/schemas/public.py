@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -6,6 +6,14 @@ from app.models import BookingStatus, PaymentProvider, PaymentStatus
 from app.schemas.common import BookingCustomerData, TimeSlot
 
 VALID_DURATIONS = {60, 90, 120, 150, 180, 210, 240, 270, 300}
+
+
+def validate_hhmm_time(value: str) -> str:
+    try:
+        parsed = time.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError('Orario non valido') from exc
+    return parsed.strftime('%H:%M')
 
 
 class AvailabilityResponse(BaseModel):
@@ -28,6 +36,11 @@ class PublicBookingCreateRequest(BookingCustomerData):
         if value not in VALID_DURATIONS:
             raise ValueError('Durata non valida')
         return value
+
+    @field_validator('start_time')
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return validate_hhmm_time(value)
 
     @field_validator('payment_provider')
     @classmethod

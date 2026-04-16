@@ -80,11 +80,18 @@ def make_cancel_token() -> str:
     return secrets.token_urlsafe(24)
 
 
+def parse_slot_time_value(start_time_value: str) -> time:
+    try:
+        return time.fromisoformat(start_time_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Orario non valido') from exc
+
+
 def parse_slot(booking_date: date, start_time_value: str, duration_minutes: int) -> tuple[datetime, datetime, datetime]:
     if duration_minutes not in VALID_DURATIONS:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Durata non valida')
 
-    parsed_time = time.fromisoformat(start_time_value)
+    parsed_time = parse_slot_time_value(start_time_value)
     local_start = datetime.combine(booking_date, parsed_time, tzinfo=ROME_TZ)
     start_at = local_start.astimezone(UTC)
     end_at = start_at + timedelta(minutes=duration_minutes)
@@ -293,6 +300,7 @@ def cancel_booking(db: Session, booking: Booking, *, actor: str, reason: str = '
             payment.status = PaymentStatus.CANCELLED
     booking.cancelled_at = datetime.now(UTC)
     log_event(db, booking, 'BOOKING_CANCELLED', reason, actor=actor)
+    email_service.booking_cancelled(db, booking)
     return booking
 
 
@@ -498,10 +506,13 @@ def _recurring_dates(start_date: date, weekday: int, weeks_count: int) -> list[d
 
 def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, start_date: date, weeks_count: int, start_time_value: str, duration_minutes: int) -> list[dict]:
     dates = _recurring_dates(start_date, weekday, weeks_count)
+    parsed_time = parse_slot_time_value(start_time_value)
     occurrences: list[dict] = []
     for occurrence_date in dates:
+        local_start = datetime.combine(occurrence_date, parsed_time, tzinfo=ROME_TZ)
+        local_end = local_start + timedelta(minutes=duration_minutes)
         try:
-            local_start, start_at, end_at = parse_slot(occurrence_date, start_time_value, duration_minutes)
+            _, start_at, end_at = parse_slot(occurrence_date, start_time_value, duration_minutes)
             assert_slot_available(db, start_at=start_at, end_at=end_at)
             available = True
             reason = None
@@ -512,7 +523,7 @@ def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, star
             {
                 'booking_date': occurrence_date,
                 'start_time': local_start.strftime('%H:%M'),
-                'end_time': (local_start + timedelta(minutes=duration_minutes)).strftime('%H:%M'),
+                'end_time': local_end.strftime('%H:%M'),
                 'available': available,
                 'reason': reason,
             }
