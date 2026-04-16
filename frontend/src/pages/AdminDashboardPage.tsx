@@ -396,7 +396,7 @@ export function AdminDashboardPage() {
                 <div className='mt-4 space-y-2'>
                   {recurringPreview.map((item) => (
                     <div key={`${item.booking_date}-${item.start_time}`} className={`rounded-2xl px-4 py-3 text-sm ${item.available ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                      {item.booking_date} • {item.start_time} → {item.end_time} • {item.available ? 'ok' : item.reason}
+                      {item.booking_date} • {item.display_start_time} → {item.display_end_time} • {item.available ? 'ok' : item.reason}
                     </div>
                   ))}
                 </div>

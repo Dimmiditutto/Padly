@@ -249,6 +249,8 @@ npm run build
 npm run test:run
 ```
 
+Checklist finale di rilascio: vedi `RELEASE_CHECKLIST.md` in root.
+
 ## Docker
 
 Il `Dockerfile` in root:

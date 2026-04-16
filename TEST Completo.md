@@ -169,3 +169,6 @@ Fai prima una **verifica tecnica rigorosa** e poi scrivi un **prompt operativo r
 
 
 Scrivi il prompt specificando nel dettaglio quali sono le modifiche/integrazioni in modo che l'agente sappia già cosa fare
+
+Agisci come un Senior Full-Stack Engineer, Software Architect pragmatico, Product Designer mobile-first, Payments Integrator e DevOps Engineer per Railway.
+

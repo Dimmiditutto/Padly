@@ -35,12 +35,12 @@ export function AdminLoginPage() {
 
         <form className='mt-6 space-y-4' onSubmit={handleSubmit}>
           <div>
-            <label className='field-label'>Email</label>
-            <input className='text-input' type='email' value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className='field-label' htmlFor='admin-email'>Email</label>
+            <input id='admin-email' className='text-input' type='email' value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
           <div>
-            <label className='field-label'>Password</label>
-            <input className='text-input' type='password' value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <label className='field-label' htmlFor='admin-password'>Password</label>
+            <input id='admin-password' className='text-input' type='password' value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
 
           {error ? <AlertBanner tone='error'>{error}</AlertBanner> : null}

@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from threading import Barrier
 
 from fastapi.testclient import TestClient
@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.main import app, request_log
 from app.models import Booking
+from app.services.booking_service import resolve_local_slot_start
 
 
 def future_date(days: int = 2) -> str:
@@ -236,3 +237,80 @@ def test_public_status_rate_limit_is_normalized_across_references(client, monkey
     assert first_status.status_code == 200
     assert second_status.status_code == 429
     request_log.clear()
+
+
+def test_dst_gap_slots_are_not_bookable_and_keep_local_end_time_coherent(client):
+    selected_date = '2027-03-28'
+
+    availability = client.get('/api/public/availability', params={'date': selected_date, 'duration_minutes': 60})
+    assert availability.status_code == 200
+
+    slots = {slot['start_time']: slot for slot in availability.json()['slots']}
+    assert len(availability.json()['slots']) == 46
+    assert slots['01:30']['available'] is True
+    assert slots['01:30']['end_time'] == '03:30'
+    assert slots['01:30']['display_end_time'] == '03:30'
+    assert '02:00' not in slots
+    assert '02:30' not in slots
+
+    booking_response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Ora',
+            'last_name': 'Legale',
+            'phone': '3337771212',
+            'email': 'dst-gap@example.com',
+            'note': 'Cambio ora',
+            'booking_date': selected_date,
+            'start_time': '02:00',
+            'duration_minutes': 60,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+    assert booking_response.status_code == 422
+    assert booking_response.json()['detail'] == 'Orario non valido per il cambio ora legale'
+
+
+def test_resolve_local_slot_start_switches_offset_after_dst_fallback():
+    before_fallback = resolve_local_slot_start(date(2026, 10, 25), time.fromisoformat('02:30'))
+    after_fallback = resolve_local_slot_start(date(2026, 10, 25), time.fromisoformat('03:00'))
+
+    assert before_fallback.utcoffset() == timedelta(hours=2)
+    assert after_fallback.utcoffset() == timedelta(hours=1)
+
+
+def test_dst_fallback_slots_are_distinct_and_allow_selecting_second_occurrence(client):
+    selected_date = '2026-10-25'
+
+    availability = client.get('/api/public/availability', params={'date': selected_date, 'duration_minutes': 60})
+    assert availability.status_code == 200
+    slots = availability.json()['slots']
+    assert len(slots) == 50
+
+    fallback_slots = [slot for slot in slots if slot['start_time'] == '02:00']
+    assert len(fallback_slots) == 2
+    assert {slot['display_start_time'] for slot in fallback_slots} == {'02:00 CEST', '02:00 CET'}
+    assert {slot['display_end_time'] for slot in fallback_slots} == {'02:00 CET', '03:00'}
+    assert len({slot['slot_id'] for slot in fallback_slots}) == 2
+
+    second_occurrence = next(slot for slot in fallback_slots if slot['display_start_time'] == '02:00 CET')
+    booking_response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Ora',
+            'last_name': 'Solare',
+            'phone': '3338881212',
+            'email': 'dst-fallback@example.com',
+            'note': 'Seconda occorrenza',
+            'booking_date': selected_date,
+            'start_time': '02:00',
+            'slot_id': second_occurrence['slot_id'],
+            'duration_minutes': 60,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+    assert booking_response.status_code == 201
+    booking = booking_response.json()['booking']
+    assert booking['start_at'].startswith('2026-10-25T01:00:00')

@@ -26,6 +26,7 @@ class AvailabilityResponse(BaseModel):
 class PublicBookingCreateRequest(BookingCustomerData):
     booking_date: date
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
+    slot_id: str | None = None
     duration_minutes: int
     payment_provider: PaymentProvider
     privacy_accepted: bool

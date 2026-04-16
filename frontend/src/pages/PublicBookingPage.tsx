@@ -25,7 +25,7 @@ export function PublicBookingPage() {
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [depositAmount, setDepositAmount] = useState<number>(20);
   const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
-  const [selectedTime, setSelectedTime] = useState('');
+  const [selectedSlotId, setSelectedSlotId] = useState('');
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -86,7 +86,7 @@ export function PublicBookingPage() {
   async function loadAvailability() {
     setLoadingSlots(true);
     setFeedback(null);
-    setSelectedTime('');
+    setSelectedSlotId('');
     try {
       const response = await getAvailability(bookingDate, duration);
       setSlots(response.slots);
@@ -99,14 +99,19 @@ export function PublicBookingPage() {
   }
 
   const selectedSlot = useMemo(
-    () => slots.find((slot) => slot.start_time === selectedTime),
-    [selectedTime, slots]
+    () => slots.find((slot) => slot.slot_id === selectedSlotId),
+    [selectedSlotId, slots]
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedTime) {
+    if (!selectedSlot) {
       setFeedback({ tone: 'error', message: 'Seleziona prima un orario disponibile.' });
+      return;
+    }
+
+    if (availableProviders.length === 0 || paymentProvider === 'NONE') {
+      setFeedback({ tone: 'error', message: 'Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.' });
       return;
     }
 
@@ -117,7 +122,8 @@ export function PublicBookingPage() {
       const bookingResponse = await createPublicBooking({
         ...formData,
         booking_date: bookingDate,
-        start_time: selectedTime,
+        start_time: selectedSlot.start_time,
+        slot_id: selectedSlot.slot_id,
         duration_minutes: duration,
         payment_provider: paymentProvider,
       });
@@ -187,12 +193,12 @@ export function PublicBookingPage() {
               </div>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <div>
-                  <label className='field-label'>Data</label>
-                  <input className='text-input' type='date' value={bookingDate} min={today} onChange={(e) => setBookingDate(e.target.value)} />
+                  <label className='field-label' htmlFor='booking-date'>Data</label>
+                  <input id='booking-date' className='text-input' type='date' value={bookingDate} min={today} onChange={(e) => setBookingDate(e.target.value)} />
                 </div>
                 <div>
-                  <label className='field-label'>Durata</label>
-                  <select className='text-input' value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
+                  <label className='field-label' htmlFor='booking-duration'>Durata</label>
+                  <select id='booking-duration' className='text-input' value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
                     {DURATIONS.map((minutes) => (
                       <option key={minutes} value={minutes}>{minutes} minuti</option>
                     ))}
@@ -205,9 +211,9 @@ export function PublicBookingPage() {
                   <p className='text-sm font-semibold text-slate-700'>Orari disponibili</p>
                   {loadingSlots && <p className='text-sm text-slate-500'>Aggiornamento in corso…</p>}
                 </div>
-                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={slots} selectedTime={selectedTime} onSelect={setSelectedTime} />}
+                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={slots} selectedSlotId={selectedSlotId} onSelect={setSelectedSlotId} />}
                 {selectedSlot && (
-                  <p className='mt-3 text-sm text-emerald-700'>Hai selezionato {selectedSlot.start_time} → {selectedSlot.end_time}</p>
+                  <p className='mt-3 text-sm text-emerald-700'>Hai selezionato {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
                 )}
               </div>
             </SectionCard>
@@ -233,26 +239,26 @@ export function PublicBookingPage() {
               <form className='mt-5 space-y-4' onSubmit={handleSubmit}>
                 <div className='grid gap-4 sm:grid-cols-2'>
                   <div>
-                    <label className='field-label'>Nome</label>
-                    <input className='text-input' value={formData.first_name} onChange={(e) => setFormData((prev) => ({ ...prev, first_name: e.target.value }))} required />
+                    <label className='field-label' htmlFor='public-first-name'>Nome</label>
+                    <input id='public-first-name' className='text-input' value={formData.first_name} onChange={(e) => setFormData((prev) => ({ ...prev, first_name: e.target.value }))} required />
                   </div>
                   <div>
-                    <label className='field-label'>Cognome</label>
-                    <input className='text-input' value={formData.last_name} onChange={(e) => setFormData((prev) => ({ ...prev, last_name: e.target.value }))} required />
+                    <label className='field-label' htmlFor='public-last-name'>Cognome</label>
+                    <input id='public-last-name' className='text-input' value={formData.last_name} onChange={(e) => setFormData((prev) => ({ ...prev, last_name: e.target.value }))} required />
                   </div>
                   <div>
-                    <label className='field-label'>Telefono</label>
-                    <input className='text-input' value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} required />
+                    <label className='field-label' htmlFor='public-phone'>Telefono</label>
+                    <input id='public-phone' className='text-input' value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} required />
                   </div>
                   <div>
-                    <label className='field-label'>Email</label>
-                    <input className='text-input' type='email' value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} required />
+                    <label className='field-label' htmlFor='public-email'>Email</label>
+                    <input id='public-email' className='text-input' type='email' value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} required />
                   </div>
                 </div>
 
                 <div>
-                  <label className='field-label'>Nota facoltativa</label>
-                  <textarea className='text-input min-h-24' value={formData.note} onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))} />
+                  <label className='field-label' htmlFor='public-note'>Nota facoltativa</label>
+                  <textarea id='public-note' className='text-input min-h-24' value={formData.note} onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))} />
                 </div>
 
                 <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
@@ -280,7 +286,7 @@ export function PublicBookingPage() {
                 <div className='rounded-2xl bg-cyan-50 p-4 text-sm text-slate-700'>
                   <p className='font-semibold text-slate-900'>Riepilogo</p>
                   <p className='mt-2'>Data: <strong>{bookingDate}</strong></p>
-                  <p>Inizio: <strong>{selectedTime || 'Seleziona uno slot'}</strong></p>
+                  <p>Inizio: <strong>{selectedSlot?.display_start_time || 'Seleziona uno slot'}</strong></p>
                   <p>Durata: <strong>{duration} minuti</strong></p>
                   <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p>
                   <p className='mt-2 text-xs text-slate-600'>Il saldo residuo viene pagato direttamente al campo. Nessuna registrazione obbligatoria.</p>

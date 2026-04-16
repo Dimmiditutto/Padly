@@ -7,8 +7,11 @@ export interface ApiMessage {
 }
 
 export interface TimeSlot {
+  slot_id: string;
   start_time: string;
   end_time: string;
+  display_start_time: string;
+  display_end_time: string;
   available: boolean;
   reason?: string | null;
 }
@@ -85,6 +88,7 @@ export interface PublicBookingPayload {
   note: string;
   booking_date: string;
   start_time: string;
+  slot_id?: string | null;
   duration_minutes: number;
   payment_provider: PaymentProvider;
   privacy_accepted: boolean;
@@ -172,6 +176,8 @@ export interface RecurringOccurrence {
   booking_date: string;
   start_time: string;
   end_time: string;
+  display_start_time: string;
+  display_end_time: string;
   available: boolean;
   reason?: string | null;
 }

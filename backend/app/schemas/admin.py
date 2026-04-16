@@ -75,6 +75,8 @@ class RecurringOccurrence(BaseModel):
     booking_date: date
     start_time: str
     end_time: str
+    display_start_time: str
+    display_end_time: str
     available: bool
     reason: str | None = None
 

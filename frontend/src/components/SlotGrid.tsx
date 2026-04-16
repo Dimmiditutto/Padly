@@ -4,12 +4,12 @@ import { Clock3 } from 'lucide-react';
 
 export function SlotGrid({
   slots,
-  selectedTime,
+  selectedSlotId,
   onSelect,
 }: {
   slots: TimeSlot[];
-  selectedTime: string;
-  onSelect: (time: string) => void;
+  selectedSlotId: string;
+  onSelect: (slotId: string) => void;
 }) {
   const visibleSlots = slots.filter((slot) => slot.available);
 
@@ -22,19 +22,19 @@ export function SlotGrid({
       <div className='grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5'>
         {slots.map((slot) => (
           <button
-            key={`${slot.start_time}-${slot.end_time}`}
+            key={slot.slot_id}
             type='button'
-            onClick={() => slot.available && onSelect(slot.start_time)}
+            onClick={() => slot.available && onSelect(slot.slot_id)}
             disabled={!slot.available}
             className={`rounded-2xl border px-3 py-3 text-sm font-medium transition ${
-              selectedTime === slot.start_time
+              selectedSlotId === slot.slot_id
                 ? 'border-cyan-600 bg-cyan-50 text-cyan-800'
                 : slot.available
                   ? 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
                   : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
             }`}
           >
-            {slot.start_time}
+            {slot.display_start_time}
           </button>
         ))}
       </div>

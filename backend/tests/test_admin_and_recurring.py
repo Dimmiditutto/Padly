@@ -188,6 +188,26 @@ def test_recurring_routes_handle_past_dates_without_500(client):
     assert all(item['reason'] == 'Puoi prenotare solo slot futuri' for item in creation_payload['skipped'])
 
 
+def test_recurring_preview_disambiguates_fallback_dst_occurrence(client):
+    admin_login(client)
+    payload = {
+        'label': 'Corso fallback',
+        'weekday': date(2026, 10, 25).weekday(),
+        'start_date': '2026-10-25',
+        'weeks_count': 1,
+        'start_time': '02:00',
+        'duration_minutes': 60,
+    }
+
+    preview = client.post('/api/admin/recurring/preview', json=payload)
+    assert preview.status_code == 200
+    occurrence = preview.json()['occurrences'][0]
+    assert occurrence['start_time'] == '02:00'
+    assert occurrence['end_time'] == '02:00'
+    assert occurrence['display_start_time'] == '02:00 CEST'
+    assert occurrence['display_end_time'] == '02:00 CET'
+
+
 def test_admin_status_transitions_are_guarded_for_pending_and_cancelled_bookings(client):
     admin_login(client)
     booking = create_public_pending_booking(client, booking_date=future_date(6), start_time='20:00')
@@ -398,3 +418,49 @@ def test_admin_cancellation_logs_single_email_notification(client):
         assert booking.status.value == 'CANCELLED'
         assert len(email_logs) == 1
         assert email_logs[0].status == 'SKIPPED'
+
+
+def test_admin_report_summary_counts_only_paid_deposits(client):
+    admin_login(client)
+
+    paid_booking = create_public_pending_booking(client, booking_date=future_date(11), start_time='18:00')
+    pending_booking = create_public_pending_booking(client, booking_date=future_date(12), start_time='19:00')
+    cancelled_booking = create_public_pending_booking(client, booking_date=future_date(13), start_time='20:00')
+
+    checkout = client.post(f"/api/public/bookings/{paid_booking['id']}/checkout")
+    assert checkout.status_code == 200
+
+    payment_redirect = client.get(
+        f"/api/payments/mock/complete?booking={paid_booking['public_reference']}&provider=stripe",
+        follow_redirects=False,
+    )
+    assert payment_redirect.status_code in {302, 307}
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Report',
+            'last_name': 'Manuale',
+            'phone': '3335550001',
+            'email': 'report-manual@example.com',
+            'note': 'Prenotazione admin per report',
+            'booking_date': future_date(14),
+            'start_time': '21:00',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    cancelled = client.post(f"/api/admin/bookings/{cancelled_booking['id']}/status", json={'status': 'CANCELLED'})
+    assert cancelled.status_code == 200
+
+    summary = client.get('/api/admin/reports/summary')
+    assert summary.status_code == 200
+    assert summary.json() == {
+        'total_bookings': 4,
+        'confirmed_bookings': 2,
+        'pending_bookings': 1,
+        'cancelled_bookings': 1,
+        'collected_deposits': 20.0,
+    }

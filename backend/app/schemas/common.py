@@ -49,8 +49,11 @@ class BookingDetail(BookingSummary):
 
 
 class TimeSlot(BaseModel):
+    slot_id: str
     start_time: str
     end_time: str
+    display_start_time: str
+    display_end_time: str
     available: bool
     reason: str | None = None
 

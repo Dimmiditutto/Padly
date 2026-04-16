@@ -63,6 +63,7 @@ def create_booking(payload: PublicBookingCreateRequest, db: Session = Depends(ge
             note=payload.note,
             booking_date=payload.booking_date,
             start_time_value=payload.start_time,
+            slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
             payment_provider=payload.payment_provider,
         )
