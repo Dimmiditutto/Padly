@@ -8,6 +8,7 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBookingStatus } from '../services/adminApi';
 import type { BookingDetail } from '../types';
+import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { formatCurrency, formatDateTime } from '../utils/format';
 
 export function AdminBookingDetailPage() {
@@ -40,7 +41,7 @@ export function AdminBookingDetailPage() {
     }
   }
 
-  async function updateStatus(status: 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
+  async function updateStatus(status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
     if (!booking) return;
     setFeedback('');
     try {
@@ -112,12 +113,15 @@ export function AdminBookingDetailPage() {
             <div className='space-y-6'>
               <SectionCard title='Azioni rapide' description='Aggiorna lo stato operativo direttamente da qui.'>
                 <div className='space-y-3'>
-                  <button className='btn-primary w-full' onClick={() => void markBalance()}>
+                  <button className='btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at)} onClick={() => void markBalance()}>
                     <WalletCards size={16} /> Segna saldo al campo
                   </button>
-                  <button className='btn-secondary w-full' onClick={() => void updateStatus('COMPLETED')}>Segna completed</button>
-                  <button className='btn-secondary w-full' onClick={() => void updateStatus('NO_SHOW')}>Segna no-show</button>
-                  <button className='btn-secondary w-full' onClick={() => void updateStatus('CANCELLED')}>Annulla prenotazione</button>
+                  <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBookingCompleted(booking.status, booking.end_at)} onClick={() => void updateStatus('COMPLETED')}>Segna completed</button>
+                  <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBookingNoShow(booking.status, booking.start_at)} onClick={() => void updateStatus('NO_SHOW')}>Segna no-show</button>
+                  <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' disabled={!canCancelBooking(booking.status)} onClick={() => void updateStatus('CANCELLED')}>Annulla prenotazione</button>
+                  {canRestoreBookingConfirmed(booking.status) ? (
+                    <button className='btn-secondary w-full' onClick={() => void updateStatus('CONFIRMED')}>Ripristina confermata</button>
+                  ) : null}
                 </div>
               </SectionCard>
 

@@ -1,11 +1,15 @@
 from datetime import UTC, date, datetime, timedelta
+from threading import Event, Thread
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models import Booking, BookingPayment, EmailNotificationLog, PaymentStatus, PaymentWebhookEvent
-from app.services.booking_service import expire_pending_bookings
+from app.main import app
+from app.models import Booking, BookingPayment, EmailNotificationLog, PaymentProvider, PaymentStatus, PaymentWebhookEvent
+from app.services.booking_service import expire_pending_bookings, single_court_mutex
+from app.services.payment_service import GATEWAYS, PaymentInitResult
 
 
 def future_date(days: int = 2) -> str:
@@ -50,6 +54,36 @@ def get_booking_status(client: TestClient, public_reference: str) -> dict:
     response = client.get(f'/api/public/bookings/{public_reference}/status')
     assert response.status_code == 200
     return response.json()['booking']
+
+
+def create_booking_without_checkout(
+    client: TestClient,
+    *,
+    provider: str,
+    email: str,
+    phone: str,
+    start_time: str = '18:00',
+    duration_minutes: int = 90,
+    days: int = 2,
+) -> tuple[str, dict]:
+    selected_date = future_date(days)
+    booking_response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Pagamento',
+            'last_name': 'Test',
+            'phone': phone,
+            'email': email,
+            'note': 'Flow test',
+            'booking_date': selected_date,
+            'start_time': start_time,
+            'duration_minutes': duration_minutes,
+            'payment_provider': provider,
+            'privacy_accepted': True,
+        },
+    )
+    assert booking_response.status_code == 201
+    return selected_date, booking_response.json()['booking']
 
 
 def test_stripe_webhook_confirms_booking_and_is_idempotent(client):
@@ -141,6 +175,76 @@ def test_paypal_return_and_webhook_are_coherent(client):
         assert len(emails) == 2
 
 
+def test_paypal_return_is_idempotent_when_booking_is_already_confirmed(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='PAYPAL',
+        email='paypal-idempotent@example.com',
+        phone='3331110014',
+        start_time='19:30',
+    )
+
+    capture_calls = 0
+
+    def fake_capture(order_id: str) -> dict:
+        nonlocal capture_calls
+        capture_calls += 1
+        return {
+            'id': order_id,
+            'purchase_units': [
+                {
+                    'payments': {
+                        'captures': [
+                            {
+                                'id': f'capture-paypal-{capture_calls}',
+                                'amount': {'value': '20.00', 'currency_code': 'EUR'},
+                                'create_time': datetime.now(UTC).isoformat().replace('+00:00', 'Z'),
+                            }
+                        ]
+                    }
+                }
+            ],
+        }
+
+    monkeypatch.setattr(GATEWAYS[PaymentProvider.PAYPAL], 'capture_order', fake_capture)
+
+    first = client.get(
+        f"/api/payments/paypal/return?booking={booking['public_reference']}&token=order-paypal-idempotent",
+        follow_redirects=False,
+    )
+    second = client.get(
+        f"/api/payments/paypal/return?booking={booking['public_reference']}&token=order-paypal-idempotent",
+        follow_redirects=False,
+    )
+
+    assert first.status_code in {302, 307}
+    assert second.status_code in {302, 307}
+    assert capture_calls == 1
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'CONFIRMED'
+    assert updated['payment_status'] == 'PAID'
+
+
+def test_mock_payment_endpoint_is_disabled_outside_development_and_test(client, monkeypatch):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='mock-disabled@example.com',
+        phone='3331110017',
+        start_time='20:00',
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'production')
+
+    response = client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+    assert response.status_code == 404
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'PENDING_PAYMENT'
+    assert updated['payment_status'] == 'UNPAID'
+
+
 def test_cancelled_checkout_marks_payment_cancelled_but_booking_stays_retryable(client):
     _, booking, _ = create_pending_booking(
         client,
@@ -156,6 +260,261 @@ def test_cancelled_checkout_marks_payment_cancelled_but_booking_stays_retryable(
     updated = get_booking_status(client, booking['public_reference'])
     assert updated['status'] == 'PENDING_PAYMENT'
     assert updated['payment_status'] == 'CANCELLED'
+
+
+def test_cancel_redirect_does_not_override_confirmed_booking(client):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='cancel-confirmed@example.com',
+        phone='3331110018',
+        start_time='20:30',
+    )
+
+    payload = {
+        'id': 'evt_stripe_cancel_confirmed',
+        'type': 'checkout.session.completed',
+        'created': int(datetime.now(UTC).timestamp()),
+        'data': {
+            'object': {
+                'id': 'cs_test_cancel_confirmed',
+                'client_reference_id': booking['public_reference'],
+                'amount_total': 2000,
+                'currency': 'eur',
+                'payment_intent': 'pi_test_cancel_confirmed',
+            }
+        },
+    }
+
+    webhook = client.post('/api/payments/stripe/webhook', json=payload)
+    assert webhook.status_code == 200
+
+    cancel = client.get(f"/api/payments/stripe/cancel?booking={booking['public_reference']}", follow_redirects=False)
+    assert cancel.status_code in {302, 307}
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'CONFIRMED'
+    assert updated['payment_status'] == 'PAID'
+
+
+def test_duplicate_checkout_requests_reuse_same_provider_session(client, monkeypatch):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='duplicate-checkout@example.com',
+        phone='3331110012',
+        start_time='18:30',
+    )
+
+    entered = Event()
+    release = Event()
+    responses = {}
+    errors = {}
+    checkout_calls = 0
+
+    def slow_create_checkout(stored_booking: Booking) -> PaymentInitResult:
+        nonlocal checkout_calls
+        checkout_calls += 1
+        current_index = checkout_calls
+        if current_index == 1:
+            entered.set()
+            assert release.wait(timeout=2)
+        return PaymentInitResult(
+            checkout_url=f'https://checkout.example/session-{current_index}',
+            provider_reference=f'session-{current_index}',
+        )
+
+    monkeypatch.setattr(GATEWAYS[PaymentProvider.STRIPE], 'create_checkout', slow_create_checkout)
+
+    def request_checkout(key: str) -> None:
+        try:
+            with TestClient(app) as local_client:
+                responses[key] = local_client.post(f"/api/public/bookings/{booking['id']}/checkout")
+        except Exception as exc:  # pragma: no cover
+            errors[key] = exc
+
+    first = Thread(target=request_checkout, args=('first',))
+    second = Thread(target=request_checkout, args=('second',))
+    first.start()
+    assert entered.wait(timeout=2)
+
+    second.start()
+    release.set()
+
+    first.join(timeout=3)
+    second.join(timeout=3)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert not errors
+
+    first_response = responses['first']
+    second_response = responses['second']
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json() == second_response.json()
+    assert checkout_calls == 1
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'PENDING_PAYMENT'
+    assert updated['payment_status'] == 'INITIATED'
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        payments = db.scalars(select(BookingPayment).where(BookingPayment.booking_id == stored_booking.id)).all()
+
+        assert len(payments) == 1
+        assert payments[0].provider_order_id == 'session-1'
+        assert payments[0].checkout_url == 'https://checkout.example/session-1'
+
+
+def test_public_cancel_waits_for_same_single_court_lock(client):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='cancel-lock@example.com',
+        phone='3331110013',
+        start_time='19:30',
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        cancel_token = stored_booking.cancel_token
+
+    responses = {}
+    errors = {}
+
+    def request_cancel() -> None:
+        try:
+            with TestClient(app) as local_client:
+                responses['cancel'] = local_client.post(f'/api/public/bookings/cancel/{cancel_token}')
+        except Exception as exc:  # pragma: no cover
+            errors['cancel'] = exc
+
+    single_court_mutex.acquire()
+    cancel_thread = Thread(target=request_cancel)
+    try:
+        cancel_thread.start()
+        cancel_thread.join(timeout=0.2)
+        assert cancel_thread.is_alive()
+        assert 'cancel' not in responses
+    finally:
+        single_court_mutex.release()
+
+    cancel_thread.join(timeout=3)
+    assert not cancel_thread.is_alive()
+    assert not errors
+    assert responses['cancel'].status_code == 200
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'CANCELLED'
+    assert updated['payment_status'] == 'CANCELLED'
+
+
+def test_checkout_after_hold_expiry_is_rejected_and_marks_booking_expired(client):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='checkout-expired@example.com',
+        phone='3331110010',
+        start_time='20:30',
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+
+    checkout = client.post(f"/api/public/bookings/{booking['id']}/checkout")
+    assert checkout.status_code == 409
+    assert checkout.json()['detail'] == 'La prenotazione è scaduta'
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'EXPIRED'
+    assert updated['payment_status'] == 'EXPIRED'
+
+
+def test_runtime_expiry_sends_single_expired_notification(client):
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='PAYPAL',
+        email='runtime-expired@example.com',
+        phone='3331110019',
+        start_time='21:30',
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored_booking.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+
+    first_status = client.get(f"/api/public/bookings/{booking['public_reference']}/status")
+    second_status = client.get(f"/api/public/bookings/{booking['public_reference']}/status")
+    assert first_status.status_code == 200
+    assert second_status.status_code == 200
+
+    with SessionLocal() as db:
+        expired = expire_pending_bookings(db)
+        db.commit()
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        emails = db.scalars(
+            select(EmailNotificationLog).where(
+                EmailNotificationLog.booking_id == stored_booking.id,
+                EmailNotificationLog.template == 'booking_expired',
+            )
+        ).all()
+
+        assert expired == []
+        assert stored_booking.status.value == 'EXPIRED'
+        assert len(emails) == 1
+
+
+def test_checkout_fails_closed_in_production_without_provider_credentials(client, monkeypatch):
+    _, stripe_booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='stripe-production-disabled@example.com',
+        phone='3331110015',
+        start_time='20:45',
+    )
+
+    _, paypal_booking = create_booking_without_checkout(
+        client,
+        provider='PAYPAL',
+        email='paypal-production-disabled@example.com',
+        phone='3331110016',
+        start_time='22:30',
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'production')
+    monkeypatch.setattr(settings, 'stripe_secret_key', None)
+    monkeypatch.setattr(settings, 'paypal_client_id', None)
+    monkeypatch.setattr(settings, 'paypal_client_secret', None)
+
+    stripe_checkout = client.post(f"/api/public/bookings/{stripe_booking['id']}/checkout")
+    assert stripe_checkout.status_code == 503
+    assert stripe_checkout.json()['detail'] == 'Stripe non configurato in produzione'
+
+    paypal_checkout = client.post(f"/api/public/bookings/{paypal_booking['id']}/checkout")
+    assert paypal_checkout.status_code == 503
+    assert paypal_checkout.json()['detail'] == 'PayPal non configurato in produzione'
+
+
+def test_public_config_reflects_runtime_provider_availability(client, monkeypatch):
+    default_config = client.get('/api/public/config')
+    assert default_config.status_code == 200
+    assert default_config.json()['stripe_enabled'] is True
+    assert default_config.json()['paypal_enabled'] is True
+
+    monkeypatch.setattr(settings, 'app_env', 'production')
+    monkeypatch.setattr(settings, 'stripe_secret_key', None)
+    monkeypatch.setattr(settings, 'paypal_client_id', None)
+    monkeypatch.setattr(settings, 'paypal_client_secret', None)
+
+    production_config = client.get('/api/public/config')
+    assert production_config.status_code == 200
+    assert production_config.json()['stripe_enabled'] is False
+    assert production_config.json()['paypal_enabled'] is False
 
 
 def test_missing_payment_expires_and_releases_slot(client):
@@ -236,3 +595,58 @@ def test_slow_stripe_webhook_before_hold_expiry_reconfirms_booking(client):
     updated = get_booking_status(client, booking['public_reference'])
     assert updated['status'] == 'CONFIRMED'
     assert updated['payment_status'] == 'PAID'
+
+
+def test_late_stripe_webhook_after_hold_expiry_is_rejected_without_scheduler(client):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='late-webhook@example.com',
+        phone='3331110011',
+        start_time='22:30',
+    )
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        expiry_cutoff = datetime.now(UTC) - timedelta(seconds=5)
+        stored_booking.expires_at = expiry_cutoff
+        db.commit()
+
+    payload = {
+        'id': 'evt_stripe_paid_too_late',
+        'type': 'checkout.session.completed',
+        'created': int((datetime.now(UTC) + timedelta(seconds=5)).timestamp()),
+        'data': {
+            'object': {
+                'id': 'cs_test_paid_too_late',
+                'client_reference_id': booking['public_reference'],
+                'amount_total': 2000,
+                'currency': 'eur',
+                'payment_intent': 'pi_test_paid_too_late',
+            }
+        },
+    }
+
+    webhook = client.post('/api/payments/stripe/webhook', json=payload)
+    assert webhook.status_code == 200
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'EXPIRED'
+    assert updated['payment_status'] == 'EXPIRED'
+
+
+def test_stripe_webhook_requires_secret_in_production(client, monkeypatch):
+    monkeypatch.setattr(settings, 'app_env', 'production')
+    monkeypatch.setattr(settings, 'stripe_webhook_secret', None)
+
+    webhook = client.post(
+        '/api/payments/stripe/webhook',
+        json={
+            'id': 'evt_stripe_missing_secret',
+            'type': 'checkout.session.completed',
+            'data': {'object': {}},
+        },
+    )
+
+    assert webhook.status_code == 400
+    assert webhook.json()['detail'] == 'Stripe webhook non configurato in produzione'

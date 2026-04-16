@@ -6,7 +6,7 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
 import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
-import type { BookingSummary, PaymentProvider, PublicConfig, TimeSlot } from '../types';
+import type { PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
 import { formatCurrency, toDateInputValue } from '../utils/format';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -31,7 +31,7 @@ export function PublicBookingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'error' | 'success' | 'info'; message: string } | null>(null);
   const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>('STRIPE');
-  const [lastBooking, setLastBooking] = useState<BookingSummary | null>(null);
+  const [lastBooking, setLastBooking] = useState<PublicBookingSummary | null>(null);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -48,6 +48,28 @@ export function PublicBookingPage() {
   useEffect(() => {
     void loadAvailability();
   }, [bookingDate, duration]);
+
+  const availableProviders = useMemo<PaymentProvider[]>(() => {
+    if (!publicConfig) return [];
+
+    const providers: PaymentProvider[] = [];
+    if (publicConfig.stripe_enabled) providers.push('STRIPE');
+    if (publicConfig.paypal_enabled) providers.push('PAYPAL');
+    return providers;
+  }, [publicConfig]);
+
+  useEffect(() => {
+    if (availableProviders.length === 0) {
+      if (paymentProvider !== 'NONE') {
+        setPaymentProvider('NONE');
+      }
+      return;
+    }
+
+    if (!availableProviders.includes(paymentProvider)) {
+      setPaymentProvider(availableProviders[0]);
+    }
+  }, [availableProviders, paymentProvider]);
 
   async function loadConfig() {
     setLoadingConfig(true);
@@ -235,9 +257,14 @@ export function PublicBookingPage() {
 
                 <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                   <p className='text-sm font-semibold text-slate-800'>Metodo pagamento caparra</p>
-                  <p className='mt-1 text-xs text-slate-500'>Stripe e PayPal restano selezionabili anche in ambiente demo, usando il flusso mock del backend.</p>
+                  <p className='mt-1 text-xs text-slate-500'>Mostro solo i provider di pagamento attualmente disponibili in questo ambiente.</p>
+                  {availableProviders.length === 0 ? (
+                    <div className='mt-3'>
+                      <AlertBanner tone='error'>Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.</AlertBanner>
+                    </div>
+                  ) : null}
                   <div className='mt-3 grid gap-2 sm:grid-cols-2'>
-                    {(['STRIPE', 'PAYPAL'] as PaymentProvider[]).map((provider) => (
+                    {availableProviders.map((provider) => (
                       <button
                         type='button'
                         key={provider}
@@ -270,7 +297,7 @@ export function PublicBookingPage() {
                   <span>Accetto il trattamento dei dati per la gestione della prenotazione.</span>
                 </label>
 
-                <button className='btn-primary w-full' type='submit' disabled={submitting || loadingSlots}>
+                <button className='btn-primary w-full' type='submit' disabled={submitting || loadingSlots || availableProviders.length === 0}>
                   {submitting ? 'Sto preparando il checkout…' : 'Continua al pagamento della caparra'}
                 </button>
               </form>

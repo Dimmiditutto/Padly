@@ -1,371 +1,339 @@
-# PROMPT UX/UI OPERATIVO PER COPILOT
+# PROMPT UX/UI OPERATIVO PER COPILOT — CALIBRATO SUL REPOSITORY REALE
 
-Agisci come un **Senior Product Designer**, **Senior Frontend Engineer React/TypeScript/Tailwind** e **Design System Maintainer**.
+Agisci come un **Senior Product Designer** e **Senior Frontend Engineer React/TypeScript/Tailwind**.
 
-Devi eseguire una **patch UX/UI mirata e minima** sull’app di prenotazione padel attuale, adattandoti alla struttura reale del repository.
+Devi eseguire una **patch UX/UI minima, precisa e coerente** sul frontend attuale della web app di prenotazione padel.
 
 ## Obiettivo
 
-Portare il frontend a un livello visivo più alto, coerente e professionale, applicando una palette/design system unificati e rimuovendo i principali punti in cui i componenti usano colori o classi Tailwind hardcoded invece dei token di tema.
+Migliorare la qualità visiva del frontend **senza rifare il design system**, lavorando solo sui punti realmente deboli del codebase attuale:
 
-L’obiettivo non è rifare il frontend.  
-L’obiettivo è:
+1. **stati semantici hardcoded** non coerenti con il sistema esistente
+2. **feedback inline** visivamente deboli o inconsistenti
+3. **empty states** mancanti o troppo poveri
+4. **skeleton / loading states** mancanti o insufficienti
+5. piccoli punti UI ad alta visibilità nell’area booking e nell’area admin
 
-- consolidare il design system
-- uniformare i colori tra light/dark mode
-- migliorare la qualità percepita della UI
-- eliminare gli hardcode cromatici principali
-- mantenere patch minima
-- evitare regressioni
+## Contesto reale del repository
+
+Queste regole hanno priorità alta e vanno rispettate:
+
+- il progetto **non implementa dark mode**
+- ignora completamente ogni riferimento a:
+  - dark mode
+  - dark/light switching
+  - dark override
+  - theme hook
+  - token light/dark
+- lavora **solo sulla light mode esistente**
+
+Inoltre:
+
+- il progetto ha già un **design system funzionante**
+- `index.css` contiene già classi semantiche utili, come ad esempio:
+  - `surface-card`
+  - `btn-primary`
+  - `btn-secondary`
+  - `text-input`
+  - `field-label`
+  - `section-title`
+- queste classi vanno **riusate e rafforzate**
+- non duplicare il design system con un nuovo layer di CSS variables o token se non strettamente indispensabile
+
+## Regola fondamentale
+
+Non devi “tokenizzare tutto”.  
+Non devi introdurre un nuovo sistema tema.  
+Non devi sostituire la palette di base del progetto.
+
+Devi invece fare una **patch UX/UI chirurgica**, usando e completando il sistema già presente.
 
 ## Vincoli non negoziabili
 
-- **patch minima**
+- patch minima
 - non toccare logica di business
 - non toccare routing
 - non toccare autenticazione
 - non toccare API
-- non toccare modelli dati
-- non toccare stato applicativo salvo strettamente necessario per il rendering
+- non toccare stato applicativo salvo minimo indispensabile per rendering/UI
 - non rinominare file
 - non spostare file
-- non cambiare struttura dei componenti
 - non riscrivere pagine da zero
 - non introdurre librerie UI nuove
-- non introdurre dipendenze inutili
+- non introdurre framework di theming
+- non introdurre dark mode
+- non sostituire la palette base slate del progetto
 - non fare refactor ampi
 
-## Regola di adattamento al repository reale
+## Regola sulla palette
 
-I file di riferimento del progetto attuale **non sono quelli dell’esempio base**.
+La **palette slate è la base del progetto** e va lasciata invariata.
 
-Devi quindi:
+Quindi:
 
-1. identificare nel repository attuale i file reali che svolgono il ruolo di:
-   - global stylesheet / global theme CSS
-   - theme tokens / theme hook / theme constants
-   - componenti UI del flusso pubblico booking
-   - componenti UI dell’area admin
-2. applicare la patch sugli equivalenti reali
-3. mantenere la modifica più piccola possibile
+- non sostituire classi `slate-*` solo perché sono `slate-*`
+- non convertire `text-slate-*`, `bg-slate-*`, `border-slate-*` in CSS variables
+- non fare refactor cromatici inutili
 
-Se i nomi file differiscono, **non inventare nuovi file**: modifica quelli esistenti equivalenti.
+Intervieni **solo** sui colori semantici realmente fuori sistema o hardcoded in modo disallineato, ad esempio:
 
-## Priorità della patch
+- `emerald-*`
+- `amber-*`
+- `rose-*`
+- `red-*`
+- `cyan-*`
+- colori inline hardcoded nei badge o nei feedback
+- combinazioni locali non coerenti con il design system esistente
 
-Applica le modifiche in quest’ordine:
+## Obiettivo visivo reale
 
-1. file globale di stile / token CSS
-2. file di configurazione del tema o token TS
-3. componenti pubblici centrali del booking flow
-4. componenti admin con colori hardcoded
-5. verifica finale light/dark + coerenza visuale
+Il risultato deve essere:
 
-## Obiettivo estetico
-
-La UI finale deve risultare:
-
+- più pulito
 - più coerente
-- più pulita
-- più moderna
 - più leggibile
 - più “product-like”
-- meno dipendente da classi Tailwind hardcoded sparse
-- più governata da token e variabili di tema
+- più professionale
+- più solido nelle schermate principali
+- più curato negli stati di feedback
 
-Il risultato deve sembrare una web app reale e curata, non una somma di componenti disallineati.
+Ma senza sembrare un redesign.
 
-## Regola fondamentale sul design system
+## Priorità reali di intervento
 
-Tutti i colori principali devono arrivare da:
+Lavora in quest’ordine:
 
-- CSS variables globali, oppure
-- theme tokens TypeScript, oppure
-- layer centralizzato equivalente già presente nel progetto
+### 1. StatusBadge e badge semantici
+Correggi per primi i componenti che usano colori semantici hardcoded non governati dal sistema.
 
-Non devono restare hardcoded nei componenti, salvo casi marginali veramente neutri o strutturali.
+Priorità assoluta:
+- `StatusBadge.tsx` o equivalente reale
 
-## Interventi richiesti
+Obiettivo:
+- mantenere stessa logica e stesse props
+- migliorare solo l’aspetto
+- usare classi semantiche esistenti o aggiungerne di minime in `index.css` se davvero necessario
+- rendere coerenti gli stati tipo:
+  - confirmed
+  - pending
+  - cancelled
+  - expired
+  - completed
+  - no_show
+  - warning/info/success/error equivalenti
 
-Devi eseguire una patch con queste finalità:
+### 2. Feedback inline nel booking flow pubblico
+Intervieni poi sui box o messaggi inline nelle schermate pubbliche, in particolare gli equivalenti reali di:
 
-### 1. Allineamento palette globale
-Individua il file globale che definisce i colori applicativi e porta il sistema a una palette coerente light/dark.
-
-La palette deve prevedere almeno token equivalenti a:
-
-- background app principale
-- background alternativo
-- panel / card
-- panel strong
-- border
-- border strong / secondary
-- text primary
-- text muted
-- text subtle
-- accent primary
-- accent hover
-- accent soft
-- accent gradient
-- success
-- warning
-- danger
-- info
-- eventuali token CTA hover / glow / bubble se già coerenti con il progetto
-
-Se il progetto ha già un set di token, **non sostituire l’architettura**: aggiorna i valori e completa solo i token mancanti realmente necessari.
-
-### 2. Allineamento theme config / hook / constants
-Individua il file reale che espone i colori tema al frontend, ad esempio:
-- hook tema
-- constants tema
-- oggetto themeColors
-- config token
-
-Aggiorna solo la parte colori, mantenendo invariata l’API interna del file, salvo piccole aggiunte strettamente necessarie.
-
-### 3. Eliminazione hardcoded nei componenti critici
-Trova i componenti che usano classi hardcoded tipo:
-- `bg-*`
-- `text-*`
-- `border-*`
-- classi slate/gray/zinc/emerald/red/amber/blue hardcoded
-- colori inline hardcoded non governati dal tema
-
-Applica sostituzioni minime usando:
-- CSS variables
-- token di tema
-- stili inline minimi solo dove la struttura del componente lo rende più sicuro
-- classi semanticamente agganciate ai token, se già presenti
-
-## Componenti prioritari da correggere
-
-Parti dai componenti più visibili del prodotto reale.
-
-### Area pubblica — priorità alta
-Correggi prima i componenti che impattano la UX utente del booking flow, ad esempio gli equivalenti reali di:
-
-- card disponibilità slot
-- selettore durata
-- riepilogo prenotazione
-- box caparra
-- box tariffe informative
+- `PublicBookingPage.tsx`
+- esito prenotazione
+- messaggi errore
 - stato pagamento
-- stato prenotazione confermata / annullata / scaduta
-- badge di stato
-- CTA principali
+- disponibilità non trovata
+- provider non disponibili
+- prenotazione confermata / annullata / scaduta
 
-### Area admin — priorità media
-Correggi poi i componenti admin più esposti visivamente, ad esempio gli equivalenti reali di:
+Obiettivo:
+- rendere questi feedback più chiari e visivamente coerenti
+- evitare blocchi di testo anonimi
+- usare uno stile uniforme per success / warning / error / info
 
-- card prenotazione
-- tabella/lista prenotazioni
-- badge stato
-- azioni rapide
-- box ricorrenze
-- box blackout/chiusure
-- pannelli di dettaglio
+### 3. Feedback inline area admin
+Intervieni poi sui punti visivi equivalenti in:
 
-### Componenti trasversali — priorità alta
-Correggi gli equivalenti reali di:
+- `AdminDashboardPage.tsx`
+- loop di rendering prenotazioni
+- box errore/successo
+- indicatori rapidi
+- messaggi di conflitto o stato ricorrenze
+- eventuali badge locali hardcoded
 
-- alert success/warning/error/info
-- badge
-- card
-- modali
-- pannelli
-- bottoni primari/secondari/danger
-- empty states
-- skeleton/loading state se usano colori hardcoded
+### 4. Empty states
+Aggiungi o migliora gli **empty states** dove oggi mancano o sono troppo poveri.
 
-## Regola sulla patch dei componenti
+Target principali:
+- nessuna prenotazione trovata
+- nessuno slot disponibile
+- nessun risultato per filtri admin
+- nessuna ricorrenza valida
+- nessun provider disponibile
+- nessun dato ancora caricato, se utile
+
+Gli empty states devono essere:
+- sobri
+- ordinati
+- leggibili
+- coerenti col progetto
+- senza illustrazioni o dipendenze inutili
+
+### 5. Skeleton / loading states
+Aggiungi o migliora i **loading states** solo nei punti ad alta visibilità, ad esempio:
+
+- caricamento disponibilità slot
+- caricamento stato prenotazione
+- caricamento lista prenotazioni admin
+
+Se il progetto non ha una strategia skeleton già pronta:
+- usa placeholder semplici e coerenti
+- non creare un framework dedicato
+- non introdurre complessità
+
+## File da considerare prioritari
+
+Lavora prima su questi file, se esistono con questi nomi:
+
+- `frontend/src/components/StatusBadge.tsx`
+- `frontend/src/pages/PublicBookingPage.tsx`
+- `frontend/src/pages/AdminDashboardPage.tsx`
+- `frontend/src/index.css`
+
+Se i nomi reali differiscono, modifica gli equivalenti esistenti nel repository, senza creare nuovi file inutili.
+
+## Strategia di patch preferita
+
+Usa questa gerarchia:
+
+### Preferenza 1
+Riusa le classi semantiche già presenti in `index.css`.
+
+### Preferenza 2
+Se manca una classe semantica utile, aggiungi una piccola estensione in `index.css`, ad esempio per:
+- alert semantic
+- badge semantic
+- empty state container
+- skeleton utility minima
+
+### Preferenza 3
+Usa classi Tailwind locali solo se restano coerenti con il sistema esistente e non introducono caos.
+
+## Cosa NON devi fare
+
+- non introdurre CSS variables globali nuove per tutto il progetto
+- non creare un nuovo token system
+- non sostituire la palette slate di base
+- non fare redesign della shell o del layout
+- non cambiare header/sidebar/routing salvo necessità visuale minima
+- non toccare logica del booking flow
+- non rifattorizzare componenti già buoni solo per “uniformità teorica”
+
+## Cosa devi cercare davvero nel codice
+
+Cerca e correggi solo i punti realmente problematici, come:
+
+- badge con colori semantici hardcoded
+- alert inline incoerenti
+- box errore/successo improvvisati
+- messaggi senza contenitore visivo
+- assenza di empty state
+- assenza di skeleton/loading state nei punti critici
+- piccoli blocchi UI nei loop admin con colori locali fuori sistema
+
+Non trattare come bug semplice uso di `slate-*` coerente col progetto.
+
+## Regola componente per componente
 
 Per ogni componente modificato:
 
-- cambia **solo** la parte visuale
+- cambia solo la parte visuale
 - non cambiare props
 - non cambiare logica
 - non cambiare struttura JSX salvo minimo indispensabile
 - non cambiare comportamento
 - non cambiare naming
-- non estrarre nuovi componenti, salvo caso davvero necessario e minimo
+- non estrarre nuovi componenti, salvo mini helper davvero necessari
 
-## Modalità di sostituzione preferita
+## Bottoni e azioni
 
-Usa questa gerarchia:
+Controlla i bottoni principali solo se in quei file target risultano visivamente incoerenti.
 
-### Preferenza 1
-Sostituisci colori hardcoded con classi o stili che puntano ai token già esistenti.
-
-### Preferenza 2
-Se il progetto non ha classi semantiche già pronte, usa `style={{ ... }}` con `var(--token)` nei componenti più problematici.
-
-### Preferenza 3
-Aggiungi solo piccole utility semanticamente coerenti se davvero indispensabili, senza introdurre refactor.
-
-## Cosa cercare esplicitamente nel codice
-
-Scansiona il frontend e individua almeno:
-
-- classi `bg-white`, `bg-black`
-- classi `bg-slate-*`, `bg-gray-*`, `bg-zinc-*`
-- classi `text-slate-*`, `text-gray-*`, `text-zinc-*`
-- classi `border-slate-*`, `border-gray-*`, `border-zinc-*`
-- classi `bg-emerald-*`, `text-emerald-*`
-- classi `bg-red-*`, `text-red-*`
-- classi `bg-amber-*`, `text-amber-*`
-- classi `bg-blue-*`, `text-blue-*`
-- stili inline con hex hardcoded
-- override dark mode basati su cascade Tailwind che andrebbero sostituiti con token
-
-Non fare sostituzioni cieche su tutto il progetto: concentrati sui componenti centrali e sui punti più visibili.
-
-## Regole UX/UI da far emergere dopo la patch
-
-Il risultato visivo deve migliorare soprattutto su:
-
-### Booking flow pubblico
-- chiarezza della CTA prenota
-- leggibilità di date/orari/durate
-- distinzione tra slot disponibile e non disponibile
-- evidenza della caparra
-- separazione netta tra caparra online e saldo al campo
-- leggibilità delle tariffe informative
-- feedback chiaro sugli stati di pagamento e conferma
-
-### Area admin
-- leggibilità delle liste
-- badge stato coerenti
-- call to action più pulite
-- pannelli meno “Tailwind default”
-- migliore contrasto in light/dark
-
-### Design system complessivo
-- maggiore uniformità tra panel, border, text e alert
-- riduzione dei colori fuori sistema
-- dark mode più solida
-- niente elementi che sembrano staccati dal resto
-
-## Regola sulla sidebar / navigazione / shell applicativa
-
-Se nel progetto esistono componenti shell tipo:
-- sidebar
-- topbar
-- nav link
-- section title
-- page surface
-
-verifica se i colori sono ancora hardcoded o dipendono da override Tailwind fragili.
-
-Se sì:
-- correggi anche questi punti
-- mantieni patch minima
-- non cambiare layout
-- non cambiare markup salvo minimi aggiustamenti
-
-## Regola sui bottoni
-
-Controlla i bottoni principali del progetto:
-
-- primary
-- secondary
-- danger
-- ghost / outline
-- CTA booking
-- CTA admin
-
-Se usano colori hardcoded non coerenti con il tema:
-- riallineali ai token
-- mantieni stessa logica
-- mantieni stessa semantica
-- migliora hover/focus solo se già supportati dalla struttura attuale
-
-## Regola sugli stati semantici
-
-I colori semantici devono essere governati da token per:
-
-- success
-- warning
-- danger
-- info
-
-Applicali in modo coerente su:
-- badge
-- alert
-- small cards
-- status chip
-- box di conferma / errore / warning
-
-## Regola sugli override dark mode
-
-Se trovi override dark mode del tipo:
-- selettori a cascata che correggono classi Tailwind (`[class*='text-gray-']`, ecc.)
-- correzioni sparse solo per far “funzionare” il dark theme
-- hack visivi difficili da mantenere
-
-rimuovili **solo se** diventano superflui grazie ai token tema corretti.
-
-Non rimuovere override utili se la loro eliminazione produce regressioni.
+Ma:
+- non rifare il sistema bottoni da zero
+- non toccare `btn-primary` / `btn-secondary` se sono già corretti
+- intervieni solo se un bottone locale usa classi hardcoded fuori sistema
 
 ## Output atteso
 
-Voglio un output operativo e disciplinato.
+Voglio un output disciplinato e concreto.
 
 ### 1. Mappa file reali
-Prima indica quali file reali del repository hai identificato come equivalenti di:
-- stylesheet globale
-- theme tokens / useTheme / constants
-- componenti pubblici critici
-- componenti admin critici
+Indica i file reali che hai identificato come target della patch.
 
 ### 2. Piano patch minimo
-Elenca in modo breve:
-- quali file tocchi
-- perché
-- che cosa cambi
-- che cosa lasci invariato
+Per ogni file:
+- perché lo tocchi
+- quale problema UX/UI reale risolve
+- cosa lasci invariato
 
 ### 3. Patch file per file
 Mostra le modifiche file per file.
 
 Per ogni file:
 - mostra solo il codice realmente modificato oppure il file completo se necessario
-- non mostrare codice invariato non utile
+- non mostrare codice invariato inutile
 - non inventare file
 
+## Chiarimento sui loading states
+
+Non distribuire miglioramenti ai loading states in modo generico.
+
+Il **loading state prioritario** da introdurre o migliorare è quello della **lista prenotazioni in `AdminDashboardPage.tsx`** o nel componente equivalente reale, perché è il punto che oggi manca davvero di uno stato intermedio chiaro.
+
+I loading states già presenti nel flusso pubblico, come:
+- caricamento slot in `PublicBookingPage.tsx`
+- polling/stato in `PaymentStatusPage.tsx`
+
+sono già sostanzialmente sufficienti e **non devono essere oggetto di redesign**, salvo minime correzioni visive strettamente necessarie.
+
+## Priorità aggiuntiva — PaymentStatusPage
+
+Aggiungi tra i target prioritari anche `PaymentStatusPage.tsx` o il componente equivalente reale.
+
+Obiettivo:
+- correggere eventuali incoerenze semantiche di icone e feedback visivi
+- in particolare, **non usare icone di warning/errore per uno stato di pagamento riuscito o prenotazione confermata**
+- mantenere invariata la logica del componente
+- intervenire solo sulla parte visuale e semantica del feedback utente
+
+Se il componente mostra una schermata di successo con un’icona semanticamente errata, sostituiscila con una più coerente con uno stato positivo/confermato.
+
 ### 4. Verifica finale
-Chiudi con una checklist di verifica concreta.
+Chiudi con checklist concreta.
 
 ## Checklist di verifica richiesta
 
 Verifica almeno:
 
-- [ ] light mode coerente su background, panel, text, border
-- [ ] dark mode coerente su background, panel, text, border
-- [ ] booking flow pubblico coerente con i token
-- [ ] area admin coerente con i token
-- [ ] i componenti modificati non usano più colori hardcoded critici
-- [ ] badge success/warning/danger/info allineati al tema
+- [ ] nessun riferimento a dark mode è stato introdotto
+- [ ] la palette slate di base è rimasta invariata
+- [ ] `StatusBadge.tsx` non usa più colori semantici hardcoded fuori sistema
+- [ ] i feedback inline in `PublicBookingPage.tsx` sono più chiari e coerenti
+- [ ] i feedback inline in `AdminDashboardPage.tsx` sono più coerenti
+- [ ] gli empty states principali esistono e sono leggibili
+- [ ] i loading states principali sono migliorati o introdotti
 - [ ] nessuna regressione su props, logica, routing o API
-- [ ] nessun errore TypeScript introdotto
-- [ ] nessuna regressione visuale evidente su CTA principali
-- [ ] nessuna rottura del layout mobile-first
+- [ ] nessun refactor fuori scope
+- [ ] il design system esistente è stato riusato, non duplicato
 
 ## Criterio finale di qualità
 
 Il lavoro è corretto solo se:
 
 - la patch è piccola
-- la UI migliora davvero
-- il design system è più coerente
-- i componenti più visibili smettono di dipendere da colori hardcoded
-- non vengono toccate logiche non UX/UI
-- il codice resta semplice e mantenibile
+- i punti deboli reali del codebase sono migliorati
+- non hai toccato parti sane inutilmente
+- la UI migliora davvero nei punti visibili
+- il design system esistente resta il centro del frontend
+- non hai introdotto complessità gratuita
 
 ## Regola finale
 
 Non fare un redesign totale.  
-Non fare refactor architetturali.  
-Non fare pulizia generica del codice.
+Non fare un refactor estetico generale.  
+Non inseguire la purezza teorica del design system.
 
-Fai una **patch UX/UI chirurgica, intelligente e coerente**, adattata ai file reali del progetto attuale.
+Fai una **patch UX/UI chirurgica, concreta e coerente** sul repository reale, concentrata su:
+- `StatusBadge`
+- feedback inline
+- empty states
+- skeleton/loading states
+- piccoli punti hardcoded davvero fuori sistema

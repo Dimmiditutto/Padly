@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.models import Admin
 from app.schemas.admin import AdminSettingsResponse, AdminSettingsUpdateRequest
+from app.services.payment_service import is_paypal_checkout_available, is_stripe_checkout_available
 from app.services.settings_service import get_booking_rules, update_booking_rules
 
 router = APIRouter(prefix='/admin/settings', tags=['Admin Settings'])
@@ -17,8 +18,8 @@ def get_settings_payload(db: Session = Depends(get_db), admin: Admin = Depends(g
     return AdminSettingsResponse(
         timezone=settings.timezone,
         currency='EUR',
-        stripe_enabled=bool(settings.stripe_secret_key),
-        paypal_enabled=bool(settings.paypal_client_id and settings.paypal_client_secret),
+        stripe_enabled=is_stripe_checkout_available(),
+        paypal_enabled=is_paypal_checkout_available(),
         **rules,
     )
 
@@ -39,7 +40,7 @@ def update_settings_payload(
     return AdminSettingsResponse(
         timezone=settings.timezone,
         currency='EUR',
-        stripe_enabled=bool(settings.stripe_secret_key),
-        paypal_enabled=bool(settings.paypal_client_id and settings.paypal_client_secret),
+        stripe_enabled=is_stripe_checkout_available(),
+        paypal_enabled=is_paypal_checkout_available(),
         **rules,
     )

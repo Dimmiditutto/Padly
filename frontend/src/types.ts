@@ -42,6 +42,24 @@ export interface BookingDetail extends BookingSummary {
   payment_reference?: string | null;
 }
 
+export interface PublicBookingSummary {
+  id: string;
+  public_reference: string;
+  start_at: string;
+  end_at: string;
+  duration_minutes: number;
+  booking_date_local: string;
+  status: BookingStatus;
+  deposit_amount: number;
+  payment_provider: PaymentProvider;
+  payment_status: PaymentStatus;
+  created_at: string;
+  cancelled_at?: string | null;
+  completed_at?: string | null;
+  no_show_at?: string | null;
+  balance_paid_at?: string | null;
+}
+
 export interface PublicConfig {
   app_name: string;
   timezone: string;
@@ -73,7 +91,7 @@ export interface PublicBookingPayload {
 }
 
 export interface PublicBookingCreateResponse {
-  booking: BookingSummary;
+  booking: PublicBookingSummary;
   checkout_ready: boolean;
   next_action_url?: string | null;
 }
@@ -87,8 +105,7 @@ export interface PaymentInitResponse {
 }
 
 export interface BookingStatusResponse {
-  booking: BookingSummary;
-  customer_email?: string | null;
+  booking: PublicBookingSummary;
 }
 
 export interface AdminEvent {
@@ -133,7 +150,6 @@ export interface AdminManualBookingPayload {
   start_time: string;
   duration_minutes: number;
   payment_provider: PaymentProvider;
-  status?: BookingStatus;
 }
 
 export interface BlackoutPayload {

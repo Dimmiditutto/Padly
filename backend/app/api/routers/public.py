@@ -16,8 +16,8 @@ from app.schemas.public import (
     PublicBookingCreateResponse,
     PublicConfigResponse,
 )
-from app.services.booking_service import acquire_single_court_lock, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking
-from app.services.payment_service import start_payment_for_booking
+from app.services.booking_service import acquire_single_court_lock, as_utc, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking, expire_pending_booking_if_needed
+from app.services.payment_service import assert_checkout_available, is_paypal_checkout_available, is_stripe_checkout_available, start_payment_for_booking
 from app.services.settings_service import get_booking_rules
 
 router = APIRouter(prefix='/public', tags=['Public'])
@@ -31,8 +31,8 @@ def get_public_config(db: Session = Depends(get_db)) -> PublicConfigResponse:
         timezone=settings.timezone,
         booking_hold_minutes=booking_rules['booking_hold_minutes'],
         cancellation_window_hours=booking_rules['cancellation_window_hours'],
-        stripe_enabled=bool(settings.stripe_secret_key),
-        paypal_enabled=bool(settings.paypal_client_id and settings.paypal_client_secret),
+        stripe_enabled=is_stripe_checkout_available(),
+        paypal_enabled=is_paypal_checkout_available(),
     )
 
 
@@ -53,6 +53,7 @@ def get_availability(
 @router.post('/bookings', response_model=PublicBookingCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_booking(payload: PublicBookingCreateRequest, db: Session = Depends(get_db)) -> PublicBookingCreateResponse:
     with acquire_single_court_lock(db):
+        assert_checkout_available(payload.payment_provider)
         booking = create_public_booking(
             db,
             first_name=payload.first_name,
@@ -72,42 +73,50 @@ def create_booking(payload: PublicBookingCreateRequest, db: Session = Depends(ge
 
 @router.post('/bookings/{booking_id}/checkout', response_model=PaymentInitResponse)
 def create_checkout(booking_id: str, db: Session = Depends(get_db)) -> PaymentInitResponse:
-    booking = db.scalar(select(Booking).where(Booking.id == booking_id))
-    if not booking:
-        raise HTTPException(status_code=404, detail='Prenotazione non trovata')
-    if booking.status != BookingStatus.PENDING_PAYMENT:
-        raise HTTPException(status_code=400, detail='La prenotazione non è più in attesa di pagamento')
+    with acquire_single_court_lock(db):
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        if not booking:
+            raise HTTPException(status_code=404, detail='Prenotazione non trovata')
+        if expire_pending_booking_if_needed(db, booking):
+            db.commit()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La prenotazione è scaduta')
+        if booking.status != BookingStatus.PENDING_PAYMENT:
+            raise HTTPException(status_code=400, detail='La prenotazione non è più in attesa di pagamento')
 
-    result = start_payment_for_booking(db, booking, booking.payment_provider)
-    db.commit()
-    return PaymentInitResponse(
-        booking_id=booking.id,
-        public_reference=booking.public_reference,
-        provider=booking.payment_provider,
-        checkout_url=result.checkout_url,
-        payment_status=booking.payment_status,
-    )
+        result = start_payment_for_booking(db, booking, booking.payment_provider)
+        db.commit()
+        return PaymentInitResponse(
+            booking_id=booking.id,
+            public_reference=booking.public_reference,
+            provider=booking.payment_provider,
+            checkout_url=result.checkout_url,
+            payment_status=booking.payment_status,
+        )
 
 
 @router.get('/bookings/{public_reference}/status', response_model=BookingStatusResponse)
 def booking_status(public_reference: str, db: Session = Depends(get_db)) -> BookingStatusResponse:
-    booking = db.scalar(select(Booking).where(Booking.public_reference == public_reference))
-    if not booking:
-        raise HTTPException(status_code=404, detail='Prenotazione non trovata')
-    return BookingStatusResponse(booking=booking, customer_email=booking.customer_email)
+    with acquire_single_court_lock(db):
+        booking = db.scalar(select(Booking).where(Booking.public_reference == public_reference))
+        if not booking:
+            raise HTTPException(status_code=404, detail='Prenotazione non trovata')
+        if expire_pending_booking_if_needed(db, booking):
+            db.commit()
+    return BookingStatusResponse(booking=booking)
 
 
 @router.post('/bookings/cancel/{cancel_token}', response_model=SimpleMessage)
 def cancel_public_booking(cancel_token: str, db: Session = Depends(get_db)) -> SimpleMessage:
-    booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token))
-    if not booking:
-        raise HTTPException(status_code=404, detail='Link annullamento non valido')
+    with acquire_single_court_lock(db):
+        booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token))
+        if not booking:
+            raise HTTPException(status_code=404, detail='Link annullamento non valido')
 
-    booking_rules = get_booking_rules(db)
-    hours_until_start = (booking.start_at - datetime.now(UTC)).total_seconds() / 3600
-    if hours_until_start < booking_rules['cancellation_window_hours']:
-        raise HTTPException(status_code=400, detail='La finestra di cancellazione è terminata')
+        booking_rules = get_booking_rules(db)
+        hours_until_start = (as_utc(booking.start_at) - datetime.now(UTC)).total_seconds() / 3600
+        if hours_until_start < booking_rules['cancellation_window_hours']:
+            raise HTTPException(status_code=400, detail='La finestra di cancellazione è terminata')
 
-    cancel_booking(db, booking, actor='public', reason='Annullamento richiesto dal cliente')
-    db.commit()
-    return SimpleMessage(message='Prenotazione annullata con successo')
+        cancel_booking(db, booking, actor='public', reason='Annullamento richiesto dal cliente')
+        db.commit()
+        return SimpleMessage(message='Prenotazione annullata con successo')

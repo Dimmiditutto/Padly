@@ -28,6 +28,14 @@ import { formatCurrency, formatDateTime, toDateInputValue } from '../utils/forma
 
 const today = toDateInputValue(new Date());
 
+function getRequestStatus(error: any) {
+  return error?.response?.status;
+}
+
+function getRequestMessage(error: any, fallback: string) {
+  return error?.response?.data?.detail || fallback;
+}
+
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
@@ -64,12 +72,31 @@ export function AdminDashboardPage() {
 
   async function bootstrap() {
     setLoading(true);
+    setFeedback(null);
     try {
       await getAdminSession();
-      await Promise.all([loadBookings(), loadReport(), loadEvents(), loadBlackouts(), loadSettings()]);
-    } catch {
-      navigate('/admin/login');
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate('/admin/login');
+        return;
+      }
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Non riesco a verificare la sessione admin in questo momento.') });
+      setLoading(false);
       return;
+    }
+
+    try {
+      const results = await Promise.allSettled([loadBookings(), loadReport(), loadEvents(), loadBlackouts(), loadSettings()]);
+      const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
+      if (unauthorized) {
+        navigate('/admin/login');
+        return;
+      }
+
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length > 0) {
+        setFeedback({ tone: 'error', message: 'Dashboard caricata solo parzialmente. Alcuni pannelli non sono disponibili al momento.' });
+      }
     } finally {
       setLoading(false);
     }
@@ -100,9 +127,22 @@ export function AdminDashboardPage() {
     setSettings(response);
   }
 
+  async function refreshBookings(fallbackMessage: string) {
+    setFeedback(null);
+    try {
+      await loadBookings();
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate('/admin/login');
+        return;
+      }
+      setFeedback({ tone: 'error', message: getRequestMessage(error, fallbackMessage) });
+    }
+  }
+
   async function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await loadBookings();
+    await refreshBookings('Applicazione filtri non riuscita.');
   }
 
   async function createManualBooking(event: FormEvent<HTMLFormElement>) {
@@ -117,7 +157,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function createBlackout(event: FormEvent<HTMLFormElement>) {
+  async function submitBlackout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
     try {
@@ -129,7 +169,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function previewRecurring(event: FormEvent<HTMLFormElement>) {
+  async function submitRecurringPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
       const response = await previewRecurring(recurringForm);
@@ -150,14 +190,32 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function markBookingState(bookingId: string, status: 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
-    await updateAdminBookingStatus(bookingId, { status });
-    await Promise.all([loadBookings(), loadReport(), loadEvents()]);
+  async function markBookingState(bookingId: string, status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
+    setFeedback(null);
+    try {
+      await updateAdminBookingStatus(bookingId, { status });
+      await Promise.all([loadBookings(), loadReport(), loadEvents()]);
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate('/admin/login');
+        return;
+      }
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento stato non riuscito.') });
+    }
   }
 
   async function markBalancePaid(bookingId: string) {
-    await markAdminBalancePaid(bookingId);
-    await Promise.all([loadBookings(), loadEvents()]);
+    setFeedback(null);
+    try {
+      await markAdminBalancePaid(bookingId);
+      await Promise.all([loadBookings(), loadEvents()]);
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate('/admin/login');
+        return;
+      }
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Marcatura saldo non riuscita.') });
+    }
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -210,7 +268,7 @@ export function AdminDashboardPage() {
             <SectionCard
               title='Prenotazioni'
               description='Filtra, controlla stato e apri il dettaglio completo di ogni richiesta.'
-              actions={<button className='btn-secondary' onClick={() => void loadBookings()}>Aggiorna</button>}
+              actions={<button className='btn-secondary' onClick={() => void refreshBookings('Aggiornamento prenotazioni non riuscito.')}>Aggiorna</button>}
               elevated
             >
 
@@ -285,7 +343,7 @@ export function AdminDashboardPage() {
             </SectionCard>
 
             <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.'>
-              <form className='mt-4 space-y-3' onSubmit={createBlackout}>
+              <form className='mt-4 space-y-3' onSubmit={submitBlackout}>
                 <input className='text-input' value={blackoutForm.title} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, title: e.target.value }))} />
                 <input className='text-input' value={blackoutForm.reason} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, reason: e.target.value }))} />
                 <input className='text-input' type='datetime-local' value={blackoutForm.start_at} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, start_at: e.target.value }))} />
@@ -307,7 +365,7 @@ export function AdminDashboardPage() {
             </SectionCard>
 
             <SectionCard title='Serie ricorrente' description='Crea una ricorrenza nello stesso anno solare e controlla subito i conflitti.'>
-              <form className='mt-4 space-y-3' onSubmit={previewRecurring}>
+              <form className='mt-4 space-y-3' onSubmit={submitRecurringPreview}>
                 <input className='text-input' value={recurringForm.label} onChange={(e) => setRecurringForm((prev) => ({ ...prev, label: e.target.value }))} />
                 <div className='grid grid-cols-2 gap-2'>
                   <input className='text-input' type='date' value={recurringForm.start_date} onChange={(e) => setRecurringForm((prev) => ({ ...prev, start_date: e.target.value }))} />
@@ -366,7 +424,7 @@ export function AdminDashboardPage() {
                   </div>
                   <div className='surface-muted'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Provider</p>
-                    <p className='mt-2 text-sm text-slate-700'>Stripe: <strong>{settings.stripe_enabled ? 'configurato' : 'mock/demo'}</strong> • PayPal: <strong>{settings.paypal_enabled ? 'configurato' : 'mock/demo'}</strong></p>
+                    <p className='mt-2 text-sm text-slate-700'>Stripe: <strong>{settings.stripe_enabled ? 'disponibile' : 'non disponibile'}</strong> • PayPal: <strong>{settings.paypal_enabled ? 'disponibile' : 'non disponibile'}</strong></p>
                   </div>
                   <button className='btn-primary w-full' type='submit'>Salva regole</button>
                 </form>

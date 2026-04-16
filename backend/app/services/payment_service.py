@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import Booking, BookingPayment, BookingStatus, PaymentProvider, PaymentStatus, PaymentWebhookEvent
-from app.services.booking_service import calculate_deposit, log_event, mark_booking_paid
+from app.services.booking_service import as_utc, calculate_deposit, expire_pending_booking_if_needed, log_event, mark_booking_paid
 from app.services.email_service import email_service
 
 
@@ -37,6 +37,8 @@ class StripeGateway:
 
     def create_checkout(self, booking: Booking) -> PaymentInitResult:
         if not settings.stripe_secret_key:
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
             query = urlencode({'booking': booking.public_reference, 'provider': 'stripe'})
             return PaymentInitResult(checkout_url=f"{settings.app_url}/api/payments/mock/complete?{query}", provider_reference=f"mock-stripe-{booking.public_reference}")
 
@@ -86,6 +88,8 @@ class PayPalGateway:
     def create_checkout(self, booking: Booking) -> PaymentInitResult:
         token = self._access_token()
         if not token:
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
             query = urlencode({'booking': booking.public_reference, 'provider': 'paypal'})
             return PaymentInitResult(checkout_url=f"{settings.app_url}/api/payments/mock/complete?{query}", provider_reference=f"mock-paypal-{booking.public_reference}")
 
@@ -123,6 +127,8 @@ class PayPalGateway:
     def capture_order(self, order_id: str) -> dict:
         token = self._access_token()
         if not token:
+            if settings.is_production:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='PayPal non configurato in produzione')
             return {'status': 'COMPLETED', 'id': order_id}
         response = httpx.post(
             f'{settings.paypal_base_url}/v2/checkout/orders/{order_id}/capture',
@@ -134,10 +140,14 @@ class PayPalGateway:
 
     def verify_webhook(self, request: Request, payload: dict) -> None:
         if not settings.paypal_webhook_id or not settings.paypal_client_id or not settings.paypal_client_secret:
+            if settings.is_production:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='PayPal webhook non configurato in produzione')
             return
 
         token = self._access_token()
         if not token:
+            if settings.is_production:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='PayPal webhook non configurato in produzione')
             return
 
         body = {
@@ -167,6 +177,40 @@ GATEWAYS: dict[PaymentProvider, PaymentGateway] = {
     PaymentProvider.STRIPE: stripe_gateway,
     PaymentProvider.PAYPAL: paypal_gateway,
 }
+
+
+MOCK_PAYMENT_ENVS = {'development', 'test'}
+
+
+def is_mock_payments_enabled() -> bool:
+    return settings.app_env.lower() in MOCK_PAYMENT_ENVS
+
+
+def _provider_unavailable_detail(provider: PaymentProvider) -> str:
+    provider_label = 'Stripe' if provider == PaymentProvider.STRIPE else 'PayPal'
+    if settings.is_production:
+        return f'{provider_label} non configurato in produzione'
+    return f'{provider_label} non disponibile in questo ambiente'
+
+
+def is_stripe_checkout_available() -> bool:
+    return bool(settings.stripe_secret_key) or is_mock_payments_enabled()
+
+
+def is_paypal_checkout_available() -> bool:
+    return bool(settings.paypal_client_id and settings.paypal_client_secret) or is_mock_payments_enabled()
+
+
+def is_checkout_available(provider: PaymentProvider) -> bool:
+    _assert_valid_provider(provider)
+    if provider == PaymentProvider.STRIPE:
+        return is_stripe_checkout_available()
+    return is_paypal_checkout_available()
+
+
+def assert_checkout_available(provider: PaymentProvider) -> None:
+    if not is_checkout_available(provider):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(provider))
 
 
 def _to_decimal(value: Decimal | str | int | float | None) -> Decimal | None:
@@ -281,6 +325,27 @@ def _ensure_booking_payment(
     return payment
 
 
+def _reuse_initiated_checkout(db: Session, booking: Booking, *, provider: PaymentProvider) -> PaymentInitResult | None:
+    payment = _find_booking_payment(db, booking, provider=provider)
+    if not payment:
+        return None
+
+    provider_reference = payment.provider_order_id or booking.payment_reference
+    if (
+        booking.status == BookingStatus.PENDING_PAYMENT
+        and booking.payment_status == PaymentStatus.INITIATED
+        and payment.status == PaymentStatus.INITIATED
+        and payment.checkout_url
+        and provider_reference
+    ):
+        booking.payment_provider = provider
+        booking.payment_reference = provider_reference
+        payment.provider_order_id = provider_reference
+        return PaymentInitResult(checkout_url=payment.checkout_url, provider_reference=provider_reference)
+
+    return None
+
+
 def _confirm_payment(
     db: Session,
     booking: Booking,
@@ -332,6 +397,9 @@ def mark_checkout_cancelled(db: Session, booking_reference: str, provider: Payme
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Prenotazione non trovata')
 
+    if expire_pending_booking_if_needed(db, booking, actor='payment'):
+        return booking
+
     if booking.payment_status == PaymentStatus.PAID or booking.status != BookingStatus.PENDING_PAYMENT:
         return booking
 
@@ -353,10 +421,19 @@ def _notify_booking_confirmed(db: Session, booking: Booking, *, was_confirmed: b
 
 def start_payment_for_booking(db: Session, booking: Booking, provider: PaymentProvider) -> PaymentInitResult:
     _assert_valid_provider(provider)
+    assert_checkout_available(provider)
     _expected_booking_amount(booking)
+
+    expires_at = as_utc(booking.expires_at) if booking.expires_at else None
+    if expires_at and datetime.now(UTC) > expires_at:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La prenotazione è scaduta')
 
     if booking.status not in {booking.status.__class__.PENDING_PAYMENT, booking.status.__class__.CONFIRMED}:
         raise HTTPException(status_code=400, detail='Stato prenotazione non compatibile con il pagamento')
+
+    existing_checkout = _reuse_initiated_checkout(db, booking, provider=provider)
+    if existing_checkout:
+        return existing_checkout
 
     result = GATEWAYS[provider].create_checkout(booking)
 
@@ -389,8 +466,13 @@ def handle_stripe_webhook(db: Session, request: Request, raw_payload: bytes) -> 
     signature = request.headers.get('stripe-signature')
     if settings.stripe_webhook_secret:
         event = stripe.Webhook.construct_event(raw_payload, signature, settings.stripe_webhook_secret)
+    elif settings.is_production:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Stripe webhook non configurato in produzione',
+        )
     else:
-        event = json.loads(raw_payload.decode('utf-8'))  # pragma: no cover
+        event = json.loads(raw_payload.decode('utf-8'))
 
     event_id = event['id']
     if _already_processed(db, 'stripe', event_id):
@@ -426,6 +508,16 @@ def handle_paypal_return(db: Session, booking_reference: str, token: str) -> Boo
     booking = db.scalar(select(Booking).where(Booking.public_reference == booking_reference))
     if not booking:
         raise HTTPException(status_code=404, detail='Prenotazione non trovata')
+
+    if booking.status == BookingStatus.CONFIRMED and booking.payment_status == PaymentStatus.PAID:
+        log_event(
+            db,
+            booking,
+            'PAYPAL_RETURN_ALREADY_CONFIRMED',
+            'Doppio ritorno PayPal ignorato: prenotazione già confermata',
+            actor='payment',
+        )
+        return booking
 
     capture = paypal_gateway.capture_order(token)
     capture_block = ((capture.get('purchase_units') or [{}])[0].get('payments') or {}).get('captures', [{}])[0]
@@ -488,6 +580,9 @@ def handle_paypal_webhook(db: Session, request: Request, payload: dict) -> None:
 
 
 def handle_mock_payment(db: Session, booking_reference: str, provider: PaymentProvider) -> Booking:
+    if not is_mock_payments_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Endpoint non disponibile')
+
     booking = db.scalar(select(Booking).where(Booking.public_reference == booking_reference))
     if not booking:
         raise HTTPException(status_code=404, detail='Prenotazione non trovata')

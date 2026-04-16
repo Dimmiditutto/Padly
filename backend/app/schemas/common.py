@@ -44,6 +44,10 @@ class BookingSummary(BaseModel):
     balance_paid_at: datetime | None = None
 
 
+class BookingDetail(BookingSummary):
+    payment_reference: str | None = None
+
+
 class TimeSlot(BaseModel):
     start_time: str
     end_time: str

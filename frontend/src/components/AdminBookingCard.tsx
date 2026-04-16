@@ -1,6 +1,7 @@
 import { ArrowRight, CalendarDays, Clock3, WalletCards } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { BookingSummary } from '../types';
+import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { StatusBadge } from './StatusBadge';
 
 export function AdminBookingCard({
@@ -10,8 +11,14 @@ export function AdminBookingCard({
 }: {
   booking: BookingSummary;
   onMarkBalancePaid: (bookingId: string) => Promise<void>;
-  onUpdateStatus: (bookingId: string, status: 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') => Promise<void>;
+  onUpdateStatus: (bookingId: string, status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') => Promise<void>;
 }) {
+  const canCancel = canCancelBooking(booking.status);
+  const canComplete = canMarkBookingCompleted(booking.status, booking.end_at);
+  const canNoShow = canMarkBookingNoShow(booking.status, booking.start_at);
+  const canRestore = canRestoreBookingConfirmed(booking.status);
+  const canMarkBalance = canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at);
+
   return (
     <article className='rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm'>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
@@ -30,10 +37,11 @@ export function AdminBookingCard({
         <Link to={`/admin/bookings/${booking.id}`} className='btn-ghost'>Dettaglio <ArrowRight size={16} /></Link>
       </div>
       <div className='mt-4 flex flex-wrap gap-2'>
-        <button className='btn-secondary' onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button>
-        <button className='btn-secondary' onClick={() => void onUpdateStatus(booking.id, 'COMPLETED')}>Completed</button>
-        <button className='btn-secondary' onClick={() => void onUpdateStatus(booking.id, 'NO_SHOW')}>No-show</button>
-        <button className='btn-secondary' onClick={() => void onUpdateStatus(booking.id, 'CANCELLED')}>Annulla</button>
+        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalance} onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button>
+        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canComplete} onClick={() => void onUpdateStatus(booking.id, 'COMPLETED')}>Completed</button>
+        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canNoShow} onClick={() => void onUpdateStatus(booking.id, 'NO_SHOW')}>No-show</button>
+        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canCancel} onClick={() => void onUpdateStatus(booking.id, 'CANCELLED')}>Annulla</button>
+        {canRestore ? <button className='btn-secondary' onClick={() => void onUpdateStatus(booking.id, 'CONFIRMED')}>Ripristina confermata</button> : null}
       </div>
     </article>
   );

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -22,11 +23,23 @@ from app.models import Admin
 RATE_WINDOW_SECONDS = 60
 request_log: dict[str, deque[float]] = defaultdict(deque)
 logger = logging.getLogger(__name__)
+PUBLIC_RATE_LIMIT_PATTERNS = (
+    (re.compile(rf'^{re.escape(settings.api_prefix)}/public/bookings/[^/]+/checkout$'), f'{settings.api_prefix}/public/bookings/:booking_id/checkout'),
+    (re.compile(rf'^{re.escape(settings.api_prefix)}/public/bookings/[^/]+/status$'), f'{settings.api_prefix}/public/bookings/:public_reference/status'),
+    (re.compile(rf'^{re.escape(settings.api_prefix)}/public/bookings/cancel/[^/]+$'), f'{settings.api_prefix}/public/bookings/cancel/:cancel_token'),
+)
 
 logging.basicConfig(
     level=logging.INFO if settings.app_env != 'development' else logging.DEBUG,
     format='%(asctime)s %(levelname)s %(name)s %(message)s',
 )
+
+
+def normalize_rate_limit_path(path: str) -> str:
+    for pattern, normalized in PUBLIC_RATE_LIMIT_PATTERNS:
+        if pattern.match(path):
+            return normalized
+    return path
 
 
 @asynccontextmanager
@@ -64,7 +77,7 @@ async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
     if path.startswith(f"{settings.api_prefix}/public") or path.endswith('/admin/auth/login'):
         client_ip = request.client.host if request.client else 'unknown'
-        key = f'{client_ip}:{path}'
+        key = f'{client_ip}:{normalize_rate_limit_path(path)}'
         now = time.time()
         bucket = request_log[key]
         while bucket and bucket[0] < now - RATE_WINDOW_SECONDS:

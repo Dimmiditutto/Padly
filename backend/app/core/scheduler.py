@@ -14,8 +14,6 @@ scheduler = AsyncIOScheduler(timezone=settings.timezone)
 def expire_pending_job() -> None:
     with SessionLocal() as db:
         expired_bookings = expire_pending_bookings(db)
-        for booking in expired_bookings:
-            email_service.booking_expired(db, booking)
         if expired_bookings:
             db.commit()
 

@@ -24,12 +24,36 @@ from app.models import (
     PaymentStatus,
     RecurringBookingSeries,
 )
+from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
 
 VALID_DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300]
 BLOCKING_STATUSES = [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW]
+ADMIN_ALLOWED_STATUS_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
+    BookingStatus.PENDING_PAYMENT: {BookingStatus.CANCELLED},
+    BookingStatus.CONFIRMED: {BookingStatus.CANCELLED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW},
+    BookingStatus.COMPLETED: {BookingStatus.CONFIRMED},
+    BookingStatus.NO_SHOW: {BookingStatus.CONFIRMED},
+}
+BALANCE_ALLOWED_STATUSES = {BookingStatus.CONFIRMED, BookingStatus.COMPLETED}
 ROME_TZ = ZoneInfo(settings.timezone)
 single_court_mutex = RLock()
+
+
+def _public_provider_unavailable_detail(provider: PaymentProvider) -> str:
+    provider_label = 'Stripe' if provider == PaymentProvider.STRIPE else 'PayPal'
+    if settings.is_production:
+        return f'{provider_label} non configurato in produzione'
+    return f'{provider_label} non disponibile in questo ambiente'
+
+
+def _is_public_provider_available(provider: PaymentProvider) -> bool:
+    mock_enabled = settings.app_env.lower() in {'development', 'test'}
+    if provider == PaymentProvider.STRIPE:
+        return bool(settings.stripe_secret_key) or mock_enabled
+    if provider == PaymentProvider.PAYPAL:
+        return bool(settings.paypal_client_id and settings.paypal_client_secret) or mock_enabled
+    return False
 
 
 def as_utc(value: datetime) -> datetime:
@@ -186,6 +210,9 @@ def create_public_booking(
     payment_provider: PaymentProvider,
 ) -> Booking:
     with acquire_single_court_lock(db):
+        if not _is_public_provider_available(payment_provider):
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_public_provider_unavailable_detail(payment_provider))
+
         local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes)
         assert_slot_available(db, start_at=start_at, end_at=end_at)
 
@@ -269,6 +296,64 @@ def cancel_booking(db: Session, booking: Booking, *, actor: str, reason: str = '
     return booking
 
 
+def update_booking_status_by_admin(db: Session, booking: Booking, *, target_status: BookingStatus, actor: str) -> Booking:
+    if target_status == booking.status:
+        return booking
+
+    allowed_targets = ADMIN_ALLOWED_STATUS_TRANSITIONS.get(booking.status, set())
+    if target_status not in allowed_targets:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Transizione stato non consentita')
+
+    current_time = datetime.now(UTC)
+    if target_status == BookingStatus.COMPLETED and current_time < as_utc(booking.end_at):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Puoi segnare completed solo dopo la fine dello slot')
+    if target_status == BookingStatus.NO_SHOW and current_time < as_utc(booking.start_at):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Puoi segnare no-show solo dopo l'inizio dello slot")
+
+    if target_status == BookingStatus.CANCELLED:
+        cancel_booking(db, booking, actor=actor, reason='Annullata da admin')
+        booking.completed_at = None
+        booking.no_show_at = None
+        booking.balance_paid_at = None
+        return booking
+
+    booking.status = target_status
+    booking.cancelled_at = None
+
+    if target_status == BookingStatus.COMPLETED:
+        booking.completed_at = datetime.now(UTC)
+        booking.no_show_at = None
+        log_event(db, booking, 'BOOKING_COMPLETED', 'Prenotazione segnata come completata', actor=actor)
+        return booking
+
+    if target_status == BookingStatus.NO_SHOW:
+        booking.no_show_at = datetime.now(UTC)
+        booking.completed_at = None
+        booking.balance_paid_at = None
+        log_event(db, booking, 'BOOKING_NO_SHOW', 'Prenotazione segnata come no-show', actor=actor)
+        return booking
+
+    booking.completed_at = None
+    booking.no_show_at = None
+    log_event(db, booking, 'BOOKING_CONFIRMED', 'Prenotazione riportata a confermata da admin', actor=actor)
+    return booking
+
+
+def mark_balance_paid_at_field(db: Session, booking: Booking, *, actor: str) -> Booking:
+    if booking.status not in BALANCE_ALLOWED_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Saldo al campo non consentito per questo stato prenotazione')
+
+    if datetime.now(UTC) < as_utc(booking.start_at):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Saldo al campo disponibile solo dall'inizio dello slot")
+
+    if booking.balance_paid_at is not None:
+        return booking
+
+    booking.balance_paid_at = datetime.now(UTC)
+    log_event(db, booking, 'BALANCE_PAID_AT_FIELD', 'Saldo segnato come pagato al campo', actor=actor)
+    return booking
+
+
 def mark_booking_paid(
     db: Session,
     booking: Booking,
@@ -286,7 +371,8 @@ def mark_booking_paid(
             log_event(db, booking, 'IGNORED_PAYMENT_FOR_CANCELLED_BOOKING', 'Pagamento ricevuto per una prenotazione annullata', actor='payment')
             return booking
 
-        if booking.status == BookingStatus.EXPIRED and expires_at and event_time > expires_at:
+        if expires_at and event_time > expires_at:
+            expire_pending_booking_if_needed(db, booking, now=event_time, actor='payment')
             log_event(db, booking, 'LATE_PAYMENT_AFTER_EXPIRY', 'Pagamento ricevuto dopo la finestra di hold', actor='payment')
             return booking
 
@@ -308,6 +394,30 @@ def mark_booking_paid(
         return booking
 
 
+def expire_pending_booking_if_needed(
+    db: Session,
+    booking: Booking,
+    *,
+    now: datetime | None = None,
+    actor: str = 'system',
+) -> bool:
+    current_time = as_utc(now or datetime.now(UTC))
+    expires_at = as_utc(booking.expires_at) if booking.expires_at else None
+
+    if booking.status != BookingStatus.PENDING_PAYMENT or not expires_at or current_time <= expires_at:
+        return False
+
+    booking.status = BookingStatus.EXPIRED
+    if booking.payment_status != PaymentStatus.PAID:
+        booking.payment_status = PaymentStatus.EXPIRED
+    for payment in booking.payments:
+        if payment.status in {PaymentStatus.INITIATED, PaymentStatus.UNPAID, PaymentStatus.CANCELLED}:
+            payment.status = PaymentStatus.EXPIRED
+    log_event(db, booking, 'BOOKING_EXPIRED', 'Pagamento non completato nei tempi previsti', actor=actor)
+    email_service.booking_expired(db, booking)
+    return True
+
+
 def expire_pending_bookings(db: Session) -> list[Booking]:
     now = datetime.now(UTC)
     expired = db.scalars(
@@ -319,12 +429,7 @@ def expire_pending_bookings(db: Session) -> list[Booking]:
     ).all()
 
     for booking in expired:
-        booking.status = BookingStatus.EXPIRED
-        booking.payment_status = PaymentStatus.EXPIRED
-        for payment in booking.payments:
-            if payment.status in {PaymentStatus.INITIATED, PaymentStatus.UNPAID, PaymentStatus.CANCELLED}:
-                payment.status = PaymentStatus.EXPIRED
-        log_event(db, booking, 'BOOKING_EXPIRED', 'Pagamento non completato nei tempi previsti', actor='system')
+        expire_pending_booking_if_needed(db, booking, now=now, actor='system')
     return expired
 
 

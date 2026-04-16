@@ -1,9 +1,9 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.models import BookingStatus, PaymentProvider
+from app.models import PaymentProvider
 from app.schemas.common import BookingCustomerData, BookingSummary
 from app.schemas.public import VALID_DURATIONS
 
@@ -19,10 +19,11 @@ class AdminMeResponse(BaseModel):
 
 
 class AdminBookingCreateRequest(BookingCustomerData):
+    model_config = ConfigDict(extra='forbid')
+
     booking_date: date
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
     duration_minutes: int
-    status: BookingStatus = BookingStatus.CONFIRMED
     payment_provider: PaymentProvider = PaymentProvider.NONE
 
     @field_validator('duration_minutes')

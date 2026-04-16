@@ -1,9 +1,9 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import PaymentProvider, PaymentStatus
-from app.schemas.common import BookingCustomerData, BookingSummary, TimeSlot
+from app.models import BookingStatus, PaymentProvider, PaymentStatus
+from app.schemas.common import BookingCustomerData, TimeSlot
 
 VALID_DURATIONS = {60, 90, 120, 150, 180, 210, 240, 270, 300}
 
@@ -45,14 +45,13 @@ class PublicBookingCreateRequest(BookingCustomerData):
 
 
 class PublicBookingCreateResponse(BaseModel):
-    booking: BookingSummary
+    booking: 'PublicBookingSummary'
     checkout_ready: bool
     next_action_url: str | None = None
 
 
 class BookingStatusResponse(BaseModel):
-    booking: BookingSummary
-    customer_email: str | None = None
+    booking: 'PublicBookingSummary'
 
 
 class PaymentInitResponse(BaseModel):
@@ -73,3 +72,23 @@ class PublicConfigResponse(BaseModel):
     cancellation_window_hours: int
     stripe_enabled: bool
     paypal_enabled: bool
+
+
+class PublicBookingSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    public_reference: str
+    start_at: datetime
+    end_at: datetime
+    duration_minutes: int
+    booking_date_local: date
+    status: BookingStatus
+    deposit_amount: float
+    payment_provider: PaymentProvider
+    payment_status: PaymentStatus
+    created_at: datetime
+    cancelled_at: datetime | None = None
+    completed_at: datetime | None = None
+    no_show_at: datetime | None = None
+    balance_paid_at: datetime | None = None
