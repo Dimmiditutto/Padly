@@ -186,8 +186,8 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` se usi Stripe
-- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` se usi PayPal
-- `PAYPAL_BASE_URL=https://api-m.paypal.com` in produzione PayPal
+- `PAYPAL_ENV=sandbox|live`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` se usi PayPal
+- `PAYPAL_API_BASE=https://api-m.paypal.com` in produzione PayPal, con alias legacy `PAYPAL_BASE_URL`
 
 In produzione il bootstrap fallisce esplicitamente se `SECRET_KEY`, `ADMIN_EMAIL` o `ADMIN_PASSWORD` restano mancanti, vuoti o uguali ai placeholder di `.env.example`.
 
@@ -323,7 +323,7 @@ Per smoke locali puoi lasciare `DATABASE_URL=sqlite:///./padelbooking.db`. In pr
 
 #### PayPal
 
-- in produzione usa `PAYPAL_BASE_URL=https://api-m.paypal.com`
+- in produzione usa `PAYPAL_ENV=live` e `PAYPAL_API_BASE=https://api-m.paypal.com` (alias legacy supportato: `PAYPAL_BASE_URL`)
 - return URL: `${APP_URL}/api/payments/paypal/return?booking=...`
 - cancel URL: `${APP_URL}/api/payments/paypal/cancel?booking=...`
 - webhook endpoint: `${APP_URL}/api/payments/paypal/webhook`

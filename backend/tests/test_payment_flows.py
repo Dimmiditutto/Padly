@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.db import SessionLocal
 import app.main as main_module
 from app.main import app
@@ -1026,6 +1026,30 @@ def test_public_config_reflects_runtime_provider_availability(client, monkeypatc
     assert production_config.status_code == 200
     assert production_config.json()['stripe_enabled'] is False
     assert production_config.json()['paypal_enabled'] is False
+
+
+def test_paypal_api_base_alias_and_env_defaults_are_supported(monkeypatch):
+    monkeypatch.delenv('PAYPAL_ENV', raising=False)
+    monkeypatch.delenv('PAYPAL_API_BASE', raising=False)
+    monkeypatch.delenv('PAYPAL_BASE_URL', raising=False)
+
+    sandbox_settings = Settings(_env_file=None)
+    assert sandbox_settings.paypal_env == 'sandbox'
+    assert sandbox_settings.paypal_base_url == 'https://api-m.sandbox.paypal.com'
+
+    monkeypatch.setenv('PAYPAL_ENV', 'live')
+    live_settings = Settings(_env_file=None)
+    assert live_settings.paypal_env == 'live'
+    assert live_settings.paypal_base_url == 'https://api-m.paypal.com'
+
+    monkeypatch.setenv('PAYPAL_API_BASE', 'https://api-m.sandbox.paypal.com')
+    api_alias_settings = Settings(_env_file=None)
+    assert api_alias_settings.paypal_base_url == 'https://api-m.sandbox.paypal.com'
+
+    monkeypatch.delenv('PAYPAL_API_BASE', raising=False)
+    monkeypatch.setenv('PAYPAL_BASE_URL', 'https://api-m.paypal.com')
+    legacy_alias_settings = Settings(_env_file=None)
+    assert legacy_alias_settings.paypal_base_url == 'https://api-m.paypal.com'
 
 
 def test_missing_payment_expires_and_releases_slot(client):

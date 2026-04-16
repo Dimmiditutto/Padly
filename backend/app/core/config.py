@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import EmailStr, field_validator
+from pydantic import AliasChoices, EmailStr, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,9 +42,13 @@ class Settings(BaseSettings):
     smtp_from: str = 'noreply@example.com'
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    paypal_env: str = Field(default='sandbox', validation_alias='PAYPAL_ENV')
     paypal_client_id: str | None = None
     paypal_client_secret: str | None = None
-    paypal_base_url: str = 'https://api-m.sandbox.paypal.com'
+    paypal_base_url: str = Field(
+        default='https://api-m.sandbox.paypal.com',
+        validation_alias=AliasChoices('PAYPAL_API_BASE', 'PAYPAL_BASE_URL'),
+    )
     paypal_webhook_id: str | None = None
     rate_limit_per_minute: int = 60
 
@@ -57,6 +61,30 @@ class Settings(BaseSettings):
     def normalize_app_url(cls, value: str) -> str:
         normalized = value.rstrip('/')
         return normalized or value
+
+    @field_validator('paypal_env')
+    @classmethod
+    def normalize_paypal_env(cls, value: str) -> str:
+        normalized = (value or 'sandbox').strip().lower()
+        if normalized not in {'sandbox', 'live'}:
+            raise ValueError('PAYPAL_ENV deve essere "sandbox" oppure "live"')
+        return normalized
+
+    @field_validator('paypal_base_url')
+    @classmethod
+    def normalize_paypal_base_url(cls, value: str) -> str:
+        normalized = value.rstrip('/')
+        return normalized or value
+
+    @model_validator(mode='after')
+    def apply_paypal_environment_defaults(self) -> 'Settings':
+        if 'paypal_base_url' not in self.model_fields_set:
+            self.paypal_base_url = (
+                'https://api-m.paypal.com'
+                if self.paypal_env == 'live'
+                else 'https://api-m.sandbox.paypal.com'
+            )
+        return self
 
     def insecure_production_settings(self) -> list[str]:
         if not self.is_production:
