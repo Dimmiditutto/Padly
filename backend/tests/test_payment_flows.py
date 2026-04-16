@@ -245,6 +245,94 @@ def test_mock_payment_endpoint_is_disabled_outside_development_and_test(client, 
     assert updated['payment_status'] == 'UNPAID'
 
 
+def test_paypal_return_fails_closed_outside_mock_env_without_credentials(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='PAYPAL',
+        email='paypal-staging-return@example.com',
+        phone='3331110020',
+        start_time='20:15',
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'staging')
+    monkeypatch.setattr(settings, 'paypal_client_id', None)
+    monkeypatch.setattr(settings, 'paypal_client_secret', None)
+
+    response = client.get(
+        f"/api/payments/paypal/return?booking={booking['public_reference']}&token=order-paypal-staging",
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'PayPal non disponibile in questo ambiente'
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'PENDING_PAYMENT'
+    assert updated['payment_status'] == 'INITIATED'
+
+
+def test_paypal_webhook_fails_closed_outside_mock_env_without_configuration(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='PAYPAL',
+        email='paypal-staging-webhook@example.com',
+        phone='3331110021',
+        start_time='20:45',
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'qa')
+    monkeypatch.setattr(settings, 'paypal_client_id', None)
+    monkeypatch.setattr(settings, 'paypal_client_secret', None)
+    monkeypatch.setattr(settings, 'paypal_webhook_id', None)
+
+    response = client.post(
+        '/api/payments/paypal/webhook',
+        json={
+            'id': 'WH-PAYPAL-STAGING',
+            'event_type': 'PAYMENT.CAPTURE.COMPLETED',
+            'resource': {
+                'id': 'capture-paypal-staging',
+                'amount': {'value': '20.00', 'currency_code': 'EUR'},
+                'supplementary_data': {'related_ids': {'order_id': 'order-paypal-staging'}},
+                'custom_id': booking['public_reference'],
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'PayPal webhook non disponibile in questo ambiente'
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'PENDING_PAYMENT'
+    assert updated['payment_status'] == 'INITIATED'
+
+
+def test_stripe_webhook_fails_closed_outside_mock_env_without_secret(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='stripe-staging-webhook@example.com',
+        phone='3331110022',
+        start_time='21:15',
+    )
+
+    monkeypatch.setattr(settings, 'app_env', 'staging')
+    monkeypatch.setattr(settings, 'stripe_webhook_secret', None)
+
+    response = client.post(
+        '/api/payments/stripe/webhook',
+        json={
+            'id': 'evt_stripe_staging_missing_secret',
+            'type': 'checkout.session.completed',
+            'data': {'object': {'client_reference_id': booking['public_reference']}},
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'Stripe webhook non disponibile in questo ambiente'
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'PENDING_PAYMENT'
+    assert updated['payment_status'] == 'INITIATED'
+
+
 def test_cancelled_checkout_marks_payment_cancelled_but_booking_stays_retryable(client):
     _, booking, _ = create_pending_booking(
         client,

@@ -23,7 +23,10 @@ router = APIRouter(prefix='/admin', tags=['Admin Operations'])
 
 
 def _parse_datetime(value: str) -> datetime:
-    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    try:
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail='Data/ora non valida') from exc
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo(settings.timezone))
     return dt.astimezone(UTC)

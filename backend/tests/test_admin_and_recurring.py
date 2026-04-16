@@ -111,6 +111,32 @@ def test_admin_settings_update_reflected_in_public_config(client):
     assert public_payload['cancellation_window_hours'] == 48
 
 
+def test_admin_booking_filters_reject_invalid_date(client):
+    admin_login(client)
+
+    response = client.get('/api/admin/bookings', params={'booking_date': 'not-a-date'})
+
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Data filtro non valida'
+
+
+def test_admin_blackout_rejects_invalid_datetime(client):
+    admin_login(client)
+
+    response = client.post(
+        '/api/admin/blackouts',
+        json={
+            'title': 'Manutenzione',
+            'reason': 'Test',
+            'start_at': 'not-a-datetime',
+            'end_at': '2026-05-10T10:00:00',
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Data/ora non valida'
+
+
 def test_admin_status_transitions_are_guarded_for_pending_and_cancelled_bookings(client):
     admin_login(client)
     booking = create_public_pending_booking(client, booking_date=future_date(6), start_time='20:00')

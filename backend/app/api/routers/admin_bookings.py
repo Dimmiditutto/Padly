@@ -23,7 +23,13 @@ def get_bookings(
     db: Session = Depends(get_db),
     admin: Admin = Depends(get_current_admin),
 ) -> BookingListResponse:
-    parsed_date = datetime.fromisoformat(booking_date).date() if booking_date else None
+    if booking_date:
+        try:
+            parsed_date = datetime.fromisoformat(booking_date).date()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail='Data filtro non valida') from exc
+    else:
+        parsed_date = None
     items, total = list_bookings(db, booking_date=parsed_date, status_value=status_value, payment_provider=payment_provider, customer_query=customer_query)
     return BookingListResponse(items=items, total=total)
 

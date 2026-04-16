@@ -6,8 +6,8 @@ import { loginAdmin } from '../services/adminApi';
 
 export function AdminLoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('admin@padelbooking.app');
-  const [password, setPassword] = useState('ChangeMe123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 

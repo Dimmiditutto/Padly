@@ -127,8 +127,8 @@ class PayPalGateway:
     def capture_order(self, order_id: str) -> dict:
         token = self._access_token()
         if not token:
-            if settings.is_production:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='PayPal non configurato in produzione')
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_provider_unavailable_detail(self.provider))
             return {'status': 'COMPLETED', 'id': order_id}
         response = httpx.post(
             f'{settings.paypal_base_url}/v2/checkout/orders/{order_id}/capture',
@@ -140,14 +140,14 @@ class PayPalGateway:
 
     def verify_webhook(self, request: Request, payload: dict) -> None:
         if not settings.paypal_webhook_id or not settings.paypal_client_id or not settings.paypal_client_secret:
-            if settings.is_production:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='PayPal webhook non configurato in produzione')
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_provider_webhook_unavailable_detail(self.provider))
             return
 
         token = self._access_token()
         if not token:
-            if settings.is_production:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='PayPal webhook non configurato in produzione')
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_provider_webhook_unavailable_detail(self.provider))
             return
 
         body = {
@@ -191,6 +191,13 @@ def _provider_unavailable_detail(provider: PaymentProvider) -> str:
     if settings.is_production:
         return f'{provider_label} non configurato in produzione'
     return f'{provider_label} non disponibile in questo ambiente'
+
+
+def _provider_webhook_unavailable_detail(provider: PaymentProvider) -> str:
+    provider_label = 'Stripe' if provider == PaymentProvider.STRIPE else 'PayPal'
+    if settings.is_production:
+        return f'{provider_label} webhook non configurato in produzione'
+    return f'{provider_label} webhook non disponibile in questo ambiente'
 
 
 def is_stripe_checkout_available() -> bool:
@@ -466,10 +473,10 @@ def handle_stripe_webhook(db: Session, request: Request, raw_payload: bytes) -> 
     signature = request.headers.get('stripe-signature')
     if settings.stripe_webhook_secret:
         event = stripe.Webhook.construct_event(raw_payload, signature, settings.stripe_webhook_secret)
-    elif settings.is_production:
+    elif not is_mock_payments_enabled():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Stripe webhook non configurato in produzione',
+            detail=_provider_webhook_unavailable_detail(PaymentProvider.STRIPE),
         )
     else:
         event = json.loads(raw_payload.decode('utf-8'))

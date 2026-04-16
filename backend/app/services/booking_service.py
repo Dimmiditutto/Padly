@@ -500,9 +500,8 @@ def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, star
     dates = _recurring_dates(start_date, weekday, weeks_count)
     occurrences: list[dict] = []
     for occurrence_date in dates:
-        local_start, start_at, _ = parse_slot(occurrence_date, start_time_value, duration_minutes)
         try:
-            _, _, end_at = parse_slot(occurrence_date, start_time_value, duration_minutes)
+            local_start, start_at, end_at = parse_slot(occurrence_date, start_time_value, duration_minutes)
             assert_slot_available(db, start_at=start_at, end_at=end_at)
             available = True
             reason = None

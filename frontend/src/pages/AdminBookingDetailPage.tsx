@@ -44,9 +44,11 @@ export function AdminBookingDetailPage() {
   async function updateStatus(status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
     if (!booking) return;
     setFeedback('');
+    setError('');
     try {
       const updated = await updateAdminBookingStatus(booking.id, { status });
       setBooking(updated);
+      setError('');
       setFeedback(`Stato aggiornato a ${status}.`);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.detail || 'Aggiornamento stato non riuscito.');
@@ -56,9 +58,11 @@ export function AdminBookingDetailPage() {
   async function markBalance() {
     if (!booking) return;
     setFeedback('');
+    setError('');
     try {
       const updated = await markAdminBalancePaid(booking.id);
       setBooking(updated);
+      setError('');
       setFeedback('Saldo segnato come pagato al campo.');
     } catch (requestError: any) {
       setError(requestError?.response?.data?.detail || 'Marcatura saldo non riuscita.');

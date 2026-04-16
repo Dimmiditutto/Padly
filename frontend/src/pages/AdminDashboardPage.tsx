@@ -382,7 +382,7 @@ export function AdminDashboardPage() {
                 <div className='grid grid-cols-3 gap-2'>
                   <input className='text-input' type='time' value={recurringForm.start_time} onChange={(e) => setRecurringForm((prev) => ({ ...prev, start_time: e.target.value }))} />
                   <select className='text-input' value={recurringForm.duration_minutes} onChange={(e) => setRecurringForm((prev) => ({ ...prev, duration_minutes: Number(e.target.value) }))}>
-                    {[60, 90, 120, 150].map((value) => <option key={value} value={value}>{value} min</option>)}
+                    {[60, 90, 120, 150, 180, 210, 240, 270, 300].map((value) => <option key={value} value={value}>{value} min</option>)}
                   </select>
                   <input className='text-input' type='number' min={1} max={52} value={recurringForm.weeks_count} onChange={(e) => setRecurringForm((prev) => ({ ...prev, weeks_count: Number(e.target.value) }))} />
                 </div>
