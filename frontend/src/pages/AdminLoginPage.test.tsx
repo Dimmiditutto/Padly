@@ -44,6 +44,7 @@ describe('AdminLoginPage', () => {
 
     expect(screen.getByLabelText('Email')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/');
   });
 
   it('redirects to the dashboard when login succeeds', async () => {

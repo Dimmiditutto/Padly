@@ -103,7 +103,8 @@ describe('PublicBookingPage', () => {
 
     await screen.findByText('15 minuti');
     await screen.findByRole('button', { name: '18:00' });
-    expect(screen.getByRole('img', { name: 'Logo BR' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Logo BG' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login');
     expect(screen.getByText('Campo aperto da Lunedì a Domenica dalle 7 alle 24. La disponibilità cambia in tempo reale.')).toBeInTheDocument();
     expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
     expect(screen.getByText('Rimborso automatico solo se annulli prima di 24 ore. Nelle ultime 24 ore la caparra non e rimborsabile.')).toBeInTheDocument();

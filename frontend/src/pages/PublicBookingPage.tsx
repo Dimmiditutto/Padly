@@ -1,5 +1,6 @@
-import { Calendar, CheckCircle2, Clock3, CreditCard, ShieldCheck } from 'lucide-react';
+import { Calendar, CheckCircle2, Clock3, CreditCard, LogIn, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
@@ -17,7 +18,7 @@ const playerRates = [
   '90 minuti: € 10 per giocatore tesserato',
   '90 minuti: € 13 per giocatore non tesserato',
 ];
-const logoUrl = '/Logo_BR.png';
+const logoUrl = '/Logo_BG.png';
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
 const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
@@ -153,8 +154,17 @@ export function PublicBookingPage() {
       <div className='page-shell max-w-6xl'>
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-            <div className='rounded-[24px] border border-white/10 bg-white/[0.03] px-0 py-3'>
-              <img src={logoUrl} alt='Logo BR' className='block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
+            <div className='mb-4 flex justify-end'>
+              <Link
+                to='/admin/login'
+                className='inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-cyan-300'
+              >
+                <LogIn size={16} />
+                Accesso admin
+              </Link>
+            </div>
+            <div className='flex items-center justify-center rounded-[24px] border border-white/10 bg-[#00497a] px-0 py-3'>
+              <img src={logoUrl} alt='Logo BG' className='mx-auto block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
             </div>
             <div className='mt-6 max-w-2xl'>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Prenota il tuo match in pochi minuti</h1>
