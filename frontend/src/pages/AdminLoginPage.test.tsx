@@ -32,7 +32,7 @@ function deferred<T>() {
 describe('AdminLoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(loginAdmin).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(loginAdmin).mockResolvedValue({ email: 'info@padelsavona.it', full_name: 'Admin' });
   });
 
   afterEach(() => {
@@ -45,18 +45,23 @@ describe('AdminLoginPage', () => {
     expect(screen.getByLabelText('Email')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/');
+    expect(screen.getByText('Nessun cambio password obbligatorio al primo accesso.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Password dimenticata?' })).toHaveAttribute(
+      'href',
+      "mailto:info@padelsavona.it?subject=Recupero%20password%20area%20admin&body=Ciao%2C%20ho%20bisogno%20di%20recuperare%20la%20password%20dell'area%20admin."
+    );
   });
 
   it('redirects to the dashboard when login succeeds', async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByLabelText('Email'), 'admin@padelbooking.app');
-    await user.type(screen.getByLabelText('Password'), 'ChangeMe123!');
+    await user.type(screen.getByLabelText('Email'), 'info@padelsavona.it');
+    await user.type(screen.getByLabelText('Password'), 'P4d3ls4v0n4!');
     await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
 
     await screen.findByText('ADMIN DASHBOARD');
-    expect(loginAdmin).toHaveBeenCalledWith('admin@padelbooking.app', 'ChangeMe123!');
+    expect(loginAdmin).toHaveBeenCalledWith('info@padelsavona.it', 'P4d3ls4v0n4!');
   });
 
   it('shows the backend error detail on login failure', async () => {
@@ -65,7 +70,7 @@ describe('AdminLoginPage', () => {
 
     renderPage();
 
-    await user.type(screen.getByLabelText('Email'), 'admin@padelbooking.app');
+    await user.type(screen.getByLabelText('Email'), 'info@padelsavona.it');
     await user.type(screen.getByLabelText('Password'), 'wrong-password');
     await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
 
@@ -79,15 +84,15 @@ describe('AdminLoginPage', () => {
 
     renderPage();
 
-    await user.type(screen.getByLabelText('Email'), 'admin@padelbooking.app');
-    await user.type(screen.getByLabelText('Password'), 'ChangeMe123!');
+    await user.type(screen.getByLabelText('Email'), 'info@padelsavona.it');
+    await user.type(screen.getByLabelText('Password'), 'P4d3ls4v0n4!');
     await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Accesso in corso…' })).toBeDisabled());
     await user.click(screen.getByRole('button', { name: 'Accesso in corso…' }));
     expect(loginAdmin).toHaveBeenCalledTimes(1);
 
-    pending.resolve({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    pending.resolve({ email: 'info@padelsavona.it', full_name: 'Admin' });
     await screen.findByText('ADMIN DASHBOARD');
   });
 });

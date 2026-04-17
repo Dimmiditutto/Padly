@@ -5,6 +5,8 @@ import { AlertBanner } from '../components/AlertBanner';
 import { AppBrand } from '../components/AppBrand';
 import { loginAdmin } from '../services/adminApi';
 
+const forgotPasswordMailTo = `mailto:info@padelsavona.it?subject=${encodeURIComponent('Recupero password area admin')}&body=${encodeURIComponent('Ciao, ho bisogno di recuperare la password dell\'area admin.')}`;
+
 export function AdminLoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -45,6 +47,12 @@ export function AdminLoginPage() {
           <div>
             <label className='field-label' htmlFor='admin-password'>Password</label>
             <input id='admin-password' className='text-input' type='password' value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <div className='mt-2 flex items-center justify-between gap-3'>
+              <p className='text-sm text-slate-500'>Nessun cambio password obbligatorio al primo accesso.</p>
+              <a href={forgotPasswordMailTo} className='text-sm font-semibold text-cyan-700 underline-offset-4 transition hover:text-cyan-800 hover:underline'>
+                Password dimenticata?
+              </a>
+            </div>
           </div>
 
           {error ? <AlertBanner tone='error'>{error}</AlertBanner> : null}

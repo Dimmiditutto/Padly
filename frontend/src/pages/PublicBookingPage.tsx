@@ -154,15 +154,6 @@ export function PublicBookingPage() {
       <div className='page-shell max-w-6xl'>
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-            <div className='mb-4 flex justify-end'>
-              <Link
-                to='/admin/login'
-                className='inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-cyan-300'
-              >
-                <LogIn size={16} />
-                Accesso admin
-              </Link>
-            </div>
             <div className='flex items-center justify-center rounded-[24px] border border-white/10 bg-[#00497a] px-0 py-3'>
               <img src={logoUrl} alt='Logo BG' className='mx-auto block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
             </div>
@@ -293,8 +284,7 @@ export function PublicBookingPage() {
                 </div>
 
                 <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
-                  <p className={secondarySectionTitleClassName}>Metodo pagamento caparra</p>
-                  <p className='mt-1 text-sm leading-6 text-slate-600'>Mostro solo i provider di pagamento attualmente disponibili in questo ambiente.</p>
+                  <p className={secondarySectionTitleClassName}>Metodo pagamento caparra</p>                 
                   {availableProviders.length === 0 ? (
                     <div className='mt-3'>
                       <AlertBanner tone='error'>Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.</AlertBanner>
@@ -339,6 +329,15 @@ export function PublicBookingPage() {
                 </button>
               </form>
             </SectionCard>
+              <div className='mt-4 flex justify-end'>
+                <Link
+                  to='/admin/login'
+                  className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-200'
+                >
+                  <LogIn size={16} />
+                  Accesso admin
+                </Link>
+              </div>
             </section>
           </div>
         </main>
