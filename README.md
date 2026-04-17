@@ -106,6 +106,13 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - stato automatico `EXPIRED`
 - slot nuovamente disponibile dopo la scadenza
 
+### Cancellazione pubblica e caparra
+
+- annullamento self-service disponibile fino all'inizio della prenotazione tramite link tokenizzato
+- rimborso automatico della caparra online solo se l'annullamento avviene prima della soglia `cancellation_window_hours`
+- nelle ultime `cancellation_window_hours` ore la cancellazione resta disponibile, ma la caparra non viene rimborsata automaticamente
+- esito refund tracciato su `booking_payments` con `refund_status`, `provider_refund_id`, `refunded_amount`, `refunded_at`, `refund_error`
+
 ### Ricorrenze admin
 
 - stesso giorno della settimana
@@ -133,6 +140,7 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `POST /api/public/bookings`
 - `POST /api/public/bookings/{booking_id}/checkout`
 - `GET /api/public/bookings/{public_reference}/status`
+- `GET /api/public/bookings/cancel/{cancel_token}`
 - `POST /api/public/bookings/cancel/{cancel_token}`
 
 ### Admin API
@@ -142,13 +150,19 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `GET /api/admin/auth/me`
 - `GET /api/admin/bookings`
 - `POST /api/admin/bookings`
+- `GET /api/admin/bookings/{id}`
+- `PUT /api/admin/bookings/{id}`
 - `POST /api/admin/bookings/{id}/cancel`
 - `POST /api/admin/bookings/{id}/status`
 - `POST /api/admin/bookings/{id}/balance-paid`
+- `GET /api/admin/events`
+- `GET /api/admin/blackouts`
 - `GET /api/admin/reports/summary`
 - `POST /api/admin/blackouts`
 - `POST /api/admin/recurring/preview`
 - `POST /api/admin/recurring`
+- `GET /api/admin/settings`
+- `PUT /api/admin/settings`
 
 ### Payments e health
 

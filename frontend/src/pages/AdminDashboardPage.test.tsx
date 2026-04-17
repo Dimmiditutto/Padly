@@ -20,6 +20,10 @@ vi.mock('../services/adminApi', () => ({
   updateAdminSettings: vi.fn(),
 }));
 
+vi.mock('../services/publicApi', () => ({
+  getAvailability: vi.fn(),
+}));
+
 import {
   createAdminBooking,
   createBlackout,
@@ -36,6 +40,7 @@ import {
   updateAdminBookingStatus,
   updateAdminSettings,
 } from '../services/adminApi';
+import { getAvailability } from '../services/publicApi';
 
 function renderDashboard() {
   return render(
@@ -84,6 +89,14 @@ describe('AdminDashboardPage bootstrap', () => {
       reminder_window_hours: 24,
       stripe_enabled: true,
       paypal_enabled: true,
+    });
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: '2099-04-16',
+      duration_minutes: 90,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: '2099-04-16T16:00:00Z', start_time: '18:00', end_time: '19:30', display_start_time: '18:00', display_end_time: '19:30', available: true, reason: null },
+      ],
     });
   });
 
@@ -135,5 +148,42 @@ describe('AdminDashboardPage bootstrap', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Filtra' }));
 
     await waitFor(() => expect(screen.getByText('Filtro non disponibile')).toBeInTheDocument());
+  });
+
+  it('submits the selected fallback slot_id for ambiguous manual bookings', async () => {
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: '2026-10-25',
+      duration_minutes: 60,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: '2026-10-25T00:00:00Z', start_time: '02:00', end_time: '02:00', display_start_time: '02:00 CEST', display_end_time: '02:00 CET', available: true, reason: null },
+        { slot_id: '2026-10-25T01:00:00Z', start_time: '02:00', end_time: '03:00', display_start_time: '02:00 CET', display_end_time: '03:00', available: true, reason: null },
+      ],
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    const createButton = screen.getByRole('button', { name: 'Crea prenotazione' });
+    const form = createButton.closest('form');
+    if (!form) {
+      throw new Error('Form prenotazione manuale non trovato');
+    }
+
+    const timeInput = form.querySelector("input[type='time']") as HTMLInputElement | null;
+    if (!timeInput) {
+      throw new Error('Campo orario manuale non trovato');
+    }
+
+    fireEvent.change(timeInput, { target: { value: '02:00' } });
+
+    await screen.findByLabelText('Occorrenza slot');
+    fireEvent.change(screen.getByLabelText('Occorrenza slot'), { target: { value: '2026-10-25T01:00:00Z' } });
+    fireEvent.click(createButton);
+
+    await waitFor(() => expect(createAdminBooking).toHaveBeenCalledWith(expect.objectContaining({
+      start_time: '02:00',
+      slot_id: '2026-10-25T01:00:00Z',
+    })));
   });
 });

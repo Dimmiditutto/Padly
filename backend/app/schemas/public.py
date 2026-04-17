@@ -106,3 +106,14 @@ class PublicBookingSummary(BaseModel):
     completed_at: datetime | None = None
     no_show_at: datetime | None = None
     balance_paid_at: datetime | None = None
+
+
+class PublicCancellationResponse(BaseModel):
+    booking: PublicBookingSummary
+    cancellable: bool
+    cancellation_reason: str | None = None
+    refund_required: bool
+    refund_status: str
+    refund_amount: float | None = None
+    refund_message: str
+    message: str | None = None

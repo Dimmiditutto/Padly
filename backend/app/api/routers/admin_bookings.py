@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin
 from app.core.db import get_db
 from app.models import Admin, Booking, BookingStatus
-from app.schemas.admin import AdminBookingCreateRequest, AdminBookingStatusUpdate, BookingListResponse
+from app.schemas.admin import AdminBookingCreateRequest, AdminBookingStatusUpdate, AdminBookingUpdateRequest, BookingListResponse
 from app.schemas.common import BookingDetail, BookingSummary, SimpleMessage
-from app.services.booking_service import acquire_single_court_lock, create_admin_booking, list_bookings, mark_balance_paid_at_field, update_booking_status_by_admin
+from app.services.booking_service import acquire_single_court_lock, create_admin_booking, list_bookings, mark_balance_paid_at_field, update_booking_by_admin, update_booking_status_by_admin
 
 router = APIRouter(prefix='/admin/bookings', tags=['Admin Bookings'])
 
@@ -54,6 +54,7 @@ def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depe
             note=payload.note,
             booking_date=payload.booking_date,
             start_time_value=payload.start_time,
+            slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
             payment_provider=payload.payment_provider,
             actor=admin.email,
@@ -72,6 +73,28 @@ def cancel_admin_booking(booking_id: str, db: Session = Depends(get_db), admin: 
         update_booking_status_by_admin(db, booking, target_status=BookingStatus.CANCELLED, actor=admin.email)
         db.commit()
     return SimpleMessage(message='Prenotazione annullata')
+
+
+@router.put('/{booking_id}', response_model=BookingDetail)
+def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingDetail:
+    with acquire_single_court_lock(db):
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        if not booking:
+            raise HTTPException(status_code=404, detail='Prenotazione non trovata')
+
+        update_booking_by_admin(
+            db,
+            booking,
+            booking_date=payload.booking_date,
+            start_time_value=payload.start_time,
+            slot_id=payload.slot_id,
+            duration_minutes=payload.duration_minutes,
+            note=payload.note,
+            actor=admin.email,
+        )
+        db.commit()
+        db.refresh(booking)
+    return booking
 
 
 @router.post('/{booking_id}/status', response_model=BookingSummary)

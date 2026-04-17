@@ -7,18 +7,24 @@ vi.mock('../services/adminApi', () => ({
   getAdminBooking: vi.fn(),
   getAdminSession: vi.fn(),
   markAdminBalancePaid: vi.fn(),
+  updateAdminBooking: vi.fn(),
   updateAdminBookingStatus: vi.fn(),
 }));
 
-import { getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBookingStatus } from '../services/adminApi';
+vi.mock('../services/publicApi', () => ({
+  getAvailability: vi.fn(),
+}));
+
+import { getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus } from '../services/adminApi';
+import { getAvailability } from '../services/publicApi';
 
 const baseBooking = {
   id: 'booking-1',
   public_reference: 'PB-BOOK-001',
-  start_at: '2024-04-16T09:00:00Z',
-  end_at: '2024-04-16T10:30:00Z',
+  start_at: '2099-04-16T16:00:00Z',
+  end_at: '2099-04-16T17:30:00Z',
   duration_minutes: 90,
-  booking_date_local: '2026-04-16',
+  booking_date_local: '2099-04-16',
   status: 'CONFIRMED',
   deposit_amount: 20,
   payment_provider: 'STRIPE',
@@ -54,6 +60,15 @@ describe('AdminBookingDetailPage', () => {
     vi.clearAllMocks();
     vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
     vi.mocked(getAdminBooking).mockResolvedValue({ ...baseBooking });
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: baseBooking.booking_date_local,
+      duration_minutes: baseBooking.duration_minutes,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: baseBooking.start_at, start_time: '18:00', end_time: '19:30', display_start_time: '18:00', display_end_time: '19:30', available: true, reason: null },
+      ],
+    });
+    vi.mocked(updateAdminBooking).mockResolvedValue({ ...baseBooking, note: 'Prenotazione aggiornata' });
     vi.mocked(updateAdminBookingStatus).mockResolvedValue({ ...baseBooking, status: 'CANCELLED', cancelled_at: '2024-04-16T12:05:00Z' });
     vi.mocked(markAdminBalancePaid).mockResolvedValue({ ...baseBooking, balance_paid_at: '2024-04-16T12:06:00Z' });
   });
@@ -98,6 +113,13 @@ describe('AdminBookingDetailPage', () => {
   });
 
   it('marks the balance as paid and shows coherent feedback', async () => {
+    vi.mocked(getAdminBooking).mockResolvedValue({
+      ...baseBooking,
+      start_at: '2024-04-16T09:00:00Z',
+      end_at: '2024-04-16T10:30:00Z',
+      booking_date_local: '2024-04-16',
+    });
+
     renderPage();
 
     await screen.findByText('Dettaglio prenotazione');
@@ -108,6 +130,12 @@ describe('AdminBookingDetailPage', () => {
 
   it('shows backend errors when a booking action fails', async () => {
     vi.mocked(markAdminBalancePaid).mockRejectedValue({ response: { data: { detail: 'Saldo non registrato' } } });
+    vi.mocked(getAdminBooking).mockResolvedValue({
+      ...baseBooking,
+      start_at: '2024-04-16T09:00:00Z',
+      end_at: '2024-04-16T10:30:00Z',
+      booking_date_local: '2024-04-16',
+    });
 
     renderPage();
 
@@ -128,5 +156,78 @@ describe('AdminBookingDetailPage', () => {
 
     await screen.findByText('Dettaglio prenotazione');
     expect(screen.getByRole('button', { name: 'Ripristina confermata' })).toBeInTheDocument();
+  });
+
+  it('saves an admin booking update and shows coherent feedback', async () => {
+    renderPage();
+
+    await screen.findByText('Dettaglio prenotazione');
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica data e orario' }));
+    fireEvent.change(screen.getByLabelText('Nota'), { target: { value: 'Prenotazione aggiornata' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
+
+    await waitFor(() => expect(screen.getByText('Prenotazione aggiornata con successo.')).toBeInTheDocument());
+    expect(updateAdminBooking).toHaveBeenCalled();
+  });
+
+  it('shows backend errors when an admin booking update fails', async () => {
+    vi.mocked(updateAdminBooking).mockRejectedValue({ response: { data: { detail: 'Slot non piu disponibile' } } });
+
+    renderPage();
+
+    await screen.findByText('Dettaglio prenotazione');
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica data e orario' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
+
+    await waitFor(() => expect(screen.getByText('Slot non piu disponibile')).toBeInTheDocument());
+  });
+
+  it('preserves the selected fallback slot_id when the local start time is ambiguous', async () => {
+    vi.mocked(getAdminBooking).mockResolvedValue({
+      ...baseBooking,
+      start_at: '2026-10-25T01:00:00Z',
+      end_at: '2026-10-25T02:00:00Z',
+      duration_minutes: 60,
+      booking_date_local: '2026-10-25',
+    });
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: '2026-10-25',
+      duration_minutes: 60,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: '2026-10-25T00:00:00Z', start_time: '02:00', end_time: '02:00', display_start_time: '02:00 CEST', display_end_time: '02:00 CET', available: true, reason: null },
+        { slot_id: '2026-10-25T01:00:00Z', start_time: '02:00', end_time: '03:00', display_start_time: '02:00 CET', display_end_time: '03:00', available: true, reason: null },
+      ],
+    });
+
+    renderPage();
+
+    await screen.findByText('Dettaglio prenotazione');
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica data e orario' }));
+
+    await screen.findByLabelText('Occorrenza slot');
+    fireEvent.change(screen.getByLabelText('Occorrenza slot'), { target: { value: '2026-10-25T01:00:00Z' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
+
+    await waitFor(() => expect(updateAdminBooking).toHaveBeenCalledWith('booking-1', expect.objectContaining({
+      start_time: '02:00',
+      slot_id: '2026-10-25T01:00:00Z',
+      duration_minutes: 60,
+    })));
+  });
+
+  it('disables slot editing for confirmed bookings already in the past', async () => {
+    vi.mocked(getAdminBooking).mockResolvedValue({
+      ...baseBooking,
+      start_at: '2024-04-16T09:00:00Z',
+      end_at: '2024-04-16T10:30:00Z',
+      booking_date_local: '2024-04-16',
+    });
+
+    renderPage();
+
+    await screen.findByText('Dettaglio prenotazione');
+    expect(screen.getByRole('button', { name: 'Modifica data e orario' })).toBeDisabled();
+    expect(screen.getByText('La modifica e disponibile solo per prenotazioni future.')).toBeInTheDocument();
   });
 });

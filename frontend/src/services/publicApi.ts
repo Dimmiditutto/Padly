@@ -3,6 +3,7 @@ import type {
   AvailabilityResponse,
   BookingStatusResponse,
   PaymentInitResponse,
+  PublicCancellationResponse,
   PublicBookingCreateResponse,
   PublicBookingPayload,
   PublicConfig,
@@ -32,5 +33,15 @@ export async function createPublicCheckout(bookingId: string) {
 
 export async function getPublicBookingStatus(publicReference: string) {
   const response = await api.get<BookingStatusResponse>(`/public/bookings/${publicReference}/status`);
+  return response.data;
+}
+
+export async function getPublicCancellation(token: string) {
+  const response = await api.get<PublicCancellationResponse>(`/public/bookings/cancel/${token}`);
+  return response.data;
+}
+
+export async function cancelPublicBooking(token: string) {
+  const response = await api.post<PublicCancellationResponse>(`/public/bookings/cancel/${token}`);
   return response.data;
 }

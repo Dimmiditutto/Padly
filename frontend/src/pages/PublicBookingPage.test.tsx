@@ -103,6 +103,10 @@ describe('PublicBookingPage', () => {
 
     await screen.findByText('15 minuti');
     await screen.findByRole('button', { name: '18:00' });
+    expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
+    expect(screen.getByText('Rimborso automatico solo se annulli prima di 24 ore. Nelle ultime 24 ore la caparra non e rimborsabile.')).toBeInTheDocument();
+    expect(screen.getByText('Tariffe informative per giocatore')).toBeInTheDocument();
+    expect(screen.getByText('Tariffe informative: non sostituiscono la caparra online.')).toBeInTheDocument();
 
     expect(getPublicConfig).toHaveBeenCalledTimes(1);
     expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90);

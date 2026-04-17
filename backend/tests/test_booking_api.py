@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from datetime import date, time, timedelta
 from threading import Barrier
 
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.main import app, request_log
-from app.models import Booking
+from app.models import Booking, BookingPayment
 from app.services.booking_service import resolve_local_slot_start
 
 
@@ -314,3 +315,135 @@ def test_dst_fallback_slots_are_distinct_and_allow_selecting_second_occurrence(c
     assert booking_response.status_code == 201
     booking = booking_response.json()['booking']
     assert booking['start_at'].startswith('2026-10-25T01:00:00')
+
+
+def test_public_cancellation_outside_refund_window_triggers_automatic_refund(client):
+    selected_date = future_date(10)
+
+    booking_response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Giada',
+            'last_name': 'Rimborso',
+            'phone': '3339090909',
+            'email': 'refund@example.com',
+            'note': 'Refund automatico',
+            'booking_date': selected_date,
+            'start_time': '18:00',
+            'duration_minutes': 90,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+    booking = booking_response.json()['booking']
+    client.post(f"/api/public/bookings/{booking['id']}/checkout")
+    client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+
+    with SessionLocal() as db:
+        stored = db.scalar(select(Booking).where(Booking.id == booking['id']))
+        stored.start_at = datetime.now(UTC) + timedelta(hours=30)
+        stored.end_at = stored.start_at + timedelta(minutes=stored.duration_minutes)
+        stored.booking_date_local = stored.start_at.date()
+        cancel_token = stored.cancel_token
+        db.commit()
+
+    preview = client.get(f'/api/public/bookings/cancel/{cancel_token}')
+    assert preview.status_code == 200
+    assert preview.json()['cancellable'] is True
+    assert preview.json()['refund_required'] is True
+
+    cancellation = client.post(f'/api/public/bookings/cancel/{cancel_token}')
+    assert cancellation.status_code == 200
+    payload = cancellation.json()
+    assert payload['booking']['status'] == 'CANCELLED'
+    assert payload['refund_status'] == 'SUCCEEDED'
+
+    with SessionLocal() as db:
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == booking['id']))
+        assert payment.refund_status == 'SUCCEEDED'
+        assert payment.provider_refund_id is not None
+
+
+def test_public_cancellation_within_24h_does_not_refund_paid_booking(client):
+    selected_date = future_date(10)
+
+    booking_response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Giada',
+            'last_name': 'LateCancel',
+            'phone': '3339191919',
+            'email': 'late-cancel@example.com',
+            'note': 'Nessun refund sotto soglia',
+            'booking_date': selected_date,
+            'start_time': '18:00',
+            'duration_minutes': 90,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+    booking = booking_response.json()['booking']
+    client.post(f"/api/public/bookings/{booking['id']}/checkout")
+    client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+
+    with SessionLocal() as db:
+        stored = db.scalar(select(Booking).where(Booking.id == booking['id']))
+        stored.start_at = datetime.now(UTC) + timedelta(hours=6)
+        stored.end_at = stored.start_at + timedelta(minutes=stored.duration_minutes)
+        stored.booking_date_local = stored.start_at.date()
+        cancel_token = stored.cancel_token
+        db.commit()
+
+    preview = client.get(f'/api/public/bookings/cancel/{cancel_token}')
+    assert preview.status_code == 200
+    assert preview.json()['cancellable'] is True
+    assert preview.json()['refund_required'] is False
+    assert preview.json()['refund_status'] == 'NOT_REQUIRED'
+    assert 'ultime 24 ore' in preview.json()['refund_message']
+
+    cancellation = client.post(f'/api/public/bookings/cancel/{cancel_token}')
+    assert cancellation.status_code == 200
+    payload = cancellation.json()
+    assert payload['booking']['status'] == 'CANCELLED'
+    assert payload['refund_required'] is False
+    assert payload['refund_status'] == 'NOT_REQUIRED'
+    assert 'non verra rimborsata automaticamente' in payload['message']
+
+    with SessionLocal() as db:
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == booking['id']))
+        assert payment.refund_status == 'NOT_REQUIRED'
+        assert payment.provider_refund_id is None
+        assert payment.refunded_at is None
+
+
+def test_public_cancellation_without_online_payment_skips_refund(client):
+    selected_date = future_date(11)
+
+    booking_response = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Marta',
+            'last_name': 'NoRefund',
+            'phone': '3338080808',
+            'email': 'no-refund@example.com',
+            'note': 'Nessun pagamento incassato',
+            'booking_date': selected_date,
+            'start_time': '20:00',
+            'duration_minutes': 90,
+            'payment_provider': 'PAYPAL',
+            'privacy_accepted': True,
+        },
+    )
+    assert booking_response.status_code == 201
+    cancel_token = booking_response.json()['booking']['id']
+
+    with SessionLocal() as db:
+        stored = db.scalar(select(Booking).where(Booking.id == cancel_token))
+        token = stored.cancel_token
+
+    cancellation = client.post(f'/api/public/bookings/cancel/{token}')
+    assert cancellation.status_code == 200
+    payload = cancellation.json()
+    assert payload['booking']['status'] == 'CANCELLED'
+    assert payload['refund_required'] is False
+    assert payload['refund_status'] == 'NOT_REQUIRED'

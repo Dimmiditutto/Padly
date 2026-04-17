@@ -17,12 +17,16 @@ from app.core.config import settings
 from app.models import Booking, BookingPayment, BookingStatus, PaymentProvider, PaymentStatus, PaymentWebhookEvent
 from app.services.booking_service import as_utc, calculate_deposit, expire_pending_booking_if_needed, log_event, mark_booking_paid
 from app.services.email_service import email_service
+from app.services.settings_service import get_booking_rules
 
 
 class PaymentGateway(Protocol):
     provider: PaymentProvider
 
     def create_checkout(self, booking: Booking) -> PaymentInitResult:
+        ...
+
+    def refund_payment(self, booking: Booking, payment: BookingPayment) -> 'RefundResult':
         ...
 
 
@@ -32,6 +36,29 @@ class PaymentInitResult:
     provider_reference: str
 
 
+@dataclass
+class RefundResult:
+    required: bool
+    status: str
+    amount: Decimal | None
+    message: str
+    provider_refund_id: str | None = None
+
+
+REFUND_STATUS_NOT_REQUIRED = 'NOT_REQUIRED'
+REFUND_STATUS_PENDING = 'PENDING'
+REFUND_STATUS_SUCCEEDED = 'SUCCEEDED'
+REFUND_STATUS_FAILED = 'FAILED'
+ONLINE_REFUND_PROVIDERS = {PaymentProvider.STRIPE, PaymentProvider.PAYPAL}
+
+
+def _booking_redirect_query(booking: Booking) -> str:
+    params = {'booking': booking.public_reference}
+    if booking.cancel_token:
+        params['cancelToken'] = booking.cancel_token
+    return urlencode(params)
+
+
 class StripeGateway:
     provider = PaymentProvider.STRIPE
 
@@ -39,14 +66,18 @@ class StripeGateway:
         if not settings.stripe_secret_key:
             if not is_mock_payments_enabled():
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
-            query = urlencode({'booking': booking.public_reference, 'provider': 'stripe'})
+            query_params = {'booking': booking.public_reference, 'provider': 'stripe'}
+            if booking.cancel_token:
+                query_params['cancelToken'] = booking.cancel_token
+            query = urlencode(query_params)
             return PaymentInitResult(checkout_url=f"{settings.app_url}/api/payments/mock/complete?{query}", provider_reference=f"mock-stripe-{booking.public_reference}")
 
         stripe.api_key = settings.stripe_secret_key
+        redirect_query = _booking_redirect_query(booking)
         session = stripe.checkout.Session.create(
             mode='payment',
-            success_url=f"{settings.app_url}/booking/success?booking={booking.public_reference}",
-            cancel_url=f"{settings.app_url}/api/payments/stripe/cancel?booking={booking.public_reference}",
+            success_url=f"{settings.app_url}/booking/success?{redirect_query}",
+            cancel_url=f"{settings.app_url}/api/payments/stripe/cancel?{redirect_query}",
             client_reference_id=booking.public_reference,
             metadata={'booking_id': booking.id, 'public_reference': booking.public_reference},
             line_items=[
@@ -64,6 +95,44 @@ class StripeGateway:
             ],
         )
         return PaymentInitResult(checkout_url=session.url, provider_reference=session.id)
+
+    def refund_payment(self, booking: Booking, payment: BookingPayment) -> RefundResult:
+        reference = payment.provider_capture_id or payment.provider_order_id or booking.payment_reference
+        amount = _to_decimal(payment.amount or booking.deposit_amount)
+        if not reference or amount is None:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Riferimento Stripe non disponibile per il rimborso')
+
+        if not settings.stripe_secret_key:
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
+            return RefundResult(
+                required=True,
+                status=REFUND_STATUS_SUCCEEDED,
+                amount=amount,
+                message='Caparra rimborsata automaticamente in ambiente di test.',
+                provider_refund_id=f'mock-refund-stripe-{booking.public_reference}',
+            )
+
+        stripe.api_key = settings.stripe_secret_key
+        refund_params: dict[str, object] = {
+            'amount': int(amount * 100),
+            'reason': 'requested_by_customer',
+            'metadata': {'booking_id': booking.id, 'public_reference': booking.public_reference},
+        }
+        if str(reference).startswith('ch_'):
+            refund_params['charge'] = reference
+        else:
+            refund_params['payment_intent'] = reference
+
+        refund = stripe.Refund.create(**refund_params)
+        normalized_status = _normalize_stripe_refund_status(getattr(refund, 'status', None) or refund.get('status'))
+        return RefundResult(
+            required=True,
+            status=normalized_status,
+            amount=amount,
+            message=_refund_message_for_status(normalized_status, required=True, before_cancellation=False),
+            provider_refund_id=getattr(refund, 'id', None) or refund.get('id'),
+        )
 
 
 class PayPalGateway:
@@ -90,9 +159,13 @@ class PayPalGateway:
         if not token:
             if not is_mock_payments_enabled():
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
-            query = urlencode({'booking': booking.public_reference, 'provider': 'paypal'})
+            query_params = {'booking': booking.public_reference, 'provider': 'paypal'}
+            if booking.cancel_token:
+                query_params['cancelToken'] = booking.cancel_token
+            query = urlencode(query_params)
             return PaymentInitResult(checkout_url=f"{settings.app_url}/api/payments/mock/complete?{query}", provider_reference=f"mock-paypal-{booking.public_reference}")
 
+        redirect_query = _booking_redirect_query(booking)
         body = {
             'intent': 'CAPTURE',
             'purchase_units': [
@@ -105,8 +178,8 @@ class PayPalGateway:
                 }
             ],
             'application_context': {
-                'return_url': f'{settings.app_url}/api/payments/paypal/return?booking={booking.public_reference}',
-                'cancel_url': f'{settings.app_url}/api/payments/paypal/cancel?booking={booking.public_reference}',
+                'return_url': f'{settings.app_url}/api/payments/paypal/return?{redirect_query}',
+                'cancel_url': f'{settings.app_url}/api/payments/paypal/cancel?{redirect_query}',
                 'brand_name': settings.app_name,
                 'user_action': 'PAY_NOW',
             },
@@ -123,6 +196,44 @@ class PayPalGateway:
         if not approve_url:
             raise HTTPException(status_code=502, detail='PayPal non ha restituito un link di checkout valido')
         return PaymentInitResult(checkout_url=approve_url, provider_reference=payload['id'])
+
+    def refund_payment(self, booking: Booking, payment: BookingPayment) -> RefundResult:
+        capture_id = payment.provider_capture_id
+        amount = _to_decimal(payment.amount or booking.deposit_amount)
+        if not capture_id or amount is None:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Riferimento PayPal non disponibile per il rimborso')
+
+        token = self._access_token()
+        if not token:
+            if not is_mock_payments_enabled():
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
+            return RefundResult(
+                required=True,
+                status=REFUND_STATUS_SUCCEEDED,
+                amount=amount,
+                message='Caparra rimborsata automaticamente in ambiente di test.',
+                provider_refund_id=f'mock-refund-paypal-{booking.public_reference}',
+            )
+
+        response = httpx.post(
+            f'{settings.paypal_base_url}/v2/payments/captures/{capture_id}/refund',
+            headers={**self._headers(), 'Authorization': f'Bearer {token}'},
+            json={
+                'amount': {'value': f'{amount:.2f}', 'currency_code': 'EUR'},
+                'note_to_payer': f'Rimborso caparra prenotazione {booking.public_reference}',
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+        normalized_status = _normalize_paypal_refund_status(payload.get('status') or 'PENDING')
+        return RefundResult(
+            required=True,
+            status=normalized_status,
+            amount=amount,
+            message=_refund_message_for_status(normalized_status, required=True, before_cancellation=False),
+            provider_refund_id=payload.get('id'),
+        )
 
     def capture_order(self, order_id: str) -> dict:
         token = self._access_token()
@@ -218,6 +329,50 @@ def is_checkout_available(provider: PaymentProvider) -> bool:
 def assert_checkout_available(provider: PaymentProvider) -> None:
     if not is_checkout_available(provider):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(provider))
+
+
+def _normalize_stripe_refund_status(value: str | None) -> str:
+    normalized = (value or '').lower()
+    if normalized == 'succeeded':
+        return REFUND_STATUS_SUCCEEDED
+    if normalized in {'pending', 'requires_action'}:
+        return REFUND_STATUS_PENDING
+    return REFUND_STATUS_FAILED
+
+
+def _normalize_paypal_refund_status(value: str | None) -> str:
+    normalized = (value or '').upper()
+    if normalized == 'COMPLETED':
+        return REFUND_STATUS_SUCCEEDED
+    if normalized in {'PENDING', 'CREATED'}:
+        return REFUND_STATUS_PENDING
+    return REFUND_STATUS_FAILED
+
+
+def _refund_message_for_status(status_value: str, *, required: bool, before_cancellation: bool, error: str | None = None) -> str:
+    if not required:
+        return 'Nessun rimborso automatico necessario: la caparra online non risulta incassata.'
+    if status_value == REFUND_STATUS_SUCCEEDED:
+        return 'Caparra rimborsata automaticamente.'
+    if status_value == REFUND_STATUS_PENDING:
+        if before_cancellation:
+            return 'Confermando l\'annullamento la caparra verra rimborsata automaticamente.'
+        return 'Rimborso automatico della caparra avviato correttamente.'
+    return error or 'Il rimborso automatico della caparra non e andato a buon fine.'
+
+
+def _refund_cutoff_hours(db: Session) -> int:
+    return get_booking_rules(db)['cancellation_window_hours']
+
+
+def _hours_until_booking_start(booking: Booking) -> float:
+    return (as_utc(booking.start_at) - datetime.now(UTC)).total_seconds() / 3600
+
+
+def _late_cancellation_refund_message(cutoff_hours: int, *, before_cancellation: bool) -> str:
+    if before_cancellation:
+        return f'Annullando nelle ultime {cutoff_hours} ore la caparra non verra rimborsata automaticamente.'
+    return f'Nessun rimborso automatico: la cancellazione e avvenuta nelle ultime {cutoff_hours} ore.'
 
 
 def _to_decimal(value: Decimal | str | int | float | None) -> Decimal | None:
@@ -351,6 +506,130 @@ def _reuse_initiated_checkout(db: Session, booking: Booking, *, provider: Paymen
         return PaymentInitResult(checkout_url=payment.checkout_url, provider_reference=provider_reference)
 
     return None
+
+
+def get_booking_refund_snapshot(db: Session, booking: Booking) -> RefundResult:
+    provider = booking.payment_provider
+    payment = None
+    if provider in ONLINE_REFUND_PROVIDERS:
+        payment = _find_booking_payment(db, booking, provider=provider)
+
+    amount = _to_decimal((payment.refunded_amount if payment and payment.refunded_amount is not None else None) or (payment.amount if payment else booking.deposit_amount))
+    paid_online_payment = booking.payment_status == PaymentStatus.PAID and provider in ONLINE_REFUND_PROVIDERS
+    cutoff_hours = _refund_cutoff_hours(db)
+    within_refund_block_window = paid_online_payment and _hours_until_booking_start(booking) < cutoff_hours
+
+    if payment and payment.refund_status:
+        refund_required = payment.refund_status in {REFUND_STATUS_SUCCEEDED, REFUND_STATUS_PENDING, REFUND_STATUS_FAILED}
+        if payment.refund_status == REFUND_STATUS_NOT_REQUIRED and paid_online_payment:
+            message = _late_cancellation_refund_message(cutoff_hours, before_cancellation=booking.status != BookingStatus.CANCELLED)
+        else:
+            message = _refund_message_for_status(
+                payment.refund_status,
+                required=refund_required,
+                before_cancellation=booking.status != BookingStatus.CANCELLED,
+                error=payment.refund_error,
+            )
+        return RefundResult(
+            required=refund_required,
+            status=payment.refund_status,
+            amount=amount,
+            message=message,
+            provider_refund_id=payment.provider_refund_id,
+        )
+
+    if not paid_online_payment:
+        return RefundResult(
+            required=False,
+            status=REFUND_STATUS_NOT_REQUIRED,
+            amount=amount,
+            message=_refund_message_for_status(REFUND_STATUS_NOT_REQUIRED, required=False, before_cancellation=False),
+            provider_refund_id=payment.provider_refund_id if payment else None,
+        )
+
+    if within_refund_block_window:
+        return RefundResult(
+            required=False,
+            status=REFUND_STATUS_NOT_REQUIRED,
+            amount=amount,
+            message=_late_cancellation_refund_message(cutoff_hours, before_cancellation=booking.status != BookingStatus.CANCELLED),
+            provider_refund_id=payment.provider_refund_id if payment else None,
+        )
+
+    return RefundResult(
+        required=True,
+        status=REFUND_STATUS_PENDING,
+        amount=amount,
+        message=_refund_message_for_status(REFUND_STATUS_PENDING, required=True, before_cancellation=booking.status != BookingStatus.CANCELLED),
+        provider_refund_id=payment.provider_refund_id if payment else None,
+    )
+
+
+def refund_booking_payment(db: Session, booking: Booking) -> RefundResult:
+    snapshot = get_booking_refund_snapshot(db, booking)
+    provider = booking.payment_provider
+
+    if not snapshot.required:
+        payment = None
+        if provider in ONLINE_REFUND_PROVIDERS:
+            payment = _find_booking_payment(db, booking, provider=provider)
+        if payment:
+            payment.refund_status = REFUND_STATUS_NOT_REQUIRED
+            payment.provider_refund_id = None
+            payment.refunded_amount = None
+            payment.refunded_at = None
+            payment.refund_error = None
+        if booking.payment_status == PaymentStatus.PAID and provider in ONLINE_REFUND_PROVIDERS:
+            log_event(db, booking, 'PAYMENT_REFUND_NOT_REQUIRED', snapshot.message, actor='payment')
+        return get_booking_refund_snapshot(db, booking)
+
+    payment = _find_booking_payment(db, booking, provider=provider)
+    if not payment:
+        log_event(db, booking, 'PAYMENT_REFUND_FAILED', 'Pagamento caparra non trovato per il rimborso', actor='payment')
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Il rimborso automatico della caparra non e disponibile in questo momento')
+
+    if payment.refund_status in {REFUND_STATUS_SUCCEEDED, REFUND_STATUS_PENDING}:
+        return get_booking_refund_snapshot(db, booking)
+
+    try:
+        result = GATEWAYS[provider].refund_payment(booking, payment)
+    except HTTPException as exc:
+        payment.refund_status = REFUND_STATUS_FAILED
+        payment.refund_error = str(exc.detail)
+        payment.refunded_at = None
+        log_event(db, booking, 'PAYMENT_REFUND_FAILED', payment.refund_error, actor='payment')
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Il rimborso automatico della caparra non e andato a buon fine') from exc
+    except Exception as exc:
+        payment.refund_status = REFUND_STATUS_FAILED
+        payment.refund_error = 'Errore tecnico durante il rimborso automatico'
+        payment.refunded_at = None
+        log_event(db, booking, 'PAYMENT_REFUND_FAILED', payment.refund_error, actor='payment')
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Il rimborso automatico della caparra non e andato a buon fine') from exc
+
+    if result.status == REFUND_STATUS_FAILED:
+        payment.refund_status = REFUND_STATUS_FAILED
+        payment.refund_error = result.message
+        payment.refunded_at = None
+        log_event(db, booking, 'PAYMENT_REFUND_FAILED', result.message, actor='payment')
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Il rimborso automatico della caparra non e andato a buon fine')
+
+    payment.refund_status = result.status
+    payment.provider_refund_id = result.provider_refund_id
+    payment.refunded_amount = result.amount
+    payment.refunded_at = datetime.now(UTC) if result.status == REFUND_STATUS_SUCCEEDED else None
+    payment.refund_error = None
+    log_event(
+        db,
+        booking,
+        'PAYMENT_REFUND_SUCCEEDED' if result.status == REFUND_STATUS_SUCCEEDED else 'PAYMENT_REFUND_PENDING',
+        result.message,
+        actor='payment',
+        payload={
+            'provider_refund_id': result.provider_refund_id,
+            'amount': str(result.amount) if result.amount is not None else None,
+        },
+    )
+    return result
 
 
 def _confirm_payment(

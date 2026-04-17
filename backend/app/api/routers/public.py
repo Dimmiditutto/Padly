@@ -6,21 +6,69 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.models import Booking, BookingStatus
+from app.models import Booking, BookingStatus, PaymentProvider, PaymentStatus
 from app.schemas.common import SimpleMessage
 from app.schemas.public import (
     AvailabilityResponse,
     BookingStatusResponse,
     PaymentInitResponse,
+    PublicCancellationResponse,
     PublicBookingCreateRequest,
     PublicBookingCreateResponse,
     PublicConfigResponse,
 )
 from app.services.booking_service import acquire_single_court_lock, as_utc, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking, expire_pending_booking_if_needed
-from app.services.payment_service import assert_checkout_available, is_paypal_checkout_available, is_stripe_checkout_available, start_payment_for_booking
+from app.services.payment_service import (
+    assert_checkout_available,
+    get_booking_refund_snapshot,
+    is_paypal_checkout_available,
+    is_stripe_checkout_available,
+    refund_booking_payment,
+    start_payment_for_booking,
+)
 from app.services.settings_service import get_booking_rules
 
 router = APIRouter(prefix='/public', tags=['Public'])
+
+
+def _public_cancellation_reason(booking: Booking) -> str | None:
+    if booking.status == BookingStatus.CANCELLED:
+        return 'Prenotazione gia annullata'
+    if booking.status == BookingStatus.EXPIRED:
+        return 'Prenotazione gia scaduta'
+    if booking.status in {BookingStatus.COMPLETED, BookingStatus.NO_SHOW}:
+        return 'La prenotazione non e piu cancellabile da questo link'
+    if as_utc(booking.start_at) <= datetime.now(UTC):
+        return 'La prenotazione e gia iniziata o terminata'
+    return None
+
+
+def _public_cancellation_success_message(booking: Booking, *, refund_status: str, refund_required: bool, refund_message: str) -> str:
+    paid_online_booking = booking.payment_status == PaymentStatus.PAID and booking.payment_provider in {PaymentProvider.STRIPE, PaymentProvider.PAYPAL}
+    if not refund_required:
+        if paid_online_booking:
+            return f'Prenotazione annullata. {refund_message}'
+        return 'Prenotazione annullata con successo'
+    if refund_status == 'SUCCEEDED':
+        return 'Prenotazione annullata e caparra rimborsata automaticamente'
+    if refund_status == 'PENDING':
+        return 'Prenotazione annullata e rimborso automatico avviato'
+    return 'Prenotazione annullata'
+
+
+def _build_public_cancellation_response(db: Session, booking: Booking, *, message: str | None = None) -> PublicCancellationResponse:
+    refund_snapshot = get_booking_refund_snapshot(db, booking)
+    cancellation_reason = _public_cancellation_reason(booking)
+    return PublicCancellationResponse(
+        booking=booking,
+        cancellable=cancellation_reason is None,
+        cancellation_reason=cancellation_reason,
+        refund_required=refund_snapshot.required,
+        refund_status=refund_snapshot.status,
+        refund_amount=float(refund_snapshot.amount) if refund_snapshot.amount is not None else None,
+        refund_message=refund_snapshot.message,
+        message=message,
+    )
 
 
 @router.get('/config', response_model=PublicConfigResponse)
@@ -106,18 +154,47 @@ def booking_status(public_reference: str, db: Session = Depends(get_db)) -> Book
     return BookingStatusResponse(booking=booking)
 
 
-@router.post('/bookings/cancel/{cancel_token}', response_model=SimpleMessage)
-def cancel_public_booking(cancel_token: str, db: Session = Depends(get_db)) -> SimpleMessage:
+@router.get('/bookings/cancel/{cancel_token}', response_model=PublicCancellationResponse)
+def get_public_cancellation(cancel_token: str, db: Session = Depends(get_db)) -> PublicCancellationResponse:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token))
         if not booking:
             raise HTTPException(status_code=404, detail='Link annullamento non valido')
 
-        booking_rules = get_booking_rules(db)
-        hours_until_start = (as_utc(booking.start_at) - datetime.now(UTC)).total_seconds() / 3600
-        if hours_until_start < booking_rules['cancellation_window_hours']:
-            raise HTTPException(status_code=400, detail='La finestra di cancellazione è terminata')
+        if expire_pending_booking_if_needed(db, booking):
+            db.commit()
+        return _build_public_cancellation_response(db, booking)
 
-        cancel_booking(db, booking, actor='public', reason='Annullamento richiesto dal cliente')
-        db.commit()
-        return SimpleMessage(message='Prenotazione annullata con successo')
+
+@router.post('/bookings/cancel/{cancel_token}', response_model=PublicCancellationResponse)
+def cancel_public_booking(cancel_token: str, db: Session = Depends(get_db)) -> PublicCancellationResponse:
+    with acquire_single_court_lock(db):
+        booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token))
+        if not booking:
+            raise HTTPException(status_code=404, detail='Link annullamento non valido')
+
+        if expire_pending_booking_if_needed(db, booking):
+            db.commit()
+
+        cancellation_reason = _public_cancellation_reason(booking)
+        if cancellation_reason:
+            raise HTTPException(status_code=409, detail=cancellation_reason)
+
+        try:
+            refund_snapshot = refund_booking_payment(db, booking)
+            cancel_booking(db, booking, actor='public', reason='Annullamento richiesto dal cliente da link pubblico')
+            response = _build_public_cancellation_response(
+                db,
+                booking,
+                message=_public_cancellation_success_message(
+                    booking,
+                    refund_status=refund_snapshot.status,
+                    refund_required=refund_snapshot.required,
+                    refund_message=refund_snapshot.message,
+                ),
+            )
+            db.commit()
+            return response
+        except HTTPException:
+            db.commit()
+            raise

@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from threading import Event, Thread
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -305,6 +306,112 @@ def test_paypal_return_fails_closed_outside_mock_env_without_credentials(client,
     updated = get_booking_status(client, booking['public_reference'])
     assert updated['status'] == 'PENDING_PAYMENT'
     assert updated['payment_status'] == 'INITIATED'
+
+
+def test_public_cancellation_persists_failed_refund_without_false_success(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='refund-failure@example.com',
+        phone='3331110099',
+        start_time='19:00',
+        days=12,
+    )
+    client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+
+    with SessionLocal() as db:
+        stored = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored.start_at = datetime.now(UTC) + timedelta(hours=30)
+        stored.end_at = stored.start_at + timedelta(minutes=stored.duration_minutes)
+        stored.booking_date_local = stored.start_at.date()
+        cancel_token = stored.cancel_token
+        db.commit()
+
+    def fail_refund(_booking, _payment):
+        raise HTTPException(status_code=502, detail='provider refund failed')
+
+    monkeypatch.setattr(GATEWAYS[PaymentProvider.STRIPE], 'refund_payment', fail_refund)
+
+    response = client.post(f'/api/public/bookings/cancel/{cancel_token}')
+    assert response.status_code == 502
+    assert response.json()['detail'] == 'Il rimborso automatico della caparra non e andato a buon fine'
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'CONFIRMED'
+    assert updated['payment_status'] == 'PAID'
+
+    with SessionLocal() as db:
+        stored = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == stored.id))
+        assert payment.refund_status == 'FAILED'
+        assert payment.refund_error == 'provider refund failed'
+
+
+def test_booking_confirmation_email_mentions_refund_only_before_cutoff(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='confirmation-copy@example.com',
+        phone='3331110101',
+        start_time='18:30',
+        days=6,
+    )
+    client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+
+    captured: dict[str, str] = {}
+
+    def fake_deliver(to_email: str, subject: str, html: str):
+        captured['to_email'] = to_email
+        captured['subject'] = subject
+        captured['html'] = html
+        return 'SENT', None
+
+    monkeypatch.setattr(email_service, '_deliver', fake_deliver)
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        status_value = email_service.booking_confirmation(db, stored_booking)
+        db.commit()
+
+    assert status_value == 'SENT'
+    assert captured['subject'] == 'Prenotazione confermata e caparra ricevuta'
+    assert 'prima delle ultime 24 ore' in captured['html']
+
+
+def test_public_cancellation_email_mentions_no_refund_inside_cutoff(client, monkeypatch):
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='cancellation-copy@example.com',
+        phone='3331110102',
+        start_time='20:00',
+        days=6,
+    )
+    client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+
+    with SessionLocal() as db:
+        stored = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        stored.start_at = datetime.now(UTC) + timedelta(hours=6)
+        stored.end_at = stored.start_at + timedelta(minutes=stored.duration_minutes)
+        stored.booking_date_local = stored.start_at.date()
+        cancel_token = stored.cancel_token
+        db.commit()
+
+    captured: dict[str, str] = {}
+
+    def fake_deliver(to_email: str, subject: str, html: str):
+        captured['to_email'] = to_email
+        captured['subject'] = subject
+        captured['html'] = html
+        return 'SENT', None
+
+    monkeypatch.setattr(email_service, '_deliver', fake_deliver)
+
+    response = client.post(f'/api/public/bookings/cancel/{cancel_token}')
+    assert response.status_code == 200
+    assert response.json()['refund_status'] == 'NOT_REQUIRED'
+    assert 'ultime 24 ore' in captured['html']
+    assert 'non è rimborsabile' in captured['html']
 
 
 def test_paypal_webhook_fails_closed_outside_mock_env_without_configuration(client, monkeypatch):
@@ -777,7 +884,7 @@ def test_public_cancellation_logs_single_email_notification(client):
     first = client.post(f'/api/public/bookings/cancel/{cancel_token}')
     second = client.post(f'/api/public/bookings/cancel/{cancel_token}')
     assert first.status_code == 200
-    assert second.status_code == 200
+    assert second.status_code == 409
 
     with SessionLocal() as db:
         stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))

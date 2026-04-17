@@ -23,6 +23,7 @@ function BookingSnapshot({ booking }: { booking: PublicBookingSummary }) {
 export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled' | 'error' }) {
   const [searchParams] = useSearchParams();
   const bookingRef = searchParams.get('booking');
+  const cancelToken = searchParams.get('cancelToken');
   const [booking, setBooking] = useState<PublicBookingSummary | null>(null);
   const [loading, setLoading] = useState(Boolean(bookingRef));
   const [statusLookupFailed, setStatusLookupFailed] = useState(false);
@@ -32,6 +33,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
   const cancelledAlreadyConfirmed = variant === 'cancelled' && booking?.status === 'CONFIRMED';
   const cancelledExpired = variant === 'cancelled' && booking?.status === 'EXPIRED';
   const cancelledBooking = variant === 'cancelled' && booking?.status === 'CANCELLED';
+  const canShowCancellationAction = Boolean(cancelToken && booking && ['CONFIRMED', 'PENDING_PAYMENT'].includes(booking.status));
 
   useEffect(() => {
     if (!bookingRef) return;
@@ -115,6 +117,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
             <p className='text-sm text-slate-600'>La conferma finale arriva appena il sistema chiude il controllo sullo slot.</p>
             {booking ? <BookingSnapshot booking={booking} /> : null}
             <AlertBanner tone='info'>Se hai chiuso la pagina troppo presto, questa schermata si aggiorna da sola finché lo stato prenotazione non si stabilizza.</AlertBanner>
+            {canShowCancellationAction ? <CancellationAction cancelToken={cancelToken!} /> : null}
           </div>
         ) : variant === 'cancelled' ? (
           <div className='space-y-4'>
@@ -136,6 +139,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
                 <p className='text-sm text-slate-600'>La prenotazione risulta già confermata. Ignora questa schermata di annullamento.</p>
                 {booking ? <BookingSnapshot booking={booking} /> : null}
                 <AlertBanner tone='info'>Se hai ricevuto questo redirect dopo un ritorno del provider, lo stato valido resta quello mostrato qui.</AlertBanner>
+                {canShowCancellationAction ? <CancellationAction cancelToken={cancelToken!} /> : null}
               </>
             ) : cancelledExpired ? (
               <>
@@ -180,6 +184,16 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
           <Link to='/' className='btn-primary'>Torna alla prenotazione</Link>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CancellationAction({ cancelToken }: { cancelToken: string }) {
+  return (
+    <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left'>
+      <p className='text-sm font-semibold text-slate-900'>Devi annullare la prenotazione?</p>
+      <p className='mt-1 text-sm text-slate-600'>Puoi gestirla da questo link self-service e verificare se la caparra e rimborsabile in base al momento della cancellazione.</p>
+      <Link to={`/booking/cancel?token=${encodeURIComponent(cancelToken)}`} className='btn-secondary mt-3 inline-flex'>Apri annullamento self-service</Link>
     </div>
   );
 }

@@ -29,6 +29,7 @@ from app.services.settings_service import get_booking_rules
 
 VALID_DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300]
 BLOCKING_STATUSES = [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW]
+ADMIN_EDITABLE_STATUSES = {BookingStatus.CONFIRMED}
 ADMIN_ALLOWED_STATUS_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.PENDING_PAYMENT: {BookingStatus.CANCELLED},
     BookingStatus.CONFIRMED: {BookingStatus.CANCELLED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW},
@@ -333,6 +334,7 @@ def create_admin_booking(
     note: str | None,
     booking_date: date,
     start_time_value: str,
+    slot_id: str | None = None,
     duration_minutes: int,
     payment_provider: PaymentProvider,
     actor: str,
@@ -340,7 +342,7 @@ def create_admin_booking(
     recurring_series_id: str | None = None,
 ) -> Booking:
     with acquire_single_court_lock(db):
-        local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes)
+        local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
         assert_slot_available(db, start_at=start_at, end_at=end_at)
 
         customer = get_or_create_customer(db, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
@@ -377,6 +379,71 @@ def cancel_booking(db: Session, booking: Booking, *, actor: str, reason: str = '
     booking.cancelled_at = datetime.now(UTC)
     log_event(db, booking, 'BOOKING_CANCELLED', reason, actor=actor)
     email_service.booking_cancelled(db, booking)
+    return booking
+
+
+def update_booking_by_admin(
+    db: Session,
+    booking: Booking,
+    *,
+    booking_date: date,
+    start_time_value: str,
+    slot_id: str | None,
+    duration_minutes: int,
+    note: str | None,
+    actor: str,
+) -> Booking:
+    if booking.status not in ADMIN_EDITABLE_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Prenotazione non modificabile in questo stato')
+
+    if as_utc(booking.start_at) <= datetime.now(UTC):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Puoi modificare solo prenotazioni future')
+
+    local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
+    new_deposit = calculate_deposit(duration_minutes)
+    current_deposit = Decimal(str(booking.deposit_amount)).quantize(Decimal('0.01'))
+
+    if booking.payment_status == PaymentStatus.PAID and new_deposit != current_deposit:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Durata non modificabile: cambierebbe la caparra già incassata',
+        )
+
+    assert_slot_available(db, start_at=start_at, end_at=end_at, exclude_booking_id=booking.id)
+
+    previous_payload = {
+        'booking_date': booking.booking_date_local.isoformat(),
+        'start_at': as_utc(booking.start_at).isoformat(),
+        'end_at': as_utc(booking.end_at).isoformat(),
+        'duration_minutes': booking.duration_minutes,
+        'note': booking.note,
+    }
+
+    booking.start_at = start_at
+    booking.end_at = end_at
+    booking.booking_date_local = local_start.date()
+    booking.duration_minutes = duration_minutes
+    booking.note = note
+    if booking.payment_status != PaymentStatus.PAID:
+        booking.deposit_amount = new_deposit
+
+    log_event(
+        db,
+        booking,
+        'BOOKING_UPDATED_BY_ADMIN',
+        'Prenotazione aggiornata da admin',
+        actor=actor,
+        payload={
+            'before': previous_payload,
+            'after': {
+                'booking_date': booking.booking_date_local.isoformat(),
+                'start_at': as_utc(booking.start_at).isoformat(),
+                'end_at': as_utc(booking.end_at).isoformat(),
+                'duration_minutes': booking.duration_minutes,
+                'note': booking.note,
+            },
+        },
+    )
     return booking
 
 

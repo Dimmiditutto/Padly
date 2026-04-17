@@ -1,6 +1,7 @@
 export type BookingStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW' | 'EXPIRED';
 export type PaymentProvider = 'STRIPE' | 'PAYPAL' | 'NONE';
 export type PaymentStatus = 'UNPAID' | 'INITIATED' | 'PAID' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
+export type RefundStatus = 'NOT_REQUIRED' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
 
 export interface ApiMessage {
   message: string;
@@ -112,6 +113,17 @@ export interface BookingStatusResponse {
   booking: PublicBookingSummary;
 }
 
+export interface PublicCancellationResponse {
+  booking: PublicBookingSummary;
+  cancellable: boolean;
+  cancellation_reason?: string | null;
+  refund_required: boolean;
+  refund_status: RefundStatus;
+  refund_amount?: number | null;
+  refund_message: string;
+  message?: string | null;
+}
+
 export interface AdminEvent {
   id: string;
   event_type: string;
@@ -144,6 +156,14 @@ export interface AdminBookingStatusPayload {
   status: 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW';
 }
 
+export interface AdminBookingUpdatePayload {
+  booking_date: string;
+  start_time: string;
+  slot_id?: string | null;
+  duration_minutes: number;
+  note: string;
+}
+
 export interface AdminManualBookingPayload {
   first_name: string;
   last_name: string;
@@ -152,6 +172,7 @@ export interface AdminManualBookingPayload {
   note: string;
   booking_date: string;
   start_time: string;
+  slot_id?: string | null;
   duration_minutes: number;
   payment_provider: PaymentProvider;
 }

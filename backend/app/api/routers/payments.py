@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -10,6 +12,13 @@ from app.services.booking_service import acquire_single_court_lock
 from app.services.payment_service import handle_mock_payment, handle_paypal_return, handle_paypal_webhook, handle_stripe_webhook, is_mock_payments_enabled, mark_checkout_cancelled
 
 router = APIRouter(tags=['Payments'])
+
+
+def _booking_redirect_url(path: str, booking: str, cancel_token: str | None) -> str:
+    params = {'booking': booking}
+    if cancel_token:
+        params['cancelToken'] = cancel_token
+    return f'{path}?{urlencode(params)}'
 
 
 @router.get('/health')
@@ -27,11 +36,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> Sim
 
 
 @router.get('/payments/paypal/return')
-def paypal_return(booking: str, token: str, db: Session = Depends(get_db)) -> RedirectResponse:
+def paypal_return(booking: str, token: str, cancelToken: str | None = None, db: Session = Depends(get_db)) -> RedirectResponse:
     with acquire_single_court_lock(db):
         handle_paypal_return(db, booking_reference=booking, token=token)
         db.commit()
-    return RedirectResponse(url=f'/booking/success?booking={booking}')
+    return RedirectResponse(url=_booking_redirect_url('/booking/success', booking, cancelToken))
 
 
 @router.post('/payments/paypal/webhook', response_model=SimpleMessage)
@@ -44,23 +53,23 @@ async def paypal_webhook(request: Request, db: Session = Depends(get_db)) -> Sim
 
 
 @router.get('/payments/stripe/cancel')
-def stripe_cancel(booking: str, db: Session = Depends(get_db)) -> RedirectResponse:
+def stripe_cancel(booking: str, cancelToken: str | None = None, db: Session = Depends(get_db)) -> RedirectResponse:
     with acquire_single_court_lock(db):
         mark_checkout_cancelled(db, booking, PaymentProvider.STRIPE, reason='Checkout Stripe annullato dal cliente')
         db.commit()
-    return RedirectResponse(url=f'/booking/cancelled?booking={booking}')
+    return RedirectResponse(url=_booking_redirect_url('/booking/cancelled', booking, cancelToken))
 
 
 @router.get('/payments/paypal/cancel')
-def paypal_cancel(booking: str, db: Session = Depends(get_db)) -> RedirectResponse:
+def paypal_cancel(booking: str, cancelToken: str | None = None, db: Session = Depends(get_db)) -> RedirectResponse:
     with acquire_single_court_lock(db):
         mark_checkout_cancelled(db, booking, PaymentProvider.PAYPAL, reason='Checkout PayPal annullato dal cliente')
         db.commit()
-    return RedirectResponse(url=f'/booking/cancelled?booking={booking}')
+    return RedirectResponse(url=_booking_redirect_url('/booking/cancelled', booking, cancelToken))
 
 
 @router.get('/payments/mock/complete')
-def mock_complete(booking: str, provider: str, db: Session = Depends(get_db)) -> RedirectResponse:
+def mock_complete(booking: str, provider: str, cancelToken: str | None = None, db: Session = Depends(get_db)) -> RedirectResponse:
     if not is_mock_payments_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Endpoint non disponibile')
 
@@ -68,4 +77,4 @@ def mock_complete(booking: str, provider: str, db: Session = Depends(get_db)) ->
     with acquire_single_court_lock(db):
         handle_mock_payment(db, booking_reference=booking, provider=chosen)
         db.commit()
-    return RedirectResponse(url=f'/booking/success?booking={booking}')
+    return RedirectResponse(url=_booking_redirect_url('/booking/success', booking, cancelToken))

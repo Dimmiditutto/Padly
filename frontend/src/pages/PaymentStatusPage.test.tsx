@@ -100,4 +100,11 @@ describe('PaymentStatusPage', () => {
     await waitFor(() => expect(screen.getByText('Prenotazione scaduta')).toBeInTheDocument());
     expect(screen.queryByText('Pagamento annullato')).not.toBeInTheDocument();
   });
+
+  it('shows the self-service cancellation CTA when a cancel token is available', async () => {
+    renderStatusPage('/booking/success?booking=PB-REF-123&cancelToken=cancel-token-123');
+
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Apri annullamento self-service' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Apri annullamento self-service' })).toHaveAttribute('href', '/booking/cancel?token=cancel-token-123');
+  });
 });

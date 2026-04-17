@@ -1,6 +1,7 @@
 import { api } from './api';
 import type {
   AdminBookingStatusPayload,
+  AdminBookingUpdatePayload,
   AdminDashboardFilters,
   AdminEvent,
   AdminManualBookingPayload,
@@ -56,6 +57,11 @@ export async function cancelAdminBooking(bookingId: string) {
 
 export async function updateAdminBookingStatus(bookingId: string, payload: AdminBookingStatusPayload) {
   const response = await api.post<BookingSummary>(`/admin/bookings/${bookingId}/status`, payload);
+  return response.data;
+}
+
+export async function updateAdminBooking(bookingId: string, payload: AdminBookingUpdatePayload) {
+  const response = await api.put<BookingDetail>(`/admin/bookings/${bookingId}`, payload);
   return response.data;
 }
 

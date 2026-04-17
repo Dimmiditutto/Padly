@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import Booking, BookingSource, EmailNotificationLog, PaymentProvider, PaymentStatus
+from app.services.settings_service import get_booking_rules
 
 logger = logging.getLogger(__name__)
 OPTIONAL_EMAIL_ENVS = {'development', 'test'}
@@ -63,6 +64,28 @@ class EmailService:
             and booking.payment_provider in {PaymentProvider.STRIPE, PaymentProvider.PAYPAL}
             and booking.payment_status == PaymentStatus.PAID
         )
+
+    def _public_cancellation_url(self, booking: Booking) -> str | None:
+        if not booking.cancel_token:
+            return None
+        return f'{settings.app_url}/booking/cancel?token={booking.cancel_token}'
+
+    def _refund_notes(self, booking: Booking, *, cancellation_window_hours: int) -> list[str]:
+        if not self._has_online_payment_context(booking):
+            return []
+
+        latest_payment = max(booking.payments, key=lambda payment: payment.created_at, default=None)
+        if not latest_payment or not latest_payment.refund_status:
+            return ['Il circolo verificherà separatamente l\'eventuale rimborso della caparra online.']
+        if latest_payment.refund_status == 'NOT_REQUIRED':
+            return [f'La caparra online non è rimborsabile per annullamenti effettuati nelle ultime {cancellation_window_hours} ore.']
+        if latest_payment.refund_status == 'SUCCEEDED':
+            return ['La caparra online è stata rimborsata automaticamente.']
+        if latest_payment.refund_status == 'PENDING':
+            return ['Il rimborso automatico della caparra è stato avviato e verrà finalizzato dal provider.']
+        if latest_payment.refund_status == 'FAILED':
+            return ['Il rimborso automatico non è andato a buon fine: il circolo verificherà manualmente la situazione.']
+        return []
 
     def _render_email(
         self,
@@ -157,15 +180,24 @@ class EmailService:
         customer = booking.customer
         if not customer:
             return 'SKIPPED'
+        booking_rules = get_booking_rules(db)
+        cancellation_window_hours = booking_rules['cancellation_window_hours']
+        cancellation_url = self._public_cancellation_url(booking)
+        notes = [
+            "Presentati al campo con qualche minuto di anticipo rispetto all'orario prenotato.",
+            'Il saldo residuo verrà gestito direttamente al campo secondo il listino del circolo.',
+            'Conserva il codice prenotazione per eventuali richieste di assistenza.',
+        ]
+        if cancellation_url:
+            notes.append(f'Per annullare in autonomia usa questo link: {cancellation_url}')
+            notes.append(
+                f'Se hai già pagato la caparra online, il rimborso viene avviato automaticamente solo se la cancellazione avviene prima delle ultime {cancellation_window_hours} ore dell\'orario prenotato.'
+            )
         html = self._render_email(
             title='Prenotazione confermata e caparra ricevuta',
-            intro=f"Ciao {customer.first_name}, la tua prenotazione e confermata e la caparra e stata registrata con successo.",
+            intro=f"Ciao {customer.first_name}, la tua prenotazione è confermata e la caparra è stata registrata con successo.",
             booking=booking,
-            notes=[
-                'Presentati al campo con qualche minuto di anticipo rispetto all orario prenotato.',
-                'Il saldo residuo verra gestito direttamente al campo secondo il listino del circolo.',
-                'Conserva il codice prenotazione per eventuali richieste di assistenza.',
-            ],
+            notes=notes,
             accent='#0f766e',
         )
         return self.send(
@@ -181,14 +213,17 @@ class EmailService:
         customer = booking.customer
         if not customer:
             return 'SKIPPED'
+        booking_rules = get_booking_rules(db)
+        notes = [
+            'Lo slot torna disponibile per nuove prenotazioni.',
+            "Se l'annullamento non era previsto, contatta il circolo indicando il codice prenotazione.",
+        ]
+        notes.extend(self._refund_notes(booking, cancellation_window_hours=booking_rules['cancellation_window_hours']))
         html = self._render_email(
             title='Prenotazione annullata',
-            intro=f"Ciao {customer.first_name}, la prenotazione {booking.public_reference} e stata annullata.",
+            intro=f"Ciao {customer.first_name}, la prenotazione {booking.public_reference} è stata annullata.",
             booking=booking,
-            notes=[
-                'Lo slot torna disponibile per nuove prenotazioni.',
-                'Se l annullamento non era previsto, contatta il circolo indicando il codice prenotazione.',
-            ],
+            notes=notes,
             accent='#b45309',
         )
         return self.send(
@@ -206,7 +241,7 @@ class EmailService:
             return 'SKIPPED'
         html = self._render_email(
             title='Prenotazione scaduta',
-            intro=f"Ciao {customer.first_name}, il pagamento della caparra per la prenotazione {booking.public_reference} non e stato completato nei tempi previsti.",
+            intro=f"Ciao {customer.first_name}, il pagamento della caparra per la prenotazione {booking.public_reference} non è stato completato nei tempi previsti.",
             booking=booking,
             notes=[
                 'Lo slot e tornato disponibile automaticamente.',
@@ -236,7 +271,7 @@ class EmailService:
             reminder_notes.append('Il saldo residuo viene gestito direttamente al campo.')
         else:
             reminder_intro = f"Ciao {customer.first_name}, ti ricordiamo la tua prenotazione confermata {booking.public_reference}, registrata dal circolo o dal sistema interno."
-            reminder_notes.append('Questa comunicazione non implica una caparra online gia incassata.')
+            reminder_notes.append('Questa comunicazione non implica una caparra online già incassata.')
         html = self._render_email(
             title='Promemoria prenotazione',
             intro=reminder_intro,
@@ -260,7 +295,7 @@ class EmailService:
         customer_phone = booking.customer_phone or 'Non disponibile'
         html = self._render_email(
             title='Nuova prenotazione ricevuta',
-            intro='Una prenotazione e stata confermata con caparra registrata. Di seguito il riepilogo operativo.',
+            intro='Una prenotazione è stata confermata con caparra registrata. Di seguito il riepilogo operativo.',
             booking=booking,
             details=self._booking_details(booking)
             + [

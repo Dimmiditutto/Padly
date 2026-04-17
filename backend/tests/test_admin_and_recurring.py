@@ -208,6 +208,32 @@ def test_recurring_preview_disambiguates_fallback_dst_occurrence(client):
     assert occurrence['display_end_time'] == '02:00 CET'
 
 
+def test_admin_manual_booking_accepts_disambiguated_fallback_slot_id(client):
+    admin_login(client)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Dario',
+            'last_name': 'Fallback',
+            'phone': '3339090909',
+            'email': 'dario-fallback@example.com',
+            'note': 'Occorrenza CET',
+            'booking_date': '2026-10-25',
+            'start_time': '02:00',
+            'slot_id': '2026-10-25T01:00:00+00:00',
+            'duration_minutes': 60,
+            'payment_provider': 'NONE',
+        },
+    )
+
+    assert manual.status_code == 200
+    payload = manual.json()
+    assert payload['booking_date_local'] == '2026-10-25'
+    assert payload['start_at'].startswith('2026-10-25T01:00:00')
+    assert payload['end_at'].startswith('2026-10-25T02:00:00')
+
+
 def test_admin_status_transitions_are_guarded_for_pending_and_cancelled_bookings(client):
     admin_login(client)
     booking = create_public_pending_booking(client, booking_date=future_date(6), start_time='20:00')
@@ -377,6 +403,244 @@ def test_recurring_creation_logs_created_and_skipped_occurrences(client):
         assert len(created_logs) == 2
         assert series_log is not None
         assert series_log.payload == {'created_count': 2, 'skipped_count': 1}
+
+
+def test_admin_can_update_existing_booking_and_release_old_slot(client):
+    admin_login(client)
+    original_date = future_date(13)
+    new_date = future_date(14)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Elisa',
+            'last_name': 'Move',
+            'phone': '3332121212',
+            'email': 'elisa@example.com',
+            'note': 'Da spostare',
+            'booking_date': original_date,
+            'start_time': '21:00',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    update = client.put(
+        f"/api/admin/bookings/{manual.json()['id']}",
+        json={
+            'booking_date': new_date,
+            'start_time': '22:30',
+            'duration_minutes': 120,
+            'note': 'Spostata da admin',
+        },
+    )
+    assert update.status_code == 200
+    assert update.json()['duration_minutes'] == 120
+    assert update.json()['note'] == 'Spostata da admin'
+
+    old_slot_booking = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Nuovo',
+            'last_name': 'Cliente',
+            'phone': '3334141414',
+            'email': 'nuovo-slot@example.com',
+            'note': '',
+            'booking_date': original_date,
+            'start_time': '21:00',
+            'duration_minutes': 90,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+    assert old_slot_booking.status_code == 201
+
+    conflicting_booking = client.post(
+        '/api/public/bookings',
+        json={
+            'first_name': 'Blocco',
+            'last_name': 'Cliente',
+            'phone': '3335151515',
+            'email': 'conflict-slot@example.com',
+            'note': '',
+            'booking_date': new_date,
+            'start_time': '22:30',
+            'duration_minutes': 120,
+            'payment_provider': 'STRIPE',
+            'privacy_accepted': True,
+        },
+    )
+    assert conflicting_booking.status_code == 409
+
+
+def test_admin_booking_update_disambiguates_fallback_dst_slot(client):
+    admin_login(client)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Elena',
+            'last_name': 'DST',
+            'phone': '3339191919',
+            'email': 'elena-dst@example.com',
+            'note': 'Da riprogrammare',
+            'booking_date': future_date(18),
+            'start_time': '18:00',
+            'duration_minutes': 60,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    update = client.put(
+        f"/api/admin/bookings/{manual.json()['id']}",
+        json={
+            'booking_date': '2026-10-25',
+            'start_time': '02:00',
+            'slot_id': '2026-10-25T01:00:00+00:00',
+            'duration_minutes': 60,
+            'note': 'Seconda occorrenza fallback',
+        },
+    )
+
+    assert update.status_code == 200
+    payload = update.json()
+    assert payload['start_at'].startswith('2026-10-25T01:00:00')
+    assert payload['end_at'].startswith('2026-10-25T02:00:00')
+    assert payload['note'] == 'Seconda occorrenza fallback'
+
+
+def test_admin_booking_update_is_blocked_by_conflict(client):
+    admin_login(client)
+    selected_date = future_date(15)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Nadia',
+            'last_name': 'Conflict',
+            'phone': '3336161616',
+            'email': 'nadia@example.com',
+            'note': 'Da spostare',
+            'booking_date': selected_date,
+            'start_time': '18:00',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    conflicting = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Irene',
+            'last_name': 'Busy',
+            'phone': '3338181818',
+            'email': 'irene@example.com',
+            'note': 'Slot occupato',
+            'booking_date': selected_date,
+            'start_time': '20:30',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert conflicting.status_code == 200
+
+    update = client.put(
+        f"/api/admin/bookings/{manual.json()['id']}",
+        json={
+            'booking_date': selected_date,
+            'start_time': '20:30',
+            'duration_minutes': 90,
+            'note': 'Tentativo su slot occupato',
+        },
+    )
+    assert update.status_code == 409
+    assert update.json()['detail'] == 'Lo slot non è più disponibile'
+
+
+def test_admin_booking_update_is_blocked_by_blackout(client):
+    admin_login(client)
+    original_date = future_date(19)
+    blocked_date = future_date(20)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Nora',
+            'last_name': 'Blackout',
+            'phone': '3339292929',
+            'email': 'nora-blackout@example.com',
+            'note': 'Da spostare',
+            'booking_date': original_date,
+            'start_time': '18:00',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    blackout = client.post(
+        '/api/admin/blackouts',
+        json={
+            'title': 'Campo occupato',
+            'reason': 'Torneo interno',
+            'start_at': f'{blocked_date}T20:30',
+            'end_at': f'{blocked_date}T22:00',
+        },
+    )
+    assert blackout.status_code == 200
+
+    update = client.put(
+        f"/api/admin/bookings/{manual.json()['id']}",
+        json={
+            'booking_date': blocked_date,
+            'start_time': '20:30',
+            'duration_minutes': 90,
+            'note': 'Tentativo su blackout',
+        },
+    )
+
+    assert update.status_code == 409
+    assert update.json()['detail'] == "Fascia bloccata dall'admin"
+
+
+def test_admin_booking_update_rejects_non_modifiable_status(client):
+    admin_login(client)
+    selected_date = future_date(16)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Paolo',
+            'last_name': 'Completed',
+            'phone': '3337171717',
+            'email': 'paolo@example.com',
+            'note': 'Completa e blocca',
+            'booking_date': selected_date,
+            'start_time': '19:30',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+
+    move_booking_slot_to_past(manual.json()['id'])
+    completed = client.post(f"/api/admin/bookings/{manual.json()['id']}/status", json={'status': 'COMPLETED'})
+    assert completed.status_code == 200
+
+    update = client.put(
+        f"/api/admin/bookings/{manual.json()['id']}",
+        json={
+            'booking_date': future_date(17),
+            'start_time': '21:00',
+            'duration_minutes': 90,
+            'note': 'Non dovrebbe passare',
+        },
+    )
+    assert update.status_code == 409
+    assert update.json()['detail'] == 'Prenotazione non modificabile in questo stato'
 
 
 def test_admin_cancellation_logs_single_email_notification(client):

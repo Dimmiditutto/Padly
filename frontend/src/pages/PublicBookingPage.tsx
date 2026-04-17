@@ -13,10 +13,10 @@ const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const today = toDateInputValue(new Date());
 
 const playerRates = [
-  'Tesserati: €7/ora per giocatore',
-  'Non tesserati: €9/ora per giocatore',
-  '90 minuti: €10 tesserati per giocatore',
-  '90 minuti: €13 non tesserati per giocatore',
+  'Tesserati: € 7/ora per giocatore',
+  'Non tesserati: € 9/ora per giocatore',
+  '90 minuti: € 10 per giocatore tesserato',
+  '90 minuti: € 13 per giocatore non tesserato',
 ];
 
 export function PublicBookingPage() {
@@ -168,18 +168,19 @@ export function PublicBookingPage() {
                 </div>
                 <div className='surface-muted'>
                   <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
-                  <p className='mt-2 text-sm font-medium text-slate-900'>{publicConfig.cancellation_window_hours} ore prima</p>
+                  <p className='mt-2 text-sm font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
+                  <p className='mt-1 text-xs text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
                 </div>
               </div>
             ) : null}
             <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-sm text-slate-100'>
-              <p className='font-semibold'>Tariffe indicative per giocatore</p>
+              <p className='font-semibold'>Tariffe informative per giocatore</p>
               <ul className='mt-2 space-y-1 text-slate-300'>
                 {playerRates.map((rate) => (
                   <li key={rate}>• {rate}</li>
                 ))}
               </ul>
-              <p className='mt-3 text-xs text-slate-400'>Le tariffe sono solo informative e non cambiano la caparra online.</p>
+              <p className='mt-3 text-xs text-slate-400'>Tariffe informative: non sostituiscono la caparra online.</p>
             </div>
           </div>
         </header>

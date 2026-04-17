@@ -1,6 +1,6 @@
 # PROMPT UX/UI OPERATIVO PER COPILOT — CALIBRATO SUL REPOSITORY REALE
 
-Agisci come un **Senior Product Designer** e **Senior Frontend Engineer React/TypeScript/Tailwind**.
+Agisci come un **Senior Product Designer** + **Senior Frontend Engineer React/TypeScript/Tailwind** + UX/UI Specialist Senior.
 
 Devi eseguire una **patch UX/UI minima, precisa e coerente** sul frontend attuale della web app di prenotazione padel.
 

@@ -23,8 +23,31 @@ class AdminBookingCreateRequest(BookingCustomerData):
 
     booking_date: date
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
+    slot_id: str | None = None
     duration_minutes: int
     payment_provider: PaymentProvider = PaymentProvider.NONE
+
+    @field_validator('duration_minutes')
+    @classmethod
+    def validate_duration(cls, value: int) -> int:
+        if value not in VALID_DURATIONS:
+            raise ValueError('Durata non valida')
+        return value
+
+    @field_validator('start_time')
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return validate_hhmm_time(value)
+
+
+class AdminBookingUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    booking_date: date
+    start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
+    slot_id: str | None = None
+    duration_minutes: int
+    note: str | None = Field(default=None, max_length=1000)
 
     @field_validator('duration_minutes')
     @classmethod

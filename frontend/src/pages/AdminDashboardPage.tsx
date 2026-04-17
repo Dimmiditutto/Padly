@@ -1,5 +1,5 @@
 import { CalendarClock, ClipboardList, Repeat2, Settings2 } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AdminBookingCard } from '../components/AdminBookingCard';
 import { AlertBanner } from '../components/AlertBanner';
@@ -7,6 +7,7 @@ import { AppBrand } from '../components/AppBrand';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
+import { getAvailability } from '../services/publicApi';
 import {
   createAdminBooking,
   createBlackout,
@@ -23,7 +24,7 @@ import {
   updateAdminBookingStatus,
   updateAdminSettings,
 } from '../services/adminApi';
-import type { AdminEvent, AdminManualBookingPayload, AdminSettings, BlackoutItem, BookingSummary, RecurringOccurrence, ReportResponse } from '../types';
+import type { AdminEvent, AdminManualBookingPayload, AdminSettings, BlackoutItem, BookingSummary, RecurringOccurrence, ReportResponse, TimeSlot } from '../types';
 import { formatCurrency, formatDateTime, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
@@ -54,9 +55,11 @@ export function AdminDashboardPage() {
     note: '',
     booking_date: today,
     start_time: '18:00',
+    slot_id: null,
     duration_minutes: 90,
     payment_provider: 'NONE',
   });
+  const [manualSlots, setManualSlots] = useState<TimeSlot[]>([]);
   const [blackoutForm, setBlackoutForm] = useState({
     title: 'Manutenzione ordinaria',
     reason: 'Pulizia e controllo rete',
@@ -65,10 +68,52 @@ export function AdminDashboardPage() {
   });
   const [recurringForm, setRecurringForm] = useState({ label: 'Allenamento fisso', weekday: 2, start_date: today, weeks_count: 6, start_time: '20:00', duration_minutes: 90 });
   const [recurringPreview, setRecurringPreview] = useState<RecurringOccurrence[]>([]);
+  const manualMatchingSlots = useMemo(
+    () => manualSlots.filter((slot) => slot.start_time === manualForm.start_time),
+    [manualSlots, manualForm.start_time]
+  );
 
   useEffect(() => {
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadManualSlots() {
+      try {
+        const response = await getAvailability(manualForm.booking_date, manualForm.duration_minutes);
+        if (!ignore) {
+          setManualSlots(response.slots);
+        }
+      } catch {
+        if (!ignore) {
+          setManualSlots([]);
+        }
+      }
+    }
+
+    void loadManualSlots();
+
+    return () => {
+      ignore = true;
+    };
+  }, [manualForm.booking_date, manualForm.duration_minutes]);
+
+  useEffect(() => {
+    if (manualMatchingSlots.length === 0) {
+      if (manualForm.slot_id) {
+        setManualForm((prev) => ({ ...prev, slot_id: null }));
+      }
+      return;
+    }
+
+    if (manualMatchingSlots.some((slot) => slot.slot_id === manualForm.slot_id)) {
+      return;
+    }
+
+    setManualForm((prev) => ({ ...prev, slot_id: manualMatchingSlots[0].slot_id }));
+  }, [manualForm.slot_id, manualMatchingSlots]);
 
   async function bootstrap() {
     setLoading(true);
@@ -331,12 +376,28 @@ export function AdminDashboardPage() {
                 <input className='text-input' placeholder='Telefono' value={manualForm.phone} onChange={(e) => setManualForm((prev) => ({ ...prev, phone: e.target.value }))} />
                 <input className='text-input' placeholder='Email' value={manualForm.email} onChange={(e) => setManualForm((prev) => ({ ...prev, email: e.target.value }))} />
                 <div className='grid grid-cols-2 gap-2'>
-                  <input className='text-input' type='date' value={manualForm.booking_date} onChange={(e) => setManualForm((prev) => ({ ...prev, booking_date: e.target.value }))} />
-                  <input className='text-input' type='time' value={manualForm.start_time} onChange={(e) => setManualForm((prev) => ({ ...prev, start_time: e.target.value }))} />
+                  <input className='text-input' type='date' value={manualForm.booking_date} onChange={(e) => setManualForm((prev) => ({ ...prev, booking_date: e.target.value, slot_id: null }))} />
+                  <input className='text-input' type='time' value={manualForm.start_time} onChange={(e) => setManualForm((prev) => ({ ...prev, start_time: e.target.value, slot_id: null }))} />
                 </div>
                 <select className='text-input' value={manualForm.duration_minutes} onChange={(e) => setManualForm((prev) => ({ ...prev, duration_minutes: Number(e.target.value) }))}>
                   {[60, 90, 120, 150, 180, 210, 240, 270, 300].map((value) => <option key={value} value={value}>{value} minuti</option>)}
                 </select>
+                {manualMatchingSlots.length > 1 ? (
+                  <div className='space-y-1'>
+                    <label className='field-label' htmlFor='manual-slot-id'>Occorrenza slot</label>
+                    <select
+                      id='manual-slot-id'
+                      className='text-input'
+                      value={manualForm.slot_id || ''}
+                      onChange={(e) => setManualForm((prev) => ({ ...prev, slot_id: e.target.value || null }))}
+                    >
+                      {manualMatchingSlots.map((slot) => (
+                        <option key={slot.slot_id} value={slot.slot_id}>{slot.display_start_time} → {slot.display_end_time}</option>
+                      ))}
+                    </select>
+                    <p className='text-xs text-slate-500'>Seleziona l'occorrenza corretta quando l'ora locale compare due volte per il cambio ora.</p>
+                  </div>
+                ) : null}
                 <textarea className='text-input min-h-20' placeholder='Nota interna o dettaglio cliente' value={manualForm.note} onChange={(e) => setManualForm((prev) => ({ ...prev, note: e.target.value }))} />
                 <button className='btn-primary w-full' type='submit'>Crea prenotazione</button>
               </form>
@@ -403,7 +464,7 @@ export function AdminDashboardPage() {
               )}
             </SectionCard>
 
-            <SectionCard title='Regole operative' description='Controlla hold pagamento, cancellazione e reminder.'>
+            <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.'>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
               ) : (
@@ -414,7 +475,7 @@ export function AdminDashboardPage() {
                       <input className='text-input' type='number' min={5} max={120} value={settings.booking_hold_minutes} onChange={(e) => setSettings((prev) => prev ? { ...prev, booking_hold_minutes: Number(e.target.value) } : prev)} />
                     </div>
                     <div>
-                      <label className='field-label'>Finestra cancellazione</label>
+                      <label className='field-label'>Soglia rimborso annullamento</label>
                       <input className='text-input' type='number' min={1} max={168} value={settings.cancellation_window_hours} onChange={(e) => setSettings((prev) => prev ? { ...prev, cancellation_window_hours: Number(e.target.value) } : prev)} />
                     </div>
                     <div>
