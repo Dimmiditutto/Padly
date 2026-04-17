@@ -17,7 +17,6 @@ const playerRates = [
   '90 minuti: € 10 per giocatore tesserato',
   '90 minuti: € 13 per giocatore non tesserato',
 ];
-const logoUrl = new URL('../../../Logo_BR.png', import.meta.url).href;
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 
 export function PublicBookingPage() {
@@ -152,7 +151,7 @@ export function PublicBookingPage() {
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
             <div className='rounded-[24px] border border-white/10 bg-white/[0.03] px-0 py-3'>
-              <img src={logoUrl} alt='Logo BR' className='w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
+              <LogoBR />
             </div>
             <div className='mt-6 max-w-2xl'>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Prenota il tuo match in pochi minuti</h1>
@@ -168,32 +167,32 @@ export function PublicBookingPage() {
           </div>
 
           <div className='surface-card bg-gradient-to-br from-white to-cyan-50'>
-            <p className='text-[15px] font-semibold text-cyan-700'>Caparra online</p>
+            <p className='text-base font-semibold text-cyan-700'>Caparra online</p>
             <div className='mt-2 text-4xl font-bold text-slate-950'>{formatCurrency(depositAmount)}</div>
-            <p className='mt-2 text-[15px] text-slate-600'>Fino a 90 minuti paghi €20. Poi si aggiungono €10 per ogni ulteriore blocco da 30 minuti.</p>
-            {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' labelClassName='text-[15px]' /></div> : null}
+            <p className='mt-2 text-base leading-6 text-slate-600'>Fino a 90 minuti paghi €20. Poi si aggiungono €10 per ogni ulteriore blocco da 30 minuti.</p>
+            {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' labelClassName='text-base' /></div> : null}
             {publicConfig ? (
               <div className='mt-4 grid gap-3 sm:grid-cols-2'>
                 <div className='surface-muted'>
-                  <p className='text-[13px] font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
-                  <p className='mt-2 text-[15px] font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
-                  <p className='mt-1 text-[13px] text-slate-600'>Tempo massimo per completare il checkout.</p>
+                  <p className='text-sm font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
+                  <p className='mt-2 text-base font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
+                  <p className='mt-1 text-sm leading-5 text-slate-600'>Tempo massimo per completare il checkout.</p>
                 </div>
                 <div className='surface-muted'>
-                  <p className='text-[13px] font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
-                  <p className='mt-2 text-[15px] font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
-                  <p className='mt-1 text-[13px] text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
+                  <p className='text-sm font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
+                  <p className='mt-2 text-base font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
+                  <p className='mt-1 text-sm leading-5 text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
                 </div>
               </div>
             ) : null}
-            <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-[15px] text-slate-100'>
+            <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-base text-slate-100'>
               <p className='font-semibold'>Tariffe informative per giocatore</p>
               <ul className='mt-2 space-y-1 text-slate-300'>
                 {playerRates.map((rate) => (
                   <li key={rate}>• {rate}</li>
                 ))}
               </ul>
-              <p className='mt-3 text-[13px] text-slate-400'>Tariffe informative: non sostituiscono la caparra online.</p>
+              <p className='mt-3 text-sm leading-5 text-slate-400'>Tariffe informative: non sostituiscono la caparra online.</p>
             </div>
           </div>
         </header>
@@ -368,6 +367,50 @@ function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, dura
   return slots
     .filter((slot) => coveredStartTimes.has(new Date(slot.slot_id).getTime()))
     .map((slot) => slot.slot_id);
+}
+
+function LogoBR() {
+  const dots = [
+    { cx: 520, cy: 117, r: 23 },
+    { cx: 624, cy: 109, r: 26 },
+    { cx: 701, cy: 159, r: 28 },
+    { cx: 471, cy: 172, r: 17 },
+    { cx: 579, cy: 169, r: 23 },
+    { cx: 744, cy: 208, r: 27 },
+    { cx: 430, cy: 213, r: 13 },
+    { cx: 521, cy: 218, r: 16 },
+    { cx: 618, cy: 218, r: 25 },
+    { cx: 482, cy: 263, r: 12 },
+    { cx: 579, cy: 269, r: 16 },
+    { cx: 694, cy: 265, r: 24 },
+    { cx: 440, cy: 305, r: 8 },
+    { cx: 528, cy: 314, r: 12 },
+    { cx: 618, cy: 319, r: 15 },
+    { cx: 734, cy: 317, r: 24 },
+  ];
+
+  return (
+    <svg
+      role='img'
+      aria-label='Logo BR'
+      viewBox='0 0 1238 592'
+      className='w-2/3 min-w-[220px] max-w-[430px] overflow-visible drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]'
+    >
+      <path
+        d='M143 480C259 420 328 326 377 217C435 89 564 41 698 52C816 62 937 142 1002 255C931 171 850 133 746 126C627 118 510 167 434 297C364 416 291 494 143 480Z'
+        fill='white'
+        opacity='0.96'
+      />
+      {dots.map((dot) => (
+        <circle key={`${dot.cx}-${dot.cy}`} cx={dot.cx} cy={dot.cy} r={dot.r} fill='#FFD12A' stroke='white' strokeWidth='4' />
+      ))}
+      <circle cx='942' cy='297' r='73' fill='none' stroke='white' strokeWidth='10' />
+      <path d='M885 332C906 343 927 339 937 308L960 244C971 216 996 202 1020 209' fill='none' stroke='white' strokeWidth='11' strokeLinecap='round' />
+      <path d='M1002 241C1040 264 1052 314 1028 357C1010 389 983 411 944 430' fill='none' stroke='white' strokeWidth='8' strokeLinecap='round' />
+      <text x='294' y='478' fill='white' fontSize='42' fontFamily='Arial, sans-serif' letterSpacing='4'>www.</text>
+      <text x='413' y='474' fill='white' fontSize='96' fontFamily='Arial, sans-serif' fontWeight='500'>padelsavona.it</text>
+    </svg>
+  );
 }
 
 function isSlotWithinOpeningHours(slot: TimeSlot) {
