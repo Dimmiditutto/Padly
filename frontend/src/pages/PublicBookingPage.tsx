@@ -17,7 +17,10 @@ const playerRates = [
   '90 minuti: € 10 per giocatore tesserato',
   '90 minuti: € 13 per giocatore non tesserato',
 ];
+const logoUrl = '/Logo_BR.png';
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
+const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
+const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
 
 export function PublicBookingPage() {
   const [bookingDate, setBookingDate] = useState(today);
@@ -151,7 +154,7 @@ export function PublicBookingPage() {
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
             <div className='rounded-[24px] border border-white/10 bg-white/[0.03] px-0 py-3'>
-              <LogoBR />
+              <img src={logoUrl} alt='Logo BR' className='block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
             </div>
             <div className='mt-6 max-w-2xl'>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Prenota il tuo match in pochi minuti</h1>
@@ -174,14 +177,14 @@ export function PublicBookingPage() {
             {publicConfig ? (
               <div className='mt-4 grid gap-3 sm:grid-cols-2'>
                 <div className='surface-muted'>
-                  <p className='text-sm font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
+                  <p className={eyebrowTextClassName}>Hold pagamento</p>
                   <p className='mt-2 text-base font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
-                  <p className='mt-1 text-sm leading-5 text-slate-600'>Tempo massimo per completare il checkout.</p>
+                  <p className='mt-1 text-sm leading-6 text-slate-600'>Tempo massimo per completare il checkout.</p>
                 </div>
                 <div className='surface-muted'>
-                  <p className='text-sm font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
+                  <p className={eyebrowTextClassName}>Cancellazione</p>
                   <p className='mt-2 text-base font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
-                  <p className='mt-1 text-sm leading-5 text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
+                  <p className='mt-1 text-sm leading-6 text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
                 </div>
               </div>
             ) : null}
@@ -211,15 +214,15 @@ export function PublicBookingPage() {
               <SectionCard title='Scegli data e durata' description={`${openingHoursText}. La disponibilità cambia in tempo reale.`} elevated>
               <div className='mb-4 flex items-center gap-2'>
                 <Calendar size={18} className='text-cyan-600' />
-                <p className='text-sm font-semibold text-slate-700'>Selezione slot</p>
+                <p className={secondarySectionTitleClassName}>Selezione slot</p>
               </div>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <div>
                   <label className='field-label' htmlFor='booking-date'>Data</label>
                   <input id='booking-date' className='text-input' type='date' value={bookingDate} min={today} onChange={(e) => setBookingDate(e.target.value)} />
                   <div className='mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
-                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno</p>
-                    <p className='mt-2 text-sm font-medium text-slate-900'>{bookingDayLabel}</p>
+                    <p className={eyebrowTextClassName}>Giorno</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{bookingDayLabel}</p>
                   </div>
                 </div>
                 <div>
@@ -234,12 +237,12 @@ export function PublicBookingPage() {
 
               <div className='mt-5'>
                 <div className='mb-3 flex items-center justify-between'>
-                  <p className='text-sm font-semibold text-slate-700'>Orari disponibili</p>
+                  <p className={secondarySectionTitleClassName}>Orari disponibili</p>
                   {loadingSlots && <p className='text-sm text-slate-500'>Aggiornamento in corso…</p>}
                 </div>
                 {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={visibleSlots} selectedSlotId={selectedSlotId} highlightedSlotIds={highlightedSlotIds} onSelect={setSelectedSlotId} />}
                 {selectedSlot && (
-                  <p className='mt-3 text-sm text-emerald-700'>Hai selezionato {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
+                  <p className='mt-3 text-sm font-medium text-emerald-700'>Hai selezionato {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
                 )}
               </div>
             </SectionCard>
@@ -280,8 +283,8 @@ export function PublicBookingPage() {
                 </div>
 
                 <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
-                  <p className='text-sm font-semibold text-slate-800'>Metodo pagamento caparra</p>
-                  <p className='mt-1 text-xs text-slate-500'>Mostro solo i provider di pagamento attualmente disponibili in questo ambiente.</p>
+                  <p className={secondarySectionTitleClassName}>Metodo pagamento caparra</p>
+                  <p className='mt-1 text-sm leading-6 text-slate-600'>Mostro solo i provider di pagamento attualmente disponibili in questo ambiente.</p>
                   {availableProviders.length === 0 ? (
                     <div className='mt-3'>
                       <AlertBanner tone='error'>Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.</AlertBanner>
@@ -302,12 +305,12 @@ export function PublicBookingPage() {
                 </div>
 
                 <div className='rounded-2xl bg-cyan-50 p-4 text-sm text-slate-700'>
-                  <p className='font-semibold text-slate-900'>Riepilogo</p>
+                  <p className={secondarySectionTitleClassName}>Riepilogo</p>
                   <p className='mt-2'>Data: <strong>{bookingDate}</strong></p>
                   <p>Inizio: <strong>{selectedSlot?.display_start_time || 'Seleziona uno slot'}</strong></p>
                   <p>Durata: <strong>{duration} minuti</strong></p>
                   <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p>
-                  <p className='mt-2 text-xs text-slate-600'>Il saldo residuo viene pagato direttamente al campo. Nessuna registrazione obbligatoria.</p>
+                  <p className='mt-2 text-sm leading-6 text-slate-600'>Il saldo residuo viene pagato direttamente al campo. Nessuna registrazione obbligatoria.</p>
                 </div>
 
                 <label className='flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
@@ -369,50 +372,6 @@ function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, dura
     .map((slot) => slot.slot_id);
 }
 
-function LogoBR() {
-  const dots = [
-    { cx: 520, cy: 117, r: 23 },
-    { cx: 624, cy: 109, r: 26 },
-    { cx: 701, cy: 159, r: 28 },
-    { cx: 471, cy: 172, r: 17 },
-    { cx: 579, cy: 169, r: 23 },
-    { cx: 744, cy: 208, r: 27 },
-    { cx: 430, cy: 213, r: 13 },
-    { cx: 521, cy: 218, r: 16 },
-    { cx: 618, cy: 218, r: 25 },
-    { cx: 482, cy: 263, r: 12 },
-    { cx: 579, cy: 269, r: 16 },
-    { cx: 694, cy: 265, r: 24 },
-    { cx: 440, cy: 305, r: 8 },
-    { cx: 528, cy: 314, r: 12 },
-    { cx: 618, cy: 319, r: 15 },
-    { cx: 734, cy: 317, r: 24 },
-  ];
-
-  return (
-    <svg
-      role='img'
-      aria-label='Logo BR'
-      viewBox='0 0 1238 592'
-      className='w-2/3 min-w-[220px] max-w-[430px] overflow-visible drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]'
-    >
-      <path
-        d='M143 480C259 420 328 326 377 217C435 89 564 41 698 52C816 62 937 142 1002 255C931 171 850 133 746 126C627 118 510 167 434 297C364 416 291 494 143 480Z'
-        fill='white'
-        opacity='0.96'
-      />
-      {dots.map((dot) => (
-        <circle key={`${dot.cx}-${dot.cy}`} cx={dot.cx} cy={dot.cy} r={dot.r} fill='#FFD12A' stroke='white' strokeWidth='4' />
-      ))}
-      <circle cx='942' cy='297' r='73' fill='none' stroke='white' strokeWidth='10' />
-      <path d='M885 332C906 343 927 339 937 308L960 244C971 216 996 202 1020 209' fill='none' stroke='white' strokeWidth='11' strokeLinecap='round' />
-      <path d='M1002 241C1040 264 1052 314 1028 357C1010 389 983 411 944 430' fill='none' stroke='white' strokeWidth='8' strokeLinecap='round' />
-      <text x='294' y='478' fill='white' fontSize='42' fontFamily='Arial, sans-serif' letterSpacing='4'>www.</text>
-      <text x='413' y='474' fill='white' fontSize='96' fontFamily='Arial, sans-serif' fontWeight='500'>padelsavona.it</text>
-    </svg>
-  );
-}
-
 function isSlotWithinOpeningHours(slot: TimeSlot) {
   if (slot.start_time < '07:00') {
     return false;
@@ -427,9 +386,9 @@ function StepCard({ index, title, description }: { index: string; title: string;
       <div className='inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-sm'>
         <CheckCircle2 size={18} />
       </div>
-      <p className='mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Step {index}</p>
+      <p className='mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-slate-500'>Step {index}</p>
       <h3 className='mt-2 text-base font-semibold text-slate-950'>{title}</h3>
-      <p className='mt-2 text-sm text-slate-600'>{description}</p>
+      <p className='mt-2 text-sm leading-6 text-slate-600'>{description}</p>
     </div>
   );
 }
@@ -439,7 +398,7 @@ function InfoPill({ icon, title, text }: { icon: ReactNode; title: string; text:
     <div className='rounded-2xl border border-slate-800 bg-slate-900/90 p-3'>
       <div className='mb-2 text-cyan-300'>{icon}</div>
       <p className='text-sm font-semibold'>{title}</p>
-      <p className='text-xs text-slate-400'>{text}</p>
+      <p className='mt-1 text-sm leading-5 text-slate-400'>{text}</p>
     </div>
   );
 }

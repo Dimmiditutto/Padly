@@ -25,7 +25,7 @@ Queste regole hanno priorità alta e vanno rispettate:
   - dark override
   - theme hook
   - token light/dark
-- lavora **solo sulla light mode esistente**
+- lavora **solo sulla mode esistente**
 
 Inoltre:
 
