@@ -1,7 +1,6 @@
 import { Calendar, CheckCircle2, Clock3, CreditCard, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
@@ -18,6 +17,8 @@ const playerRates = [
   '90 minuti: € 10 per giocatore tesserato',
   '90 minuti: € 13 per giocatore non tesserato',
 ];
+const logoUrl = new URL('../../../Logo_BR.png', import.meta.url).href;
+const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 
 export function PublicBookingPage() {
   const [bookingDate, setBookingDate] = useState(today);
@@ -40,6 +41,8 @@ export function PublicBookingPage() {
     note: '',
     privacy_accepted: false,
   });
+  const bookingDayLabel = useMemo(() => formatBookingDayLabel(bookingDate), [bookingDate]);
+  const visibleSlots = useMemo(() => slots.filter(isSlotWithinOpeningHours), [slots]);
 
   useEffect(() => {
     void loadConfig();
@@ -99,8 +102,8 @@ export function PublicBookingPage() {
   }
 
   const selectedSlot = useMemo(
-    () => slots.find((slot) => slot.slot_id === selectedSlotId),
-    [selectedSlotId, slots]
+    () => visibleSlots.find((slot) => slot.slot_id === selectedSlotId),
+    [selectedSlotId, visibleSlots]
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -144,14 +147,19 @@ export function PublicBookingPage() {
       <div className='page-shell max-w-6xl'>
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-            <AppBrand light />
-            <p className='mt-4 inline-flex rounded-full border border-cyan-400/30 px-3 py-1 text-xs font-semibold text-cyan-200'>Padel booking pubblico • mobile first</p>
-            <h1 className='text-3xl font-bold tracking-tight sm:text-4xl'>Prenota il tuo match in pochi minuti</h1>
-            <p className='mt-3 max-w-xl text-sm text-slate-300 sm:text-base'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo.</p>
-            <div className='mt-5 grid gap-3 sm:grid-cols-3'>
-              <InfoPill icon={<Clock3 size={16} />} title='Aperto 24/7' text='Disponibilità continua' />
-              <InfoPill icon={<CreditCard size={16} />} title='Caparra online' text='Stripe o PayPal' />
-              <InfoPill icon={<ShieldCheck size={16} />} title='Conferma rapida' text='Slot protetto server-side' />
+            <div className='rounded-[24px] border border-white/10 bg-white/[0.03] px-0 py-3'>
+              <img src={logoUrl} alt='Logo BR' className='w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
+            </div>
+            <div className='mt-6 max-w-2xl'>
+              <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Prenota il tuo match in pochi minuti</h1>
+              <p className='mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo.</p>
+            </div>
+            <div className='mt-6 border-t border-white/10 pt-5'>
+              <div className='grid gap-3 sm:grid-cols-3'>
+                <InfoPill icon={<Clock3 size={16} />} title='Campo aperto' text='Da Lunedì a Domenica dalle 7 alle 24' />
+                <InfoPill icon={<CreditCard size={16} />} title='Caparra online' text='Stripe o PayPal' />
+                <InfoPill icon={<ShieldCheck size={16} />} title='Conferma rapida' text='Slot protetto server-side' />
+              </div>
             </div>
           </div>
 
@@ -165,6 +173,7 @@ export function PublicBookingPage() {
                 <div className='surface-muted'>
                   <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
                   <p className='mt-2 text-sm font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
+                  <p className='mt-1 text-xs text-slate-600'>Tempo massimo per completare il checkout.</p>
                 </div>
                 <div className='surface-muted'>
                   <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
@@ -185,9 +194,18 @@ export function PublicBookingPage() {
           </div>
         </header>
 
-        <main className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
-          <section className='space-y-6'>
-            <SectionCard title='Scegli data e durata' description='Il campo è aperto 24/7. La disponibilità cambia in tempo reale.' elevated>
+        <main className='space-y-6'>
+          <SectionCard title='Come funziona' description='Un flusso lineare e leggibile, ottimizzato per smartphone.'>
+            <div className='grid gap-3 sm:grid-cols-3'>
+              <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
+              <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
+              <StepCard index='3' title='Versa la caparra' description='Completa il checkout e ricevi subito la conferma.' />
+            </div>
+          </SectionCard>
+
+          <div className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
+            <section>
+              <SectionCard title='Scegli data e durata' description={`${openingHoursText}. La disponibilità cambia in tempo reale.`} elevated>
               <div className='mb-4 flex items-center gap-2'>
                 <Calendar size={18} className='text-cyan-600' />
                 <p className='text-sm font-semibold text-slate-700'>Selezione slot</p>
@@ -196,6 +214,10 @@ export function PublicBookingPage() {
                 <div>
                   <label className='field-label' htmlFor='booking-date'>Data</label>
                   <input id='booking-date' className='text-input' type='date' value={bookingDate} min={today} onChange={(e) => setBookingDate(e.target.value)} />
+                  <div className='mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno</p>
+                    <p className='mt-2 text-sm font-medium text-slate-900'>{bookingDayLabel}</p>
+                  </div>
                 </div>
                 <div>
                   <label className='field-label' htmlFor='booking-duration'>Durata</label>
@@ -212,24 +234,16 @@ export function PublicBookingPage() {
                   <p className='text-sm font-semibold text-slate-700'>Orari disponibili</p>
                   {loadingSlots && <p className='text-sm text-slate-500'>Aggiornamento in corso…</p>}
                 </div>
-                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={slots} selectedSlotId={selectedSlotId} onSelect={setSelectedSlotId} />}
+                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={visibleSlots} selectedSlotId={selectedSlotId} onSelect={setSelectedSlotId} />}
                 {selectedSlot && (
                   <p className='mt-3 text-sm text-emerald-700'>Hai selezionato {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
                 )}
               </div>
             </SectionCard>
+            </section>
 
-            <SectionCard title='Come funziona' description='Un flusso lineare e leggibile, ottimizzato per smartphone.'>
-              <div className='grid gap-3 sm:grid-cols-3'>
-                <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
-                <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
-                <StepCard index='3' title='Versa la caparra' description='Completa il checkout e ricevi subito la conferma.' />
-              </div>
-            </SectionCard>
-          </section>
-
-          <section className='space-y-6'>
-            <SectionCard title='Completa la prenotazione' description='Inserisci i tuoi dati e scegli come versare la caparra.' elevated>
+            <section>
+              <SectionCard title='Completa la prenotazione' description='Inserisci i tuoi dati e scegli come versare la caparra.' elevated>
               {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
               {lastBooking && !feedback ? (
                 <AlertBanner tone='success' title='Richiesta creata'>
@@ -309,11 +323,34 @@ export function PublicBookingPage() {
                 </button>
               </form>
             </SectionCard>
-          </section>
+            </section>
+          </div>
         </main>
       </div>
     </div>
   );
+}
+
+function formatBookingDayLabel(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) {
+    return '';
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'long',
+    timeZone: 'Europe/Rome',
+  }).format(normalizedDate);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function isSlotWithinOpeningHours(slot: TimeSlot) {
+  if (slot.start_time < '07:00') {
+    return false;
+  }
+
+  return slot.end_time === '00:00' || slot.end_time > slot.start_time;
 }
 
 function StepCard({ index, title, description }: { index: string; title: string; description: string }) {

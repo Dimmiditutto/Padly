@@ -103,10 +103,14 @@ describe('PublicBookingPage', () => {
 
     await screen.findByText('15 minuti');
     await screen.findByRole('button', { name: '18:00' });
+    expect(screen.getByRole('img', { name: 'Logo BR' })).toBeInTheDocument();
+    expect(screen.getByText('Campo aperto da Lunedì a Domenica dalle 7 alle 24. La disponibilità cambia in tempo reale.')).toBeInTheDocument();
     expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
     expect(screen.getByText('Rimborso automatico solo se annulli prima di 24 ore. Nelle ultime 24 ore la caparra non e rimborsabile.')).toBeInTheDocument();
+    expect(screen.getByText('Tempo massimo per completare il checkout.')).toBeInTheDocument();
     expect(screen.getByText('Tariffe informative per giocatore')).toBeInTheDocument();
     expect(screen.getByText('Tariffe informative: non sostituiscono la caparra online.')).toBeInTheDocument();
+    expect(screen.getByText('Giorno')).toBeInTheDocument();
 
     expect(getPublicConfig).toHaveBeenCalledTimes(1);
     expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90);
@@ -150,31 +154,27 @@ describe('PublicBookingPage', () => {
     expect(window.location.assign).toHaveBeenCalledWith('/checkout/paypal');
   });
 
-  it('keeps ambiguous fallback slots distinct via slot_id while preserving the same local start_time', async () => {
+  it('shows only slots within the 7:00–24:00 opening window', async () => {
     vi.mocked(getAvailability).mockResolvedValue({
       date: '2026-10-25',
       duration_minutes: 60,
       deposit_amount: 20,
       slots: [
         { slot_id: '2026-10-25T00:00:00+00:00', start_time: '02:00', end_time: '02:00', display_start_time: '02:00 CEST', display_end_time: '02:00 CET', available: true, reason: null },
-        { slot_id: '2026-10-25T01:00:00+00:00', start_time: '02:00', end_time: '03:00', display_start_time: '02:00 CET', display_end_time: '03:00', available: true, reason: null },
+        { slot_id: '2026-10-25T05:30:00+00:00', start_time: '06:30', end_time: '07:30', display_start_time: '06:30', display_end_time: '07:30', available: true, reason: null },
+        { slot_id: '2026-10-25T06:00:00+00:00', start_time: '07:00', end_time: '08:00', display_start_time: '07:00', display_end_time: '08:00', available: true, reason: null },
+        { slot_id: '2026-10-25T22:00:00+00:00', start_time: '23:00', end_time: '00:00', display_start_time: '23:00', display_end_time: '00:00', available: true, reason: null },
+        { slot_id: '2026-10-25T22:30:00+00:00', start_time: '23:30', end_time: '00:30', display_start_time: '23:30', display_end_time: '00:30', available: true, reason: null },
       ],
     });
 
     renderPage();
 
-    await screen.findByRole('button', { name: '02:00 CEST' });
-    await screen.findByRole('button', { name: '02:00 CET' });
-
-    await fillBookingForm();
-    fireEvent.click(screen.getByRole('button', { name: '02:00 CET' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continua al pagamento della caparra' }));
-
-    await waitFor(() => expect(createPublicBooking).toHaveBeenCalledWith(expect.objectContaining({
-      start_time: '02:00',
-      slot_id: '2026-10-25T01:00:00+00:00',
-    })));
-    expect(screen.getByText('Hai selezionato 02:00 CET → 03:00')).toBeInTheDocument();
+    await screen.findByRole('button', { name: '07:00' });
+    await screen.findByRole('button', { name: '23:00' });
+    expect(screen.queryByRole('button', { name: '02:00 CEST' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '06:30' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '23:30' })).not.toBeInTheDocument();
   });
 
   it('shows a clear validation message when the user submits without selecting a slot', async () => {
@@ -232,5 +232,15 @@ describe('PublicBookingPage', () => {
 
     await waitFor(() => expect(screen.getAllByText(unavailablePaymentMessage).length).toBeGreaterThan(0));
     expect(createPublicBooking).not.toHaveBeenCalled();
+  });
+
+  it('shows the weekday label under the selected booking date', async () => {
+    renderPage();
+
+    await screen.findByRole('button', { name: '18:00' });
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-05-11' } });
+
+    await screen.findByText('Lunedì');
+    expect(getAvailability).toHaveBeenLastCalledWith('2026-05-11', 90);
   });
 });
