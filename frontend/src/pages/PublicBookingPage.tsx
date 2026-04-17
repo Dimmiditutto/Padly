@@ -105,6 +105,10 @@ export function PublicBookingPage() {
     () => visibleSlots.find((slot) => slot.slot_id === selectedSlotId),
     [selectedSlotId, visibleSlots]
   );
+  const highlightedSlotIds = useMemo(
+    () => buildHighlightedSlotIds(visibleSlots, selectedSlotId, duration),
+    [duration, selectedSlotId, visibleSlots]
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -164,32 +168,32 @@ export function PublicBookingPage() {
           </div>
 
           <div className='surface-card bg-gradient-to-br from-white to-cyan-50'>
-            <p className='text-sm font-semibold text-cyan-700'>Caparra online</p>
+            <p className='text-[15px] font-semibold text-cyan-700'>Caparra online</p>
             <div className='mt-2 text-4xl font-bold text-slate-950'>{formatCurrency(depositAmount)}</div>
-            <p className='mt-2 text-sm text-slate-600'>Fino a 90 minuti paghi €20. Poi si aggiungono €10 per ogni ulteriore blocco da 30 minuti.</p>
-            {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' /></div> : null}
+            <p className='mt-2 text-[15px] text-slate-600'>Fino a 90 minuti paghi €20. Poi si aggiungono €10 per ogni ulteriore blocco da 30 minuti.</p>
+            {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' labelClassName='text-[15px]' /></div> : null}
             {publicConfig ? (
               <div className='mt-4 grid gap-3 sm:grid-cols-2'>
                 <div className='surface-muted'>
-                  <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
-                  <p className='mt-2 text-sm font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
-                  <p className='mt-1 text-xs text-slate-600'>Tempo massimo per completare il checkout.</p>
+                  <p className='text-[13px] font-semibold uppercase tracking-[0.18em] text-slate-500'>Hold pagamento</p>
+                  <p className='mt-2 text-[15px] font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
+                  <p className='mt-1 text-[13px] text-slate-600'>Tempo massimo per completare il checkout.</p>
                 </div>
                 <div className='surface-muted'>
-                  <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
-                  <p className='mt-2 text-sm font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
-                  <p className='mt-1 text-xs text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
+                  <p className='text-[13px] font-semibold uppercase tracking-[0.18em] text-slate-500'>Cancellazione</p>
+                  <p className='mt-2 text-[15px] font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
+                  <p className='mt-1 text-[13px] text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
                 </div>
               </div>
             ) : null}
-            <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-sm text-slate-100'>
+            <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-[15px] text-slate-100'>
               <p className='font-semibold'>Tariffe informative per giocatore</p>
               <ul className='mt-2 space-y-1 text-slate-300'>
                 {playerRates.map((rate) => (
                   <li key={rate}>• {rate}</li>
                 ))}
               </ul>
-              <p className='mt-3 text-xs text-slate-400'>Tariffe informative: non sostituiscono la caparra online.</p>
+              <p className='mt-3 text-[13px] text-slate-400'>Tariffe informative: non sostituiscono la caparra online.</p>
             </div>
           </div>
         </header>
@@ -234,7 +238,7 @@ export function PublicBookingPage() {
                   <p className='text-sm font-semibold text-slate-700'>Orari disponibili</p>
                   {loadingSlots && <p className='text-sm text-slate-500'>Aggiornamento in corso…</p>}
                 </div>
-                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={visibleSlots} selectedSlotId={selectedSlotId} onSelect={setSelectedSlotId} />}
+                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={visibleSlots} selectedSlotId={selectedSlotId} highlightedSlotIds={highlightedSlotIds} onSelect={setSelectedSlotId} />}
                 {selectedSlot && (
                   <p className='mt-3 text-sm text-emerald-700'>Hai selezionato {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
                 )}
@@ -343,6 +347,27 @@ function formatBookingDayLabel(value: string) {
     timeZone: 'Europe/Rome',
   }).format(normalizedDate);
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, durationMinutes: number) {
+  if (!selectedSlotId) {
+    return [];
+  }
+
+  const selectedStart = new Date(selectedSlotId).getTime();
+  if (Number.isNaN(selectedStart)) {
+    return [];
+  }
+
+  const coveredStartTimes = new Set<number>();
+  const slotCount = Math.max(1, durationMinutes / 30);
+  for (let index = 0; index < slotCount; index += 1) {
+    coveredStartTimes.add(selectedStart + (index * 30 * 60 * 1000));
+  }
+
+  return slots
+    .filter((slot) => coveredStartTimes.has(new Date(slot.slot_id).getTime()))
+    .map((slot) => slot.slot_id);
 }
 
 function isSlotWithinOpeningHours(slot: TimeSlot) {

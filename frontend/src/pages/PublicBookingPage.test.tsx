@@ -177,6 +177,34 @@ describe('PublicBookingPage', () => {
     expect(screen.queryByRole('button', { name: '23:30' })).not.toBeInTheDocument();
   });
 
+  it('highlights all half-hour tabs covered by the selected booking duration', async () => {
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: '2026-05-10',
+      duration_minutes: 90,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: '2026-05-10T08:00:00+00:00', start_time: '08:00', end_time: '09:30', display_start_time: '08:00', display_end_time: '09:30', available: true, reason: null },
+        { slot_id: '2026-05-10T08:30:00+00:00', start_time: '08:30', end_time: '10:00', display_start_time: '08:30', display_end_time: '10:00', available: true, reason: null },
+        { slot_id: '2026-05-10T09:00:00+00:00', start_time: '09:00', end_time: '10:30', display_start_time: '09:00', display_end_time: '10:30', available: true, reason: null },
+        { slot_id: '2026-05-10T09:30:00+00:00', start_time: '09:30', end_time: '11:00', display_start_time: '09:30', display_end_time: '11:00', available: true, reason: null },
+      ],
+    });
+
+    renderPage();
+
+    const firstSlot = await screen.findByRole('button', { name: '08:00' });
+    const secondSlot = screen.getByRole('button', { name: '08:30' });
+    const thirdSlot = screen.getByRole('button', { name: '09:00' });
+    const fourthSlot = screen.getByRole('button', { name: '09:30' });
+
+    fireEvent.click(firstSlot);
+
+    expect(firstSlot).toHaveClass('bg-cyan-500');
+    expect(secondSlot).toHaveClass('bg-cyan-100');
+    expect(thirdSlot).toHaveClass('bg-cyan-100');
+    expect(fourthSlot).not.toHaveClass('bg-cyan-100');
+  });
+
   it('shows a clear validation message when the user submits without selecting a slot', async () => {
     renderPage();
 

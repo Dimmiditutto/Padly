@@ -1,10 +1,16 @@
 import { LoaderCircle } from 'lucide-react';
 
-export function LoadingBlock({ label = 'Caricamento in corso…' }: { label?: string }) {
+export function LoadingBlock({
+  label = 'Caricamento in corso…',
+  labelClassName = 'text-sm',
+}: {
+  label?: string;
+  labelClassName?: string;
+}) {
   return (
     <div className='surface-muted flex items-center gap-3'>
       <LoaderCircle className='animate-spin text-cyan-600' size={18} />
-      <p className='text-sm font-medium text-slate-700'>{label}</p>
+      <p className={`${labelClassName} font-medium text-slate-700`}>{label}</p>
     </div>
   );
 }
