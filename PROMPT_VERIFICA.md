@@ -161,4 +161,4 @@ Non proporre miglioramenti generici non emersi dalla verifica.
 
 Fai prima una **verifica tecnica rigorosa** e poi scrivi un **prompt operativo realmente utile** scrivendo/modificando o riscrivendo il file PROMPT_VERIFICA.md per correggere solo ciò che serve.
 
-Scrivi il prompt specificando nel dettaglio quali sono le modifiche/integrazioni in modo che l'agente sappia già cosa fare
+Riscrivi/modifica il prompt PROMPT_VERIFICA.md specificando nel dettaglio quali sono le modifiche/integrazioni in modo che l'agente sappia già cosa fare

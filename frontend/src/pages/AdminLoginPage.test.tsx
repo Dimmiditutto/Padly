@@ -77,6 +77,19 @@ describe('AdminLoginPage', () => {
     await waitFor(() => expect(screen.getByText('Credenziali admin non valide')).toBeInTheDocument());
   });
 
+  it('shows a backend unreachable message when the request fails before receiving a response', async () => {
+    const user = userEvent.setup();
+    vi.mocked(loginAdmin).mockRejectedValue(new Error('Network Error'));
+
+    renderPage();
+
+    await user.type(screen.getByLabelText('Email'), 'info@padelsavona.it');
+    await user.type(screen.getByLabelText('Password'), 'P4d3ls4v0n4!');
+    await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
+
+    await waitFor(() => expect(screen.getByText('Backend non raggiungibile. Avvia il server e riprova.')).toBeInTheDocument());
+  });
+
   it('shows loading state, disables the button and avoids double submit while the request is pending', async () => {
     const user = userEvent.setup();
     const pending = deferred<{ email: string; full_name: string }>();

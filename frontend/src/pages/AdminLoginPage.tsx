@@ -22,7 +22,11 @@ export function AdminLoginPage() {
       await loginAdmin(email, password);
       navigate('/admin');
     } catch (requestError: any) {
-      setError(requestError?.response?.data?.detail || 'Credenziali non valide.');
+      if (!requestError?.response) {
+        setError('Backend non raggiungibile. Avvia il server e riprova.');
+      } else {
+        setError(requestError?.response?.data?.detail || 'Credenziali non valide.');
+      }
     } finally {
       setLoading(false);
     }
