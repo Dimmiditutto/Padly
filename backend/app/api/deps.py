@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import COOKIE_NAME, decode_admin_token
+from app.core.security import COOKIE_NAME, decode_admin_token, password_hash_fingerprint
 from app.models import Admin
 
 
@@ -16,6 +16,6 @@ def get_current_admin(
 
     payload = decode_admin_token(admin_token)
     admin = db.scalar(select(Admin).where(Admin.email == payload.get('sub'), Admin.is_active.is_(True)))
-    if not admin:
+    if not admin or payload.get('pwd') != password_hash_fingerprint(admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Admin non autorizzato')
     return admin

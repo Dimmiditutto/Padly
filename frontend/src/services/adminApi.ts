@@ -25,6 +25,16 @@ export async function loginAdmin(email: string, password: string) {
   return response.data;
 }
 
+export async function requestAdminPasswordReset(email: string) {
+  const response = await api.post<ApiMessage>('/admin/auth/password-reset/request', { email });
+  return response.data;
+}
+
+export async function confirmAdminPasswordReset(token: string, newPassword: string) {
+  const response = await api.post<ApiMessage>('/admin/auth/password-reset/confirm', { token, new_password: newPassword });
+  return response.data;
+}
+
 export async function logoutAdmin() {
   const response = await api.post<ApiMessage>('/admin/auth/logout');
   return response.data;

@@ -11,18 +11,24 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.api.routers import admin_auth, admin_bookings, admin_ops, admin_settings, payments, public
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.errors import register_exception_handlers
 from app.core.scheduler import start_scheduler, stop_scheduler
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models import Admin
 
 RATE_WINDOW_SECONDS = 60
 request_log: dict[str, deque[float]] = defaultdict(deque)
 logger = logging.getLogger(__name__)
+ADMIN_AUTH_RATE_LIMIT_SUFFIXES = (
+    '/admin/auth/login',
+    '/admin/auth/password-reset/request',
+    '/admin/auth/password-reset/confirm',
+)
 PUBLIC_RATE_LIMIT_PATTERNS = (
     (re.compile(rf'^{re.escape(settings.api_prefix)}/public/bookings/[^/]+/checkout$'), f'{settings.api_prefix}/public/bookings/:booking_id/checkout'),
     (re.compile(rf'^{re.escape(settings.api_prefix)}/public/bookings/[^/]+/status$'), f'{settings.api_prefix}/public/bookings/:public_reference/status'),
@@ -42,18 +48,36 @@ def normalize_rate_limit_path(path: str) -> str:
     return path
 
 
+def bootstrap_admin_account(db: Session) -> None:
+    configured_email = str(settings.admin_email)
+    configured_password = settings.admin_password
+    existing_admin = db.query(Admin).order_by(Admin.created_at.asc()).first()
+
+    if existing_admin:
+        credentials_match = existing_admin.email.strip().lower() == configured_email and verify_password(
+            configured_password,
+            existing_admin.password_hash,
+        )
+        if not credentials_match:
+            logger.warning(
+                'Admin gia inizializzato con email %s: ADMIN_EMAIL e ADMIN_PASSWORD vengono applicate solo al primo bootstrap e non sovrascrivono record esistenti.',
+                existing_admin.email,
+            )
+        return
+
+    db.add(Admin(email=configured_email, full_name='Admin PadelBooking', password_hash=hash_password(configured_password)))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.assert_production_runtime_safe()
 
     with SessionLocal() as db:
-        admin = db.query(Admin).filter(Admin.email == str(settings.admin_email)).first()
-        if not admin:
-            db.add(Admin(email=str(settings.admin_email), full_name='Admin PadelBooking', password_hash=hash_password(settings.admin_password)))
-            try:
-                db.commit()
-            except IntegrityError:
-                db.rollback()
+        bootstrap_admin_account(db)
 
     if settings.app_env != 'test' and settings.scheduler_enabled:
         start_scheduler()
@@ -77,7 +101,7 @@ app.add_middleware(
 @app.middleware('http')
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
-    if path.startswith(f"{settings.api_prefix}/public") or path.endswith('/admin/auth/login'):
+    if path.startswith(f"{settings.api_prefix}/public") or any(path.endswith(suffix) for suffix in ADMIN_AUTH_RATE_LIMIT_SUFFIXES):
         client_ip = request.client.host if request.client else 'unknown'
         key = f'{client_ip}:{normalize_rate_limit_path(path)}'
         now = time.time()

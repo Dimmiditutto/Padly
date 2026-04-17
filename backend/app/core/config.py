@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     cancellation_window_hours: int = 24
     smtp_host: str | None = None
     smtp_port: int = 587
+    smtp_use_ssl: bool = False
     smtp_username: str | None = None
     smtp_password: str | None = None
     smtp_from: str = 'noreply@example.com'
@@ -55,6 +56,11 @@ class Settings(BaseSettings):
     @staticmethod
     def _is_blank(value: str | None) -> bool:
         return not value or not str(value).strip()
+
+    @field_validator('admin_email', mode='before')
+    @classmethod
+    def normalize_admin_email(cls, value: object) -> str:
+        return str(value).strip().lower()
 
     @field_validator('app_url')
     @classmethod

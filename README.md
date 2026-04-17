@@ -198,10 +198,12 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `ADMIN_PASSWORD=<password forte>`
 - `DATABASE_URL=<connection string PostgreSQL Railway>`
 - `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_SSL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` se usi Stripe
 - `PAYPAL_ENV=sandbox|live`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` se usi PayPal
 - `PAYPAL_API_BASE=https://api-m.paypal.com` in produzione PayPal, con alias legacy `PAYPAL_BASE_URL`
+
+Nota operativa su admin bootstrap: `ADMIN_EMAIL` e `ADMIN_PASSWORD` vengono applicate solo al primo avvio utile che crea l'admin nel database. Se un admin esiste gia, cambiare queste variabili non aggiorna il record esistente e il servizio emette un warning esplicito: per riallineare l'accesso usa il reset password oppure aggiorna manualmente il database.
 
 In produzione il bootstrap fallisce esplicitamente se `SECRET_KEY`, `ADMIN_EMAIL` o `ADMIN_PASSWORD` restano mancanti, vuoti o uguali ai placeholder di `.env.example`.
 

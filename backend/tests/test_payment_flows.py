@@ -844,6 +844,46 @@ def test_email_service_fails_explicitly_without_smtp_outside_local_env(client, m
         assert email_log.sent_at is None
 
 
+def test_email_service_uses_smtps_when_ssl_is_enabled(monkeypatch):
+    calls: list[tuple] = []
+
+    class FakeSMTPSSL:
+        def __init__(self, host: str, port: int):
+            calls.append(('connect_ssl', host, port))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def login(self, username: str, password: str):
+            calls.append(('login', username, password))
+
+        def send_message(self, message):
+            calls.append(('send', message['To'], message['Subject']))
+
+    def fail_plain_smtp(*args, **kwargs):
+        raise AssertionError('SMTP plain con STARTTLS non deve essere usato quando SMTP_USE_SSL è attivo')
+
+    monkeypatch.setattr(settings, 'smtp_host', 'smtps.aruba.it')
+    monkeypatch.setattr(settings, 'smtp_port', 465)
+    monkeypatch.setattr(settings, 'smtp_use_ssl', True)
+    monkeypatch.setattr(settings, 'smtp_username', 'info@padelsavona.it')
+    monkeypatch.setattr(settings, 'smtp_password', 'smtp-password')
+    monkeypatch.setattr(settings, 'smtp_from', 'info@padelsavona.it')
+    monkeypatch.setattr('app.services.email_service.smtplib.SMTP', fail_plain_smtp)
+    monkeypatch.setattr('app.services.email_service.smtplib.SMTP_SSL', FakeSMTPSSL)
+
+    status_value, error = email_service._deliver('cliente@example.com', 'Oggetto test', '<p>HTML</p>')
+
+    assert status_value == 'SENT'
+    assert error is None
+    assert calls[0] == ('connect_ssl', 'smtps.aruba.it', 465)
+    assert calls[1] == ('login', 'info@padelsavona.it', 'smtp-password')
+    assert calls[2] == ('send', 'cliente@example.com', 'Oggetto test')
+
+
 def test_public_booking_rejects_semantically_invalid_start_time(client):
     response = client.post(
         '/api/public/bookings',

@@ -6,9 +6,10 @@ import { AdminLoginPage } from './AdminLoginPage';
 
 vi.mock('../services/adminApi', () => ({
   loginAdmin: vi.fn(),
+  requestAdminPasswordReset: vi.fn(),
 }));
 
-import { loginAdmin } from '../services/adminApi';
+import { loginAdmin, requestAdminPasswordReset } from '../services/adminApi';
 
 function renderPage() {
   return render(
@@ -33,6 +34,7 @@ describe('AdminLoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(loginAdmin).mockResolvedValue({ email: 'info@padelsavona.it', full_name: 'Admin' });
+    vi.mocked(requestAdminPasswordReset).mockResolvedValue({ message: "Se l'account esiste, ti ho inviato un link per reimpostare la password." });
   });
 
   afterEach(() => {
@@ -45,18 +47,36 @@ describe('AdminLoginPage', () => {
     expect(screen.getByLabelText('Email')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/');
-    expect(screen.getByText('Nessun cambio password obbligatorio al primo accesso.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Password dimenticata?' })).toHaveAttribute(
-      'href',
-      "mailto:info@padelsavona.it?subject=Recupero%20password%20area%20admin&body=Ciao%2C%20ho%20bisogno%20di%20recuperare%20la%20password%20dell'area%20admin."
-    );
+    expect(screen.getByText("Usa l'email admin per ricevere un link di reset.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Password dimenticata?' })).toBeInTheDocument();
+  });
+
+  it('requests a password reset link for the admin email', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByLabelText('Email'), '  INFO@PadelSavona.IT  ');
+    await user.click(screen.getByRole('button', { name: 'Password dimenticata?' }));
+
+    await waitFor(() => expect(requestAdminPasswordReset).toHaveBeenCalledWith('info@padelsavona.it'));
+    expect(screen.getByText("Se l'account esiste, ti ho inviato un link per reimpostare la password.")).toBeInTheDocument();
+  });
+
+  it('requires the admin email before requesting the password reset link', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Password dimenticata?' }));
+
+    await waitFor(() => expect(screen.getByText("Inserisci l'email admin per ricevere il link di reset.")).toBeInTheDocument());
+    expect(requestAdminPasswordReset).not.toHaveBeenCalled();
   });
 
   it('redirects to the dashboard when login succeeds', async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByLabelText('Email'), 'info@padelsavona.it');
+    await user.type(screen.getByLabelText('Email'), 'INFO@PadelSavona.IT');
     await user.type(screen.getByLabelText('Password'), 'P4d3ls4v0n4!');
     await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
 

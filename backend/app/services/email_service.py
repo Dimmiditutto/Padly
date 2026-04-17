@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Booking, BookingSource, EmailNotificationLog, PaymentProvider, PaymentStatus
+from app.models import Admin, Booking, BookingSource, EmailNotificationLog, PaymentProvider, PaymentStatus
 from app.services.settings_service import get_booking_rules
 
 logger = logging.getLogger(__name__)
@@ -152,9 +152,13 @@ class EmailService:
         message.set_content('Apri questa email in formato HTML per visualizzare il riepilogo.')
         message.add_alternative(html, subtype='html')
 
+        use_ssl = settings.smtp_use_ssl or settings.smtp_port == 465
+
         try:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
-                smtp.starttls()
+            smtp_client_factory = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+            with smtp_client_factory(settings.smtp_host, settings.smtp_port) as smtp:
+                if not use_ssl:
+                    smtp.starttls()
                 smtp.login(settings.smtp_username, settings.smtp_password)
                 smtp.send_message(message)
             return 'SENT', None
@@ -315,6 +319,34 @@ class EmailService:
             to_email=str(settings.admin_email),
             template='admin_new_booking',
             subject='Nuova prenotazione ricevuta',
+            html=html,
+        )
+
+    def admin_password_reset(self, db: Session, admin: Admin, reset_url: str) -> str:
+        html = f"""
+        <div style='background:#f8fafc;padding:32px 16px;font-family:Arial,sans-serif;color:#0f172a'>
+            <div style='max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden'>
+                <div style='padding:28px 28px 22px;background:#111827'>
+                    <p style='margin:0 0 8px 0;color:#bfdbfe;font-size:12px;letter-spacing:0.08em;text-transform:uppercase'>PadelBooking</p>
+                    <h1 style='margin:0;color:#ffffff;font-size:28px;line-height:1.2'>Reset password admin</h1>
+                </div>
+                <div style='padding:28px'>
+                    <p style='margin:0 0 20px 0;color:#334155;font-size:16px;line-height:1.7'>Ciao {escape(admin.full_name)}, abbiamo ricevuto una richiesta di reimpostazione password per l'area admin.</p>
+                    <p style='margin:0 0 20px 0;color:#334155;font-size:16px;line-height:1.7'>Questo link è valido per 30 minuti e diventa inutilizzabile dopo un cambio password.</p>
+                    <div style='margin:24px 0'>
+                        <a href='{escape(reset_url, quote=True)}' style='display:inline-block;padding:14px 20px;border-radius:14px;background:#0f172a;color:#ffffff;text-decoration:none;font-weight:600'>Reimposta password</a>
+                    </div>
+                    <p style='margin:0;color:#475569;font-size:14px;line-height:1.7'>Se non hai richiesto tu il reset, puoi ignorare questa email.</p>
+                </div>
+            </div>
+        </div>
+        """
+        return self.send(
+            db,
+            booking=None,
+            to_email=admin.email,
+            template='admin_password_reset',
+            subject='Reset password area admin',
             html=html,
         )
 

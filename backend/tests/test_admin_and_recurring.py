@@ -1,9 +1,14 @@
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models import Booking, BookingEventLog, EmailNotificationLog
+from app.core.security import create_admin_password_reset_token, hash_password, verify_password
+from app.main import bootstrap_admin_account
+from app.models import Admin, Booking, BookingEventLog, EmailNotificationLog
+from app.services.email_service import email_service
 
 
 def future_date(days: int = 5) -> str:
@@ -85,6 +90,105 @@ def test_admin_manual_booking_and_recurring_preview(client):
     occurrences = preview.json()['occurrences']
     assert len(occurrences) == 4
     assert any(not item['available'] for item in occurrences)
+
+
+def test_admin_login_normalizes_email_before_lookup(client):
+    response = client.post('/api/admin/auth/login', json={'email': '  ADMIN@PADELBOOKING.APP  ', 'password': 'ChangeMe123!'})
+
+    assert response.status_code == 200
+    assert response.json()['email'] == 'admin@padelbooking.app'
+
+
+def test_admin_password_reset_request_sends_email_for_existing_admin(client, monkeypatch):
+    captured: dict[str, str] = {}
+
+    def fake_admin_password_reset(db, admin, reset_url):
+        captured['email'] = admin.email
+        captured['reset_url'] = reset_url
+        return 'SENT'
+
+    monkeypatch.setattr(email_service, 'admin_password_reset', fake_admin_password_reset)
+
+    response = client.post('/api/admin/auth/password-reset/request', json={'email': '  ADMIN@PADELBOOKING.APP  '})
+
+    assert response.status_code == 200
+    assert response.json()['message'] == "Se l'account esiste, ti ho inviato un link per reimpostare la password."
+    assert captured['email'] == 'admin@padelbooking.app'
+    assert '/admin/reset-password?token=' in captured['reset_url']
+
+
+def test_admin_password_reset_request_returns_generic_message_for_unknown_email(client, monkeypatch):
+    captured = {'called': False}
+
+    def fake_admin_password_reset(db, admin, reset_url):
+        captured['called'] = True
+        return 'SENT'
+
+    monkeypatch.setattr(email_service, 'admin_password_reset', fake_admin_password_reset)
+
+    response = client.post('/api/admin/auth/password-reset/request', json={'email': '  MISSING.ADMIN@EXAMPLE.COM  '})
+
+    assert response.status_code == 200
+    assert response.json()['message'] == "Se l'account esiste, ti ho inviato un link per reimpostare la password."
+    assert captured['called'] is False
+
+
+def test_admin_password_reset_request_logs_explicit_error_when_email_delivery_fails(client, monkeypatch, caplog):
+    def fake_admin_password_reset(db, admin, reset_url):
+        return 'FAILED'
+
+    monkeypatch.setattr(email_service, 'admin_password_reset', fake_admin_password_reset)
+
+    with caplog.at_level(logging.ERROR, logger='app.api.routers.admin_auth'):
+        response = client.post('/api/admin/auth/password-reset/request', json={'email': 'admin@padelbooking.app'})
+
+    assert response.status_code == 200
+    assert 'Invio email reset password admin fallito per admin@padelbooking.app.' in caplog.text
+
+
+def test_bootstrap_admin_account_warns_and_does_not_create_a_second_admin_when_env_credentials_change(monkeypatch, caplog):
+    with SessionLocal() as db:
+        db.add(Admin(email='existing-admin@example.com', full_name='Existing Admin', password_hash=hash_password('ExistingPass123!')))
+        db.commit()
+
+        monkeypatch.setattr(settings, 'admin_email', 'info@padelsavona.it')
+        monkeypatch.setattr(settings, 'admin_password', 'P4d3ls4v0n4!')
+
+        with caplog.at_level(logging.WARNING, logger='app.main'):
+            bootstrap_admin_account(db)
+
+        admins = db.scalars(select(Admin).order_by(Admin.created_at.asc())).all()
+
+        assert len(admins) == 1
+        assert admins[0].email == 'existing-admin@example.com'
+        assert verify_password('ExistingPass123!', admins[0].password_hash)
+        assert 'vengono applicate solo al primo bootstrap' in caplog.text
+
+
+def test_admin_password_reset_confirm_updates_password_and_invalidates_existing_session(client):
+    login_response = client.post('/api/admin/auth/login', json={'email': 'admin@padelbooking.app', 'password': 'ChangeMe123!'})
+    assert login_response.status_code == 200
+
+    with SessionLocal() as db:
+        admin = db.scalar(select(Admin).where(Admin.email == 'admin@padelbooking.app'))
+        assert admin is not None
+        reset_token = create_admin_password_reset_token(admin.email, admin.password_hash)
+
+    confirm_response = client.post(
+        '/api/admin/auth/password-reset/confirm',
+        json={'token': reset_token, 'new_password': 'ResetPass123!'},
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()['message'] == 'Password aggiornata. Ora puoi accedere con la nuova password.'
+
+    stale_session = client.get('/api/admin/auth/me')
+    assert stale_session.status_code == 401
+
+    old_login = client.post('/api/admin/auth/login', json={'email': 'admin@padelbooking.app', 'password': 'ChangeMe123!'})
+    assert old_login.status_code == 401
+
+    new_login = client.post('/api/admin/auth/login', json={'email': 'admin@padelbooking.app', 'password': 'ResetPass123!'})
+    assert new_login.status_code == 200
 
 
 def test_admin_settings_update_reflected_in_public_config(client):

@@ -3,23 +3,25 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { AppBrand } from '../components/AppBrand';
-import { loginAdmin } from '../services/adminApi';
-
-const forgotPasswordMailTo = `mailto:info@padelsavona.it?subject=${encodeURIComponent('Recupero password area admin')}&body=${encodeURIComponent('Ciao, ho bisogno di recuperare la password dell\'area admin.')}`;
+import { loginAdmin, requestAdminPasswordReset } from '../services/adminApi';
 
 export function AdminLoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState<{ tone: 'info' | 'success'; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [requestingReset, setRequestingReset] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
     setLoading(true);
     setError('');
+    setFeedback(null);
     try {
-      await loginAdmin(email, password);
+      await loginAdmin(normalizedEmail, password);
       navigate('/admin');
     } catch (requestError: any) {
       if (!requestError?.response) {
@@ -29,6 +31,32 @@ export function AdminLoginPage() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePasswordResetRequest() {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setFeedback(null);
+      setError("Inserisci l'email admin per ricevere il link di reset.");
+      return;
+    }
+
+    setRequestingReset(true);
+    setError('');
+    setFeedback(null);
+
+    try {
+      const response = await requestAdminPasswordReset(normalizedEmail);
+      setFeedback({ tone: 'info', message: response.message });
+    } catch (requestError: any) {
+      if (!requestError?.response) {
+        setError('Backend non raggiungibile. Avvia il server e riprova.');
+      } else {
+        setError(requestError?.response?.data?.detail || 'Non riesco ad avviare il recupero password.');
+      }
+    } finally {
+      setRequestingReset(false);
     }
   }
 
@@ -52,13 +80,19 @@ export function AdminLoginPage() {
             <label className='field-label' htmlFor='admin-password'>Password</label>
             <input id='admin-password' className='text-input' type='password' value={password} onChange={(e) => setPassword(e.target.value)} required />
             <div className='mt-2 flex items-center justify-between gap-3'>
-              <p className='text-sm text-slate-500'>Nessun cambio password obbligatorio al primo accesso.</p>
-              <a href={forgotPasswordMailTo} className='text-sm font-semibold text-cyan-700 underline-offset-4 transition hover:text-cyan-800 hover:underline'>
-                Password dimenticata?
-              </a>
+              <p className='text-sm text-slate-500'>Usa l'email admin per ricevere un link di reset.</p>
+              <button
+                type='button'
+                onClick={() => void handlePasswordResetRequest()}
+                className='text-sm font-semibold text-cyan-700 underline-offset-4 transition hover:text-cyan-800 hover:underline disabled:cursor-not-allowed disabled:opacity-60'
+                disabled={loading || requestingReset}
+              >
+                {requestingReset ? 'Invio link…' : 'Password dimenticata?'}
+              </button>
             </div>
           </div>
 
+          {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
           {error ? <AlertBanner tone='error'>{error}</AlertBanner> : null}
           <button type='submit' className='btn-primary w-full' disabled={loading}>{loading ? 'Accesso in corso…' : 'Entra nella dashboard'}</button>
         </form>

@@ -62,21 +62,67 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return secrets.compare_digest(expected_checksum, checksum)
 
 
-def create_admin_token(subject: str, expires_hours: int = 12) -> str:
+def password_hash_fingerprint(hashed_password: str) -> str:
+    return hashlib.sha256(hashed_password.encode('utf-8')).hexdigest()
+
+
+def _encode_token(payload: dict[str, Any]) -> str:
     ensure_security_configuration_ready()
-    now = datetime.now(UTC)
-    payload: dict[str, Any] = {
-        'sub': subject,
-        'iat': int(now.timestamp()),
-        'exp': int((now + timedelta(hours=expires_hours)).timestamp()),
-        'type': 'admin',
-    }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
-def decode_admin_token(token: str) -> dict[str, Any]:
+def _decode_token(token: str, *, expected_type: str, detail: str, error_status: int) -> dict[str, Any]:
     ensure_security_configuration_ready()
     try:
-        return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
     except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Sessione non valida') from exc
+        raise HTTPException(status_code=error_status, detail=detail) from exc
+
+    if payload.get('type') != expected_type:
+        raise HTTPException(status_code=error_status, detail=detail)
+
+    return payload
+
+
+def create_admin_token(subject: str, password_hash: str, expires_hours: int = 12) -> str:
+    now = datetime.now(UTC)
+    return _encode_token(
+        {
+            'sub': subject,
+            'iat': int(now.timestamp()),
+            'exp': int((now + timedelta(hours=expires_hours)).timestamp()),
+            'type': 'admin',
+            'pwd': password_hash_fingerprint(password_hash),
+        }
+    )
+
+
+def decode_admin_token(token: str) -> dict[str, Any]:
+    return _decode_token(
+        token,
+        expected_type='admin',
+        detail='Sessione non valida',
+        error_status=status.HTTP_401_UNAUTHORIZED,
+    )
+
+
+def create_admin_password_reset_token(subject: str, password_hash: str, expires_minutes: int = 30) -> str:
+    now = datetime.now(UTC)
+    return _encode_token(
+        {
+            'sub': subject,
+            'iat': int(now.timestamp()),
+            'exp': int((now + timedelta(minutes=expires_minutes)).timestamp()),
+            'type': 'admin_password_reset',
+            'pwd': password_hash_fingerprint(password_hash),
+        }
+    )
+
+
+def decode_admin_password_reset_token(token: str) -> dict[str, Any]:
+    return _decode_token(
+        token,
+        expected_type='admin_password_reset',
+        detail='Link di reset non valido o scaduto',
+        error_status=status.HTTP_400_BAD_REQUEST,
+    )

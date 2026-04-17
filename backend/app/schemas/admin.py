@@ -8,14 +8,37 @@ from app.schemas.common import BookingCustomerData, BookingSummary
 from app.schemas.public import VALID_DURATIONS, validate_hhmm_time
 
 
+def _normalize_email(value: object) -> str:
+    return str(value).strip().lower()
+
+
 class AdminLoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_email(cls, value: object) -> str:
+        return _normalize_email(value)
 
 
 class AdminMeResponse(BaseModel):
     email: EmailStr
     full_name: str
+
+
+class AdminPasswordResetRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_email(cls, value: object) -> str:
+        return _normalize_email(value)
+
+
+class AdminPasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=20)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class AdminBookingCreateRequest(BookingCustomerData):
