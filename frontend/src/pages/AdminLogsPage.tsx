@@ -5,10 +5,13 @@ import { AlertBanner } from '../components/AlertBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
-import { getAdminSession, listAdminEvents } from '../services/adminApi';
+import { getAdminSession, listAdminEvents, logoutAdmin } from '../services/adminApi';
 import type { AdminEvent } from '../types';
 import { formatDateTime } from '../utils/format';
 import { useNavigate } from 'react-router-dom';
+
+const HERO_ACTION_BUTTON_CLASS = 'btn-secondary w-full sm:w-auto';
+const HERO_ACTIONS_WRAPPER_CLASS = 'sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0';
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -47,14 +50,25 @@ export function AdminLogsPage() {
     }
   }
 
+  async function logout() {
+    await logoutAdmin();
+    navigate('/admin/login');
+  }
+
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
-          <div>
-            <p className='text-2xl font-semibold text-cyan-100'>Log admin</p>
-            <h1 className='text-3xl font-bold'>Traccia operativa recente</h1>
-            <p className='mt-2 max-w-2xl text-sm text-slate-300'>Qui trovi gli eventi business recenti di prenotazioni, pagamenti e operazioni amministrative.</p>
+          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
+            <div>
+              <p className='text-2xl font-semibold text-cyan-100'>Log admin</p>
+              <h1 className='text-3xl font-bold'>Traccia operativa recente</h1>
+              <p className='mt-2 max-w-2xl text-sm text-slate-300'>Qui trovi gli eventi business recenti di prenotazioni, pagamenti e operazioni amministrative.</p>
+            </div>
+            <div className={HERO_ACTIONS_WRAPPER_CLASS}>
+              <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void bootstrap()}>Aggiorna</button>
+              <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
+            </div>
           </div>
           <AdminNav />
         </div>

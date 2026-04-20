@@ -13,6 +13,7 @@ import {
   cancelRecurringSeries,
   getAdminSession,
   listAdminBookings,
+  logoutAdmin,
   markAdminBalancePaid,
   updateAdminBookingStatus,
 } from '../services/adminApi';
@@ -21,6 +22,8 @@ import { canCancelBooking } from '../utils/adminBookingActions';
 import { formatDateTime, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
+const HERO_ACTION_BUTTON_CLASS = 'btn-secondary w-full sm:w-auto';
+const HERO_ACTIONS_WRAPPER_CLASS = 'sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0';
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -131,6 +134,11 @@ export function AdminBookingsPage() {
     }
   }
 
+  async function logout() {
+    await logoutAdmin();
+    navigate('/admin/login');
+  }
+
   async function handleCancelOccurrences(seriesId: string, bookingIds: string[], scopeLabel: string) {
     if (bookingIds.length === 0) {
       return;
@@ -195,9 +203,10 @@ export function AdminBookingsPage() {
               <h1 className='text-3xl font-bold'>Ricerca avanzata e gestione ricorrenze</h1>
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>Usa l’elenco per filtri avanzati, ricerca libera e azioni sulle occorrenze. Per la vista rapida della settimana usa Prenotazioni Attuali.</p>
             </div>
-            <div className='flex flex-wrap gap-3'>
+            <div className={HERO_ACTIONS_WRAPPER_CLASS}>
               <Link to='/admin/prenotazioni-attuali' className='btn-secondary'>Prenotazioni Attuali</Link>
               <button className='btn-secondary' onClick={() => void refreshBookings()}>Aggiorna</button>
+              <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>
           <AdminNav />

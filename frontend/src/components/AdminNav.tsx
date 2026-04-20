@@ -19,7 +19,7 @@ export function AdminNav() {
           <Link
             key={item.to}
             to={item.to}
-            className={isActive ? 'btn-primary' : 'btn-secondary'}
+            className={isActive ? 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-brand-700 bg-brand-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-cyan-200' : 'btn-secondary'}
           >
             {item.label}
           </Link>

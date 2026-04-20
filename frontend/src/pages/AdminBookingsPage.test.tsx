@@ -8,6 +8,7 @@ vi.mock('../services/adminApi', () => ({
   cancelRecurringSeries: vi.fn(),
   getAdminSession: vi.fn(),
   listAdminBookings: vi.fn(),
+  logoutAdmin: vi.fn(),
   markAdminBalancePaid: vi.fn(),
   updateAdminBookingStatus: vi.fn(),
 }));
@@ -17,6 +18,7 @@ import {
   cancelRecurringSeries,
   getAdminSession,
   listAdminBookings,
+  logoutAdmin,
   markAdminBalancePaid,
   updateAdminBookingStatus,
 } from '../services/adminApi';
@@ -118,6 +120,7 @@ describe('AdminBookingsPage', () => {
     vi.clearAllMocks();
     vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
     vi.mocked(listAdminBookings).mockResolvedValue({ items: [singleBooking, ...recurringBookings], total: 3 });
+    vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(cancelRecurringOccurrences).mockResolvedValue({ message: 'ok', cancelled_count: 1, skipped_count: 0, booking_ids: ['rec-1'], series_id: null });
     vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 2, skipped_count: 0, booking_ids: ['rec-1', 'rec-2'], series_id: 'series-1' });
     vi.mocked(markAdminBalancePaid).mockResolvedValue({} as never);
@@ -135,6 +138,7 @@ describe('AdminBookingsPage', () => {
     await screen.findByText('Ricerca avanzata e gestione ricorrenze');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
     expect(screen.getByText('Corso serale')).toBeInTheDocument();
     expect(screen.getByText('PB-BOOK-100')).toBeInTheDocument();
 

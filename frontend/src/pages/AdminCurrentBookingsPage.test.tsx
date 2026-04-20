@@ -7,10 +7,11 @@ vi.mock('../services/adminApi', () => ({
   cancelRecurringSeries: vi.fn(),
   getAdminSession: vi.fn(),
   listAdminBookings: vi.fn(),
+  logoutAdmin: vi.fn(),
   updateAdminBookingStatus: vi.fn(),
 }));
 
-import { cancelRecurringSeries, getAdminSession, listAdminBookings, updateAdminBookingStatus } from '../services/adminApi';
+import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
 import type { BookingSummary } from '../types';
 
 const currentWeekBooking: BookingSummary = {
@@ -107,6 +108,7 @@ describe('AdminCurrentBookingsPage', () => {
     vi.setSystemTime(new Date('2026-04-20T12:00:00Z'));
     vi.clearAllMocks();
     vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(updateAdminBookingStatus).mockResolvedValue({ ...currentWeekBooking, status: 'CANCELLED', cancelled_at: '2026-04-20T12:05:00Z' });
     vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 3, skipped_count: 0, booking_ids: ['booking-current-2'], series_id: 'series-42' });
     vi.mocked(listAdminBookings).mockImplementation(async (filters) => {
@@ -136,6 +138,7 @@ describe('AdminCurrentBookingsPage', () => {
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
     expect(screen.getByText('Luca Bianchi')).toBeInTheDocument();
     expect(screen.getByText('Marco Verdi')).toBeInTheDocument();
     expect(screen.getByText('Allenamento del mercoledi')).toBeInTheDocument();
