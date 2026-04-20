@@ -191,11 +191,14 @@ export function AdminBookingsPage() {
         <div className='space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
           <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
             <div>
-              <p className='text-2xl font-semibold text-cyan-100'>Prenotazioni admin</p>
-              <h1 className='text-3xl font-bold'>Occupazione slot e serie ricorrenti</h1>
-              <p className='mt-2 max-w-2xl text-sm text-slate-300'>Filtra per periodo, stato, pagamento e ricerca libera su cliente o serie ricorrente.</p>
+              <p className='text-2xl font-semibold text-cyan-100'>Elenco prenotazioni</p>
+              <h1 className='text-3xl font-bold'>Ricerca avanzata e gestione ricorrenze</h1>
+              <p className='mt-2 max-w-2xl text-sm text-slate-300'>Usa l’elenco per filtri avanzati, ricerca libera e azioni sulle occorrenze. Per la vista rapida della settimana usa Prenotazioni Attuali.</p>
             </div>
-            <button className='btn-secondary' onClick={() => void refreshBookings()}>Aggiorna</button>
+            <div className='flex flex-wrap gap-3'>
+              <Link to='/admin/prenotazioni-attuali' className='btn-secondary'>Prenotazioni Attuali</Link>
+              <button className='btn-secondary' onClick={() => void refreshBookings()}>Aggiorna</button>
+            </div>
           </div>
           <AdminNav />
         </div>
@@ -282,7 +285,7 @@ export function AdminBookingsPage() {
           </form>
         </SectionCard>
 
-        {loading ? <LoadingBlock label='Sto caricando le prenotazioni admin…' /> : null}
+        {loading ? <LoadingBlock label='Sto caricando l’elenco prenotazioni…' /> : null}
 
         {!loading ? (
           entries.length === 0 ? (

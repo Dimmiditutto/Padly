@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AdminBookingDetailPage } from './pages/AdminBookingDetailPage';
 import { AdminBookingsPage } from './pages/AdminBookingsPage';
+import { AdminCurrentBookingsPage } from './pages/AdminCurrentBookingsPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { AdminLogsPage } from './pages/AdminLogsPage';
@@ -20,6 +21,7 @@ export default function App() {
       <Route path='/admin/login' element={<AdminLoginPage />} />
       <Route path='/admin/reset-password' element={<AdminPasswordResetPage />} />
       <Route path='/admin' element={<AdminDashboardPage />} />
+      <Route path='/admin/prenotazioni-attuali' element={<AdminCurrentBookingsPage />} />
       <Route path='/admin/prenotazioni' element={<AdminBookingsPage />} />
       <Route path='/admin/log' element={<AdminLogsPage />} />
       <Route path='/admin/bookings/:bookingId' element={<AdminBookingDetailPage />} />

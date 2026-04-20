@@ -40,6 +40,7 @@ function renderDashboard() {
       <Routes>
         <Route path='/admin' element={<AdminDashboardPage />} />
         <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
+        <Route path='/admin/prenotazioni-attuali' element={<div>CURRENT BOOKINGS PAGE</div>} />
         <Route path='/admin/prenotazioni' element={<div>BOOKINGS PAGE</div>} />
         <Route path='/admin/log' element={<div>LOG PAGE</div>} />
       </Routes>
@@ -129,11 +130,14 @@ describe('AdminDashboardPage', () => {
     await screen.findByText('LOGIN PAGE');
   });
 
-  it('links the dashboard to the dedicated bookings and log pages', async () => {
+  it('shows the updated admin navigation and links the dashboard to weekly bookings, list and log pages', async () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
-    expect(screen.getByRole('link', { name: 'Apri prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
+    expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
+    expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('link', { name: 'Elenco prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log');
   });
 

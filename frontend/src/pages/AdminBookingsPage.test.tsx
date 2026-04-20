@@ -106,6 +106,7 @@ function renderPage() {
     <MemoryRouter initialEntries={['/admin/prenotazioni']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin/prenotazioni' element={<AdminBookingsPage />} />
+        <Route path='/admin/prenotazioni-attuali' element={<div>CURRENT BOOKINGS PAGE</div>} />
         <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
       </Routes>
     </MemoryRouter>
@@ -131,7 +132,9 @@ describe('AdminBookingsPage', () => {
   it('groups recurring bookings and submits filters by period and query', async () => {
     renderPage();
 
-    await screen.findByText('Occupazione slot e serie ricorrenti');
+    await screen.findByText('Ricerca avanzata e gestione ricorrenze');
+    expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
+    expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByText('Corso serale')).toBeInTheDocument();
     expect(screen.getByText('PB-BOOK-100')).toBeInTheDocument();
 
@@ -150,7 +153,7 @@ describe('AdminBookingsPage', () => {
   it('cancels selected recurring occurrences from the grouped accordion', async () => {
     renderPage();
 
-    await screen.findByText('Occupazione slot e serie ricorrenti');
+    await screen.findByText('Ricerca avanzata e gestione ricorrenze');
     fireEvent.click(screen.getByRole('button', { name: 'Espandi' }));
     fireEvent.click(screen.getAllByRole('checkbox')[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Annulla selezionate' }));
@@ -162,7 +165,7 @@ describe('AdminBookingsPage', () => {
   it('cancels the full recurring series from the grouped actions', async () => {
     renderPage();
 
-    await screen.findByText('Occupazione slot e serie ricorrenti');
+    await screen.findByText('Ricerca avanzata e gestione ricorrenze');
     fireEvent.click(screen.getByRole('button', { name: 'Annulla tutta la serie' }));
 
     await waitFor(() => expect(cancelRecurringSeries).toHaveBeenCalledWith('series-1'));

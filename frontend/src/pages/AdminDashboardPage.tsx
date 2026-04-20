@@ -263,8 +263,13 @@ export function AdminDashboardPage() {
         <div className='grid gap-4 xl:grid-cols-2'>
           <SectionCard
             title='Prenotazioni e occupazione'
-            description='Consulta la nuova vista dedicata con filtri per periodo, ricerca libera e gruppi ricorrenti espandibili.'
-            actions={<Link to='/admin/prenotazioni' className='btn-secondary'>Apri prenotazioni</Link>}
+            description='Apri il calendario della settimana corrente oppure passa all’elenco avanzato con filtri per periodo, ricerca libera e gruppi ricorrenti.'
+            actions={
+              <div className='flex flex-wrap gap-2'>
+                <Link to='/admin/prenotazioni-attuali' className='btn-secondary'>Prenotazioni Attuali</Link>
+                <Link to='/admin/prenotazioni' className='btn-secondary'>Elenco prenotazioni</Link>
+              </div>
+            }
             elevated
           >
             <div className='flex items-start gap-4 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4'>
@@ -272,8 +277,8 @@ export function AdminDashboardPage() {
                 <ClipboardList size={20} />
               </div>
               <div className='space-y-1 text-sm text-slate-600'>
-                <p className='font-semibold text-slate-950'>Filtri periodo, utente o serie</p>
-                <p>La lista prenotazioni ora separa le occorrenze ricorrenti, consente annullamenti singoli o multipli e rende più leggibile l’occupazione degli slot.</p>
+                <p className='font-semibold text-slate-950'>Settimana corrente o ricerca avanzata</p>
+                <p>La nuova vista settimanale mostra rapidamente le partite attuali, mentre l’elenco prenotazioni mantiene filtri, ricerca e gestione ricorrenze senza appesantire la dashboard.</p>
               </div>
             </div>
           </SectionCard>

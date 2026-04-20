@@ -1,8 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
 
 const navItems = [
-  { to: '/admin', label: 'Dashboard' },
-  { to: '/admin/prenotazioni', label: 'Prenotazioni' },
+  { to: '/admin', label: 'Crea Prenotazioni' },
+  { to: '/admin/prenotazioni-attuali', label: 'Prenotazioni Attuali' },
+  { to: '/admin/prenotazioni', label: 'Elenco Prenotazioni' },
   { to: '/admin/log', label: 'Log' },
 ];
 
