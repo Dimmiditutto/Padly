@@ -39,6 +39,9 @@ class BookingSummary(BaseModel):
     source: BookingSource
     recurring_series_id: str | None = None
     recurring_series_label: str | None = None
+    recurring_series_start_date: date | None = None
+    recurring_series_end_date: date | None = None
+    recurring_series_weekday: int | None = None
     created_at: datetime
     cancelled_at: datetime | None = None
     completed_at: datetime | None = None

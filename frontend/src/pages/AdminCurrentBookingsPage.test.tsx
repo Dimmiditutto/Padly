@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminCurrentBookingsPage } from './AdminCurrentBookingsPage';
 
 vi.mock('../services/adminApi', () => ({
+  cancelRecurringSeries: vi.fn(),
   getAdminSession: vi.fn(),
   listAdminBookings: vi.fn(),
+  updateAdminBookingStatus: vi.fn(),
 }));
 
-import { getAdminSession, listAdminBookings } from '../services/adminApi';
+import { cancelRecurringSeries, getAdminSession, listAdminBookings, updateAdminBookingStatus } from '../services/adminApi';
 import type { BookingSummary } from '../types';
 
 const currentWeekBooking: BookingSummary = {
@@ -105,6 +107,8 @@ describe('AdminCurrentBookingsPage', () => {
     vi.setSystemTime(new Date('2026-04-20T12:00:00Z'));
     vi.clearAllMocks();
     vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(updateAdminBookingStatus).mockResolvedValue({ ...currentWeekBooking, status: 'CANCELLED', cancelled_at: '2026-04-20T12:05:00Z' });
+    vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 3, skipped_count: 0, booking_ids: ['booking-current-2'], series_id: 'series-42' });
     vi.mocked(listAdminBookings).mockImplementation(async (filters) => {
       if (filters.start_date === '2027-01-11' && filters.end_date === '2027-01-17') {
         return { items: [januaryBooking], total: 1 };
@@ -112,6 +116,7 @@ describe('AdminCurrentBookingsPage', () => {
 
       return { items: [currentWeekBooking, currentRecurringBooking, cancelledBooking], total: 3 };
     });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -133,8 +138,29 @@ describe('AdminCurrentBookingsPage', () => {
     expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByText('Luca Bianchi')).toBeInTheDocument();
     expect(screen.getByText('Marco Verdi')).toBeInTheDocument();
+    expect(screen.getByText('Allenamento del mercoledi')).toBeInTheDocument();
     expect(screen.getByText('Serie ricorrente')).toBeInTheDocument();
     expect(screen.queryByText('PB-WEEK-CANCELLED')).not.toBeInTheDocument();
+  });
+
+  it('allows cancelling a single saved booking from the weekly calendar', async () => {
+    renderPage();
+
+    await screen.findByText('Calendario settimanale prenotazioni');
+    fireEvent.click(screen.getByLabelText('Annulla PB-WEEK-001'));
+
+    await waitFor(() => expect(updateAdminBookingStatus).toHaveBeenCalledWith('booking-current-1', { status: 'CANCELLED' }));
+    expect(screen.getByText('Prenotazione annullata con successo.')).toBeInTheDocument();
+  });
+
+  it('allows cancelling the full recurring series from the weekly calendar', async () => {
+    renderPage();
+
+    await screen.findByText('Calendario settimanale prenotazioni');
+    fireEvent.click(screen.getByLabelText('Annulla serie Allenamento del mercoledi'));
+
+    await waitFor(() => expect(cancelRecurringSeries).toHaveBeenCalledWith('series-42'));
+    expect(screen.getByText('Serie aggiornata: 3 occorrenze future annullate, 0 saltate.')).toBeInTheDocument();
   });
 
   it('limits quick navigation to two weeks back from the current week', async () => {
@@ -174,7 +200,7 @@ describe('AdminCurrentBookingsPage', () => {
     await waitFor(() => expect(nextButton).toBeDisabled());
   });
 
-  it('jumps to the selected month, week and year and opens the booking detail from the calendar', async () => {
+  it('jumps to the selected month, week and year and opens the booking detail to modify the booking', async () => {
     renderPage();
 
     await screen.findByText('Calendario settimanale prenotazioni');
@@ -188,7 +214,7 @@ describe('AdminCurrentBookingsPage', () => {
       end_date: '2027-01-17',
     })));
 
-    fireEvent.click(screen.getByRole('link', { name: /Giulia Neri/i }));
+    fireEvent.click(screen.getByLabelText('Modifica PB-WEEK-JAN'));
     await screen.findByText('DETAIL PAGE');
   });
 });

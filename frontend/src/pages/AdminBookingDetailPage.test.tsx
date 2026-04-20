@@ -4,18 +4,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminBookingDetailPage } from './AdminBookingDetailPage';
 
 vi.mock('../services/adminApi', () => ({
+  cancelRecurringSeries: vi.fn(),
   getAdminBooking: vi.fn(),
   getAdminSession: vi.fn(),
   markAdminBalancePaid: vi.fn(),
   updateAdminBooking: vi.fn(),
   updateAdminBookingStatus: vi.fn(),
+  updateRecurringSeries: vi.fn(),
 }));
 
 vi.mock('../services/publicApi', () => ({
   getAvailability: vi.fn(),
 }));
 
-import { getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus } from '../services/adminApi';
+import { cancelRecurringSeries, getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
 import { getAvailability } from '../services/publicApi';
 
 const baseBooking = {
@@ -37,6 +39,9 @@ const baseBooking = {
   source: 'PUBLIC',
   recurring_series_id: null,
   recurring_series_label: null,
+  recurring_series_start_date: null,
+  recurring_series_end_date: null,
+  recurring_series_weekday: null,
   created_at: '2024-04-10T08:00:00Z',
   cancelled_at: null,
   completed_at: null,
@@ -72,7 +77,10 @@ describe('AdminBookingDetailPage', () => {
     });
     vi.mocked(updateAdminBooking).mockResolvedValue({ ...baseBooking, note: 'Prenotazione aggiornata' });
     vi.mocked(updateAdminBookingStatus).mockResolvedValue({ ...baseBooking, status: 'CANCELLED', cancelled_at: '2024-04-16T12:05:00Z' });
+    vi.mocked(updateRecurringSeries).mockResolvedValue({ series_id: 'series-1', created_count: 4, skipped_count: 0, skipped: [] });
     vi.mocked(markAdminBalancePaid).mockResolvedValue({ ...baseBooking, balance_paid_at: '2024-04-16T12:06:00Z' });
+    vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 4, skipped_count: 0, booking_ids: ['booking-1'], series_id: 'series-1' });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -100,11 +108,92 @@ describe('AdminBookingDetailPage', () => {
 
     renderPage();
 
-    await screen.findByText('Serie fissa del mercoledi');
+    await screen.findByText('Le prenotazioni ricorrenti non richiedono caparra online o saldo al campo.');
     expect(screen.queryByText('Caparra')).not.toBeInTheDocument();
     expect(screen.queryByText('Pagamento')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Segna saldo al campo' })).not.toBeInTheDocument();
     expect(screen.getByText('Le prenotazioni ricorrenti non richiedono caparra online o saldo al campo.')).toBeInTheDocument();
+  });
+
+  it('lets the admin cancel the full recurring series from the booking detail page', async () => {
+    vi.mocked(getAdminBooking)
+      .mockResolvedValueOnce({
+        ...baseBooking,
+        source: 'ADMIN_RECURRING',
+        deposit_amount: 0,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        recurring_series_id: 'series-1',
+        recurring_series_label: 'Serie fissa del mercoledi',
+        recurring_series_end_date: '2099-05-14',
+        recurring_series_weekday: 3,
+      })
+      .mockResolvedValueOnce({
+        ...baseBooking,
+        source: 'ADMIN_RECURRING',
+        deposit_amount: 0,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        status: 'CANCELLED',
+        cancelled_at: '2024-04-16T12:05:00Z',
+        recurring_series_id: 'series-1',
+        recurring_series_label: 'Serie fissa del mercoledi',
+        recurring_series_end_date: '2099-05-14',
+        recurring_series_weekday: 3,
+      });
+
+    renderPage();
+
+    await screen.findByRole('button', { name: 'Annulla intera serie' });
+    fireEvent.click(screen.getByRole('button', { name: 'Annulla intera serie' }));
+
+    await waitFor(() => expect(cancelRecurringSeries).toHaveBeenCalledWith('series-1'));
+    expect(screen.getByText('Serie aggiornata: 4 occorrenze future annullate, 0 saltate.')).toBeInTheDocument();
+  });
+
+  it('lets the admin update the full recurring series from the booking detail page', async () => {
+    vi.mocked(getAdminBooking)
+      .mockResolvedValueOnce({
+        ...baseBooking,
+        source: 'ADMIN_RECURRING',
+        deposit_amount: 0,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        recurring_series_id: 'series-1',
+        recurring_series_label: 'Serie fissa del mercoledi',
+        recurring_series_end_date: '2099-05-14',
+        recurring_series_weekday: 3,
+      })
+      .mockResolvedValueOnce({
+        ...baseBooking,
+        source: 'ADMIN_RECURRING',
+        deposit_amount: 0,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        recurring_series_id: 'series-1',
+        recurring_series_label: 'Serie aggiornata admin',
+        recurring_series_end_date: '2099-05-21',
+        recurring_series_weekday: 3,
+      });
+
+    renderPage();
+
+    await screen.findByRole('button', { name: 'Modifica intera serie' });
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica intera serie' }));
+    fireEvent.change(screen.getByLabelText('Nome serie ricorrente'), { target: { value: 'Serie aggiornata admin' } });
+    fireEvent.change(screen.getByLabelText('Fino al'), { target: { value: '2099-05-21' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salva serie' }));
+
+    await waitFor(() => expect(updateRecurringSeries).toHaveBeenCalledWith('series-1', expect.objectContaining({
+      label: 'Serie aggiornata admin',
+      start_date: '2099-04-16',
+      end_date: '2099-05-21',
+      weekday: 3,
+      start_time: '18:00',
+      slot_id: '2099-04-16T16:00:00Z',
+      duration_minutes: 90,
+    })));
+    expect(screen.getByText('Serie aggiornata. Nuove occorrenze create: 4. Saltate: 0.')).toBeInTheDocument();
   });
 
   it('saves an admin booking update using the current selected slot from the picker', async () => {

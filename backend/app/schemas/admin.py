@@ -100,7 +100,7 @@ class RecurringSeriesPreviewRequest(BaseModel):
     label: str = Field(min_length=2, max_length=140)
     weekday: int = Field(ge=0, le=6)
     start_date: date
-    weeks_count: int = Field(ge=1, le=52)
+    end_date: date
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
     slot_id: str | None = None
     duration_minutes: int

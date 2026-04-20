@@ -90,6 +90,11 @@ export function AdminTimeSlotPicker({
     return selectedCandidate ? [...initialSlots, selectedCandidate] : initialSlots;
   }, [candidateSlots, expanded, selectedSlotId]);
 
+  const highlightedSlotIds = useMemo(
+    () => buildHighlightedSlotIds(candidateSlots, selectedSlotId, durationMinutes),
+    [candidateSlots, durationMinutes, selectedSlotId]
+  );
+
   return (
     <div className='space-y-3'>
       {error ? <AlertBanner tone='error'>{error}</AlertBanner> : null}
@@ -98,6 +103,7 @@ export function AdminTimeSlotPicker({
         <SlotGrid
           slots={displayedSlots}
           selectedSlotId={selectedSlotId}
+          highlightedSlotIds={highlightedSlotIds}
           onSelect={(slotId) => {
             const selected = slots.find((slot) => slot.slot_id === slotId);
             if (selected) {
@@ -117,4 +123,25 @@ export function AdminTimeSlotPicker({
       ) : null}
     </div>
   );
+}
+
+function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, durationMinutes: number) {
+  if (!selectedSlotId) {
+    return [];
+  }
+
+  const selectedStart = new Date(selectedSlotId).getTime();
+  if (Number.isNaN(selectedStart)) {
+    return [];
+  }
+
+  const coveredStartTimes = new Set<number>();
+  const slotCount = Math.max(1, durationMinutes / 30);
+  for (let index = 0; index < slotCount; index += 1) {
+    coveredStartTimes.add(selectedStart + (index * 30 * 60 * 1000));
+  }
+
+  return slots
+    .filter((slot) => coveredStartTimes.has(new Date(slot.slot_id).getTime()))
+    .map((slot) => slot.slot_id);
 }

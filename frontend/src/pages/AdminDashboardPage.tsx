@@ -1,4 +1,4 @@
-import { CalendarClock, ClipboardList, Repeat2, Settings2 } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronUp } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AdminNav } from '../components/AdminNav';
@@ -26,6 +26,9 @@ import { formatCurrency, formatDateTime, formatRomeWeekdayLabel, toDateInputValu
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
+const HERO_PRIMARY_BUTTON_CLASS = 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-60';
+const HERO_SECONDARY_BUTTON_CLASS = 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-60';
+const SUBTLE_LINK_CLASS = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-100';
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -43,6 +46,17 @@ function getRecurringWeekday(dateValue: string) {
 
   const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   return (normalizedDate.getUTCDay() + 6) % 7;
+}
+
+function addWeeksToDateInput(dateValue: string, weeksToAdd: number) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) {
+    return dateValue;
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  normalizedDate.setUTCDate(normalizedDate.getUTCDate() + (weeksToAdd * 7));
+  return normalizedDate.toISOString().slice(0, 10);
 }
 
 export function AdminDashboardPage() {
@@ -74,7 +88,7 @@ export function AdminDashboardPage() {
     label: 'Allenamento fisso',
     weekday: getRecurringWeekday(today),
     start_date: today,
-    weeks_count: 6,
+    end_date: addWeeksToDateInput(today, 5),
     start_time: '',
     slot_id: null,
     duration_minutes: 90,
@@ -183,6 +197,11 @@ export function AdminDashboardPage() {
       return;
     }
 
+    if (recurringForm.end_date < recurringForm.start_date) {
+      setFeedback({ tone: 'error', message: 'La data fine serie deve essere uguale o successiva alla data di partenza.' });
+      return;
+    }
+
     try {
       const response = await previewRecurring(recurringForm);
       setRecurringPreview(response.occurrences);
@@ -195,6 +214,11 @@ export function AdminDashboardPage() {
   async function createRecurringSeries() {
     if (!recurringForm.start_time || !recurringForm.slot_id) {
       setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
+      return;
+    }
+
+    if (recurringForm.end_date < recurringForm.start_date) {
+      setFeedback({ tone: 'error', message: 'La data fine serie deve essere uguale o successiva alla data di partenza.' });
       return;
     }
 
@@ -233,20 +257,20 @@ export function AdminDashboardPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
-        <div className='space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
-          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
+        <div className='relative space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
+          <div className='lg:pr-72'>
             <div>
               <AppBrand light />
               <p className='mt-4 text-[24px] font-semibold leading-none text-cyan-100'>Dashboard admin</p>
               <h1 className='mt-2 text-4xl font-bold'>Controllo prenotazioni e operatività</h1>
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative. Prenotazioni e log hanno ora pagine dedicate.</p>
             </div>
-            <div className='flex flex-wrap gap-3'>
-              <button onClick={() => void refreshDashboard()} className='btn-secondary'>Aggiorna dashboard</button>
-              <button onClick={logout} className='btn-secondary'>Esci</button>
-            </div>
           </div>
           <AdminNav />
+          <div className='flex w-full flex-wrap justify-end gap-3 lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
+            <button onClick={() => void refreshDashboard()} className={HERO_PRIMARY_BUTTON_CLASS}>Aggiorna dashboard</button>
+            <button onClick={logout} className={HERO_SECONDARY_BUTTON_CLASS}>Esci</button>
+          </div>
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
@@ -260,50 +284,21 @@ export function AdminDashboardPage() {
           <StatCard title='Caparre incassate' value={formatCurrency(report?.collected_deposits ?? 0)} />
         </div>
 
-        <div className='grid gap-4 xl:grid-cols-2'>
-          <SectionCard
-            title='Prenotazioni e occupazione'
-            description='Apri il calendario della settimana corrente oppure passa all’elenco avanzato con filtri per periodo, ricerca libera e gruppi ricorrenti.'
-            actions={
-              <div className='flex flex-wrap gap-2'>
-                <Link to='/admin/prenotazioni-attuali' className='btn-secondary'>Prenotazioni Attuali</Link>
-                <Link to='/admin/prenotazioni' className='btn-secondary'>Elenco prenotazioni</Link>
-              </div>
-            }
-            elevated
-          >
-            <div className='flex items-start gap-4 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4'>
-              <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
-                <ClipboardList size={20} />
-              </div>
-              <div className='space-y-1 text-sm text-slate-600'>
-                <p className='font-semibold text-slate-950'>Settimana corrente o ricerca avanzata</p>
-                <p>La nuova vista settimanale mostra rapidamente le partite attuali, mentre l’elenco prenotazioni mantiene filtri, ricerca e gestione ricorrenze senza appesantire la dashboard.</p>
-              </div>
+        <SectionCard
+          title='Prenotazioni e occupazione'
+          description='Apri il calendario della settimana corrente oppure passa all’elenco avanzato con filtri per periodo, ricerca libera e gruppi ricorrenti.'
+          actions={
+            <div className='flex flex-wrap gap-2'>
+              <Link to='/admin/prenotazioni-attuali' className='btn-primary'>Prenotazioni Attuali</Link>
+              <Link to='/admin/prenotazioni' className='btn-secondary'>Elenco prenotazioni</Link>
             </div>
-          </SectionCard>
-
-          <SectionCard
-            title='Log operativi'
-            description='Consulta gli ultimi eventi business del backend in una pagina dedicata.'
-            actions={<Link to='/admin/log' className='btn-secondary'>Apri log</Link>}
-            elevated
-          >
-            <div className='flex items-start gap-4 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4'>
-              <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
-                <CalendarClock size={20} />
-              </div>
-              <div className='space-y-1 text-sm text-slate-600'>
-                <p className='font-semibold text-slate-950'>Audit e attività recenti</p>
-                <p>I log non occupano più la dashboard principale: qui restano i flussi operativi, mentre la cronologia resta concentrata in una vista separata.</p>
-              </div>
-            </div>
-          </SectionCard>
-        </div>
+          }
+          elevated
+        />
 
         <div className='grid gap-6 xl:grid-cols-[1.05fr_0.95fr]'>
           <div className='space-y-6'>
-            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.'>
+            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.' collapsible>
               <form className='mt-4 space-y-4' onSubmit={createManualBooking}>
                 <div className='grid gap-3 sm:grid-cols-2'>
                   <div>
@@ -364,14 +359,14 @@ export function AdminDashboardPage() {
               </form>
             </SectionCard>
 
-            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza nello stesso anno solare e controlla subito i conflitti.'>
+            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza fino a una data finale e controlla subito eventuali conflitti.' collapsible>
               <form className='mt-4 space-y-4' onSubmit={submitRecurringPreview}>
                 <div>
                   <label className='field-label' htmlFor='admin-recurring-label'>Nome serie ricorrente</label>
                   <input id='admin-recurring-label' className='text-input' value={recurringForm.label} onChange={(event) => setRecurringForm((prev) => ({ ...prev, label: event.target.value }))} />
                 </div>
 
-                <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
+                <div className='grid gap-4 sm:grid-cols-2'>
                   <DateFieldWithDay
                     id='admin-recurring-date'
                     label='Data di partenza'
@@ -381,19 +376,34 @@ export function AdminDashboardPage() {
                       setRecurringForm((prev) => ({
                         ...prev,
                         start_date: value,
+                        end_date: prev.end_date < value ? value : prev.end_date,
                         weekday: getRecurringWeekday(value),
                         start_time: '',
                         slot_id: null,
                       }));
                     }}
                   />
+                  <DateFieldWithDay
+                    id='admin-recurring-end-date'
+                    label='Fino al'
+                    value={recurringForm.end_date}
+                    min={recurringForm.start_date}
+                    onChange={(value) => setRecurringForm((prev) => ({ ...prev, end_date: value }))}
+                  />
+                </div>
+
+                <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
                   <div className='surface-muted self-start'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno serie</p>
                     <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.start_date)}</p>
                   </div>
+                  <div className='surface-muted self-start'>
+                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Ultima ricorrenza</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.end_date)} {recurringForm.end_date}</p>
+                  </div>
                 </div>
 
-                <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+                <div className='grid gap-3 sm:grid-cols-2'>
                   <div>
                     <label className='field-label' htmlFor='admin-recurring-duration'>Durata</label>
                     <select
@@ -406,18 +416,6 @@ export function AdminDashboardPage() {
                     >
                       {DURATIONS.map((value) => <option key={value} value={value}>{value} minuti</option>)}
                     </select>
-                  </div>
-                  <div>
-                    <label className='field-label' htmlFor='admin-recurring-weeks'>Nr. settimane</label>
-                    <input
-                      id='admin-recurring-weeks'
-                      className='text-input'
-                      type='number'
-                      min={1}
-                      max={52}
-                      value={recurringForm.weeks_count}
-                      onChange={(event) => setRecurringForm((prev) => ({ ...prev, weeks_count: Number(event.target.value) }))}
-                    />
                   </div>
                   <div className='surface-muted self-end'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Prima ricorrenza</p>
@@ -456,7 +454,7 @@ export function AdminDashboardPage() {
           </div>
 
           <div className='space-y-6'>
-            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.'>
+            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.' collapsible>
               <form className='mt-4 space-y-3' onSubmit={submitBlackout}>
                 <div>
                   <label className='field-label' htmlFor='admin-blackout-title'>Titolo blackout</label>
@@ -492,7 +490,7 @@ export function AdminDashboardPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.'>
+            <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.' collapsible>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
               ) : (
@@ -519,41 +517,42 @@ export function AdminDashboardPage() {
                 </form>
               )}
             </SectionCard>
-
-            <SectionCard title='Promemoria pagine admin' description='La gestione operativa è stata separata per ridurre il rumore nella dashboard.'>
-              <div className='space-y-3'>
-                <div className='flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700'>
-                  <div className='flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
-                    <Repeat2 size={16} />
-                  </div>
-                  <div>
-                    <p className='font-semibold text-slate-950'>Ricorrenze e occupazione</p>
-                    <p>Usa la pagina prenotazioni per annullare singole occorrenze, selezioni multiple o intere serie ricorrenti.</p>
-                  </div>
-                </div>
-                <div className='flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700'>
-                  <div className='flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
-                    <Settings2 size={16} />
-                  </div>
-                  <div>
-                    <p className='font-semibold text-slate-950'>Configurazione e controllo</p>
-                    <p>La dashboard mantiene i form principali e le regole operative, evitando una pagina unica troppo densa.</p>
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
           </div>
         </div>
+
+        <SectionCard
+          title='Log operativi'
+          description='Consulta gli ultimi eventi business del backend in una pagina dedicata.'
+          actions={<Link to='/admin/log' className={SUBTLE_LINK_CLASS}>Apri log</Link>}
+          elevated
+        />
       </div>
     </div>
   );
 }
 
 function StatCard({ title, value }: { title: string; value: string }) {
+  const [expanded, setExpanded] = useState(true);
+
   return (
-    <div className='surface-card'>
-      <p className='text-sm text-slate-500'>{title}</p>
-      <p className='mt-2 text-3xl font-bold text-slate-950'>{value}</p>
-    </div>
+    <section className='surface-card overflow-hidden p-0'>
+      <button
+        type='button'
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Comprimi' : 'Espandi'} ${title}`}
+        className='flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-100'
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span className='text-sm font-medium text-slate-600'>{title}</span>
+        <span className='flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600'>
+          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </span>
+      </button>
+      {expanded ? (
+        <div className='border-t border-slate-100 px-5 pb-5 pt-3'>
+          <p className='text-3xl font-bold text-slate-950'>{value}</p>
+        </div>
+      ) : null}
+    </section>
   );
 }

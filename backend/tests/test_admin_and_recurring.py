@@ -7,12 +7,17 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.security import create_admin_password_reset_token, hash_password, verify_password
 from app.main import bootstrap_admin_account
-from app.models import Admin, Booking, BookingEventLog, EmailNotificationLog
+from app.models import Admin, Booking, BookingEventLog, EmailNotificationLog, RecurringBookingSeries
 from app.services.email_service import email_service
 
 
 def future_date(days: int = 5) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
+
+
+def recurring_end_date(start_date_value: str, occurrences: int) -> str:
+    start = datetime.fromisoformat(start_date_value).date()
+    return (start + timedelta(weeks=max(occurrences - 1, 0))).isoformat()
 
 
 def admin_login(client):
@@ -81,7 +86,7 @@ def test_admin_manual_booking_and_recurring_preview(client):
             'label': 'Corso serale',
             'weekday': datetime.fromisoformat(selected_date).weekday(),
             'start_date': selected_date,
-            'weeks_count': 4,
+            'end_date': recurring_end_date(selected_date, 4),
             'start_time': '19:00',
             'duration_minutes': 90,
         },
@@ -272,7 +277,7 @@ def test_recurring_routes_handle_past_dates_without_500(client):
         'label': 'Corso scaduto',
         'weekday': date.today().weekday(),
         'start_date': past_date,
-        'weeks_count': 2,
+        'end_date': recurring_end_date(past_date, 2),
         'start_time': '18:00',
         'duration_minutes': 90,
     }
@@ -298,7 +303,7 @@ def test_recurring_preview_disambiguates_fallback_dst_occurrence(client):
         'label': 'Corso fallback',
         'weekday': date(2026, 10, 25).weekday(),
         'start_date': '2026-10-25',
-        'weeks_count': 1,
+        'end_date': '2026-10-25',
         'start_time': '02:00',
         'duration_minutes': 60,
     }
@@ -344,7 +349,7 @@ def test_recurring_preview_accepts_disambiguated_fallback_slot_id(client):
         'label': 'Corso fallback CET',
         'weekday': date(2026, 10, 25).weekday(),
         'start_date': '2026-10-25',
-        'weeks_count': 1,
+        'end_date': '2026-10-25',
         'start_time': '02:00',
         'slot_id': '2026-10-25T01:00:00+00:00',
         'duration_minutes': 60,
@@ -366,7 +371,7 @@ def test_recurring_creation_accepts_disambiguated_fallback_slot_id(client):
         'label': 'Corso fallback creato',
         'weekday': date(2026, 10, 25).weekday(),
         'start_date': '2026-10-25',
-        'weeks_count': 1,
+        'end_date': '2026-10-25',
         'start_time': '02:00',
         'slot_id': '2026-10-25T01:00:00+00:00',
         'duration_minutes': 60,
@@ -393,7 +398,7 @@ def test_recurring_routes_reject_mismatched_start_date_and_weekday(client):
         'label': 'Corso incoerente',
         'weekday': 0,
         'start_date': '2026-10-25',
-        'weeks_count': 2,
+        'end_date': recurring_end_date('2026-10-25', 2),
         'start_time': '18:00',
         'duration_minutes': 90,
     }
@@ -548,7 +553,7 @@ def test_recurring_creation_logs_created_and_skipped_occurrences(client):
             'label': 'Corso serale',
             'weekday': weekday,
             'start_date': selected_date,
-            'weeks_count': 3,
+            'end_date': recurring_end_date(selected_date, 3),
             'start_time': '20:00',
             'duration_minutes': 90,
         },
@@ -914,7 +919,7 @@ def test_admin_booking_filters_support_period_and_series_label_query(client):
             'label': 'Corso filtro admin',
             'weekday': selected_start.weekday(),
             'start_date': selected_date,
-            'weeks_count': 3,
+            'end_date': recurring_end_date(selected_date, 3),
             'start_time': '19:00',
             'duration_minutes': 90,
         },
@@ -950,7 +955,7 @@ def test_admin_can_cancel_selected_recurring_occurrences_singly_and_in_bulk(clie
             'label': 'Corso cancellazioni selettive',
             'weekday': selected_start.weekday(),
             'start_date': selected_date,
-            'weeks_count': 3,
+            'end_date': recurring_end_date(selected_date, 3),
             'start_time': '20:00',
             'duration_minutes': 90,
         },
@@ -990,7 +995,7 @@ def test_admin_can_cancel_all_future_occurrences_for_a_recurring_series(client):
             'label': 'Corso cancellazione totale',
             'weekday': selected_start.weekday(),
             'start_date': selected_date,
-            'weeks_count': 3,
+            'end_date': recurring_end_date(selected_date, 3),
             'start_time': '21:00',
             'duration_minutes': 90,
         },
@@ -1007,3 +1012,61 @@ def test_admin_can_cancel_all_future_occurrences_for_a_recurring_series(client):
     assert refreshed.status_code == 200
     assert len(refreshed.json()['items']) == 3
     assert all(item['status'] == 'CANCELLED' for item in refreshed.json()['items'])
+
+
+def test_admin_can_update_a_recurring_series(client):
+    admin_login(client)
+    selected_date = future_date(24)
+    selected_start = datetime.fromisoformat(selected_date).date()
+
+    recurring = client.post(
+        '/api/admin/recurring',
+        json={
+            'label': 'Corso da aggiornare',
+            'weekday': selected_start.weekday(),
+            'start_date': selected_date,
+            'end_date': recurring_end_date(selected_date, 3),
+            'start_time': '19:00',
+            'duration_minutes': 90,
+        },
+    )
+    assert recurring.status_code == 200
+    series_id = recurring.json()['series_id']
+
+    updated_end_date = recurring_end_date(selected_date, 4)
+    updated = client.put(
+        f'/api/admin/recurring/{series_id}',
+        json={
+            'label': 'Corso aggiornato admin',
+            'weekday': selected_start.weekday(),
+            'start_date': selected_date,
+            'end_date': updated_end_date,
+            'start_time': '21:00',
+            'duration_minutes': 120,
+        },
+    )
+
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert payload['series_id'] == series_id
+    assert payload['created_count'] == 4
+    assert payload['skipped_count'] == 0
+
+    with SessionLocal() as db:
+        series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id))
+        bookings = db.scalars(select(Booking).where(Booking.recurring_series_id == series_id).order_by(Booking.start_at.asc())).all()
+        updated_log = db.scalar(select(BookingEventLog).where(BookingEventLog.event_type == 'RECURRING_SERIES_UPDATED'))
+
+        assert series is not None
+        assert series.label == 'Corso aggiornato admin'
+        assert series.start_time.isoformat(timespec='minutes') == '21:00'
+        assert series.duration_minutes == 120
+        assert series.start_date.isoformat() == selected_date
+        assert series.end_date.isoformat() == updated_end_date
+        assert series.weeks_count == 4
+        assert len(bookings) == 7
+        assert len([booking for booking in bookings if booking.status == 'CANCELLED']) == 3
+        assert len([booking for booking in bookings if booking.status == 'CONFIRMED']) == 4
+        assert updated_log is not None
+        assert updated_log.payload['created_count'] == 4
+        assert updated_log.payload['replaced_count'] == 3

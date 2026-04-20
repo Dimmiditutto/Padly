@@ -8,8 +8,8 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
-import { getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus } from '../services/adminApi';
-import type { AdminBookingUpdatePayload, BookingDetail } from '../types';
+import { cancelRecurringSeries, getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
+import type { AdminBookingUpdatePayload, BookingDetail, RecurringSeriesPayload } from '../types';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { formatCurrency, formatDateTime } from '../utils/format';
 
@@ -24,12 +24,24 @@ export function AdminBookingDetailPage() {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [savingSeries, setSavingSeries] = useState(false);
+  const [editingSeries, setEditingSeries] = useState(false);
+  const [savingSeriesEdit, setSavingSeriesEdit] = useState(false);
   const [editForm, setEditForm] = useState<AdminBookingUpdatePayload>({
     booking_date: '',
     start_time: '18:00',
     slot_id: null,
     duration_minutes: 90,
     note: '',
+  });
+  const [seriesForm, setSeriesForm] = useState<RecurringSeriesPayload>({
+    label: '',
+    weekday: 0,
+    start_date: '',
+    end_date: '',
+    start_time: '18:00',
+    slot_id: null,
+    duration_minutes: 90,
   });
   const editableBooking = booking ? canEditBooking(booking) : false;
 
@@ -45,7 +57,9 @@ export function AdminBookingDetailPage() {
       const detail = await getAdminBooking(bookingId);
       setBooking(detail);
       setEditForm(buildEditForm(detail));
+      setSeriesForm(buildRecurringSeriesForm(detail));
       setEditing(false);
+      setEditingSeries(false);
     } catch (requestError: any) {
       if (requestError?.response?.status === 401) {
         navigate('/admin/login');
@@ -65,6 +79,9 @@ export function AdminBookingDetailPage() {
       const updated = await updateAdminBookingStatus(booking.id, { status });
       setBooking(updated);
       setEditForm(buildEditForm(updated));
+      setSeriesForm(buildRecurringSeriesForm(updated));
+      setEditing(false);
+      setEditingSeries(false);
       setError('');
       setFeedback(`Stato aggiornato a ${status}.`);
     } catch (requestError: any) {
@@ -80,6 +97,7 @@ export function AdminBookingDetailPage() {
       const updated = await markAdminBalancePaid(booking.id);
       setBooking(updated);
       setEditForm(buildEditForm(updated));
+      setSeriesForm(buildRecurringSeriesForm(updated));
       setError('');
       setFeedback('Saldo segnato come pagato al campo.');
     } catch (requestError: any) {
@@ -100,12 +118,76 @@ export function AdminBookingDetailPage() {
       const updated = await updateAdminBooking(booking.id, editForm);
       setBooking(updated);
       setEditForm(buildEditForm(updated));
+      setSeriesForm(buildRecurringSeriesForm(updated));
       setEditing(false);
       setFeedback('Prenotazione aggiornata con successo.');
     } catch (requestError: any) {
       setError(requestError?.response?.data?.detail || 'Salvataggio modifica non riuscito.');
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  async function cancelSeries() {
+    if (!booking?.recurring_series_id) {
+      return;
+    }
+
+    const label = booking.recurring_series_label || booking.public_reference;
+    if (!window.confirm(`Confermi l'annullamento di tutte le occorrenze future della serie "${label}"?`)) {
+      return;
+    }
+
+    setSavingSeries(true);
+    setFeedback('');
+    setError('');
+
+    try {
+      const response = await cancelRecurringSeries(booking.recurring_series_id);
+      const detail = await getAdminBooking(booking.id);
+      setBooking(detail);
+      setEditForm(buildEditForm(detail));
+      setSeriesForm(buildRecurringSeriesForm(detail));
+      setEditingSeries(false);
+      setFeedback(`Serie aggiornata: ${response.cancelled_count} occorrenze future annullate, ${response.skipped_count} saltate.`);
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.detail || 'Aggiornamento serie ricorrente non riuscito.');
+    } finally {
+      setSavingSeries(false);
+    }
+  }
+
+  async function saveSeriesEdit() {
+    if (!booking?.recurring_series_id) {
+      return;
+    }
+
+    if (!seriesForm.slot_id || !seriesForm.start_time) {
+      setError('Seleziona un orario disponibile prima di salvare la serie ricorrente.');
+      return;
+    }
+
+    if (seriesForm.end_date < seriesForm.start_date) {
+      setError('La data fine serie deve essere uguale o successiva alla data di partenza.');
+      return;
+    }
+
+    setSavingSeriesEdit(true);
+    setFeedback('');
+    setError('');
+
+    try {
+      const response = await updateRecurringSeries(booking.recurring_series_id, seriesForm);
+      const detail = await getAdminBooking(booking.id);
+      setBooking(detail);
+      setEditForm(buildEditForm(detail));
+      setSeriesForm(buildRecurringSeriesForm(detail));
+      setEditingSeries(false);
+      setFeedback(`Serie aggiornata. Nuove occorrenze create: ${response.created_count}. Saltate: ${response.skipped_count}.`);
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.detail || 'Modifica serie ricorrente non riuscita.');
+    } finally {
+      setSavingSeriesEdit(false);
     }
   }
 
@@ -221,6 +303,7 @@ export function AdminBookingDetailPage() {
                     <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600'>
                       <p><strong className='text-slate-900'>Slot attuale:</strong> {formatDateTime(booking.start_at)} → {formatDateTime(booking.end_at)}</p>
                       <p className='mt-2'><strong className='text-slate-900'>Nota attuale:</strong> {booking.note || 'Nessuna nota inserita.'}</p>
+                      {isRecurring ? <p className='mt-2 text-xs text-slate-500'>Questa modifica aggiorna solo l&apos;occorrenza selezionata. Per modificare o annullare l&apos;intera serie usa la sezione dedicata qui sotto.</p> : null}
                     </div>
                     <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!editableBooking} onClick={() => setEditing(true)}>
                       Modifica data e orario
@@ -230,6 +313,100 @@ export function AdminBookingDetailPage() {
                   </div>
                 )}
               </SectionCard>
+
+              {isRecurring && booking.recurring_series_id ? (
+                <SectionCard title='Modifica intera serie' description='Sostituisce le occorrenze future con una nuova pianificazione ricorrente.'>
+                  {editingSeries ? (
+                    <div className='space-y-4'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-series-label'>Nome serie ricorrente</label>
+                        <input
+                          id='admin-series-label'
+                          className='text-input'
+                          value={seriesForm.label}
+                          onChange={(event) => setSeriesForm((prev) => ({ ...prev, label: event.target.value }))}
+                        />
+                      </div>
+                      <div className='grid gap-4 sm:grid-cols-2'>
+                        <DateFieldWithDay
+                          id='admin-series-start-date'
+                          label='Data di partenza'
+                          value={seriesForm.start_date}
+                          onChange={(value) => setSeriesForm((prev) => ({
+                            ...prev,
+                            start_date: value,
+                            end_date: prev.end_date < value ? value : prev.end_date,
+                            weekday: getRecurringWeekday(value),
+                            start_time: '',
+                            slot_id: null,
+                          }))}
+                        />
+                        <DateFieldWithDay
+                          id='admin-series-end-date'
+                          label='Fino al'
+                          value={seriesForm.end_date}
+                          min={seriesForm.start_date}
+                          onChange={(value) => setSeriesForm((prev) => ({ ...prev, end_date: value }))}
+                        />
+                      </div>
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        <div>
+                          <label className='field-label' htmlFor='admin-series-duration'>Durata</label>
+                          <select
+                            id='admin-series-duration'
+                            className='text-input'
+                            value={seriesForm.duration_minutes}
+                            onChange={(event) => setSeriesForm((prev) => ({ ...prev, duration_minutes: Number(event.target.value), start_time: '', slot_id: null }))}
+                          >
+                            {DURATIONS.map((minutes) => (
+                              <option key={minutes} value={minutes}>{minutes} minuti</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className='surface-muted self-end'>
+                          <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno serie</p>
+                          <p className='mt-2 text-base font-medium text-slate-900'>{formatBookingWeekdayLabel(seriesForm.start_date)}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className='field-label'>Orario della serie</p>
+                        <AdminTimeSlotPicker
+                          bookingDate={seriesForm.start_date}
+                          durationMinutes={seriesForm.duration_minutes}
+                          selectedSlotId={seriesForm.slot_id || ''}
+                          includeSelectedUnavailable
+                          onSelect={(slot) => setSeriesForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }))}
+                        />
+                      </div>
+                      <div className='flex flex-wrap gap-3'>
+                        <button className='btn-primary' type='button' disabled={savingSeriesEdit} onClick={() => void saveSeriesEdit()}>
+                          {savingSeriesEdit ? 'Salvataggio serie in corso…' : 'Salva serie'}
+                        </button>
+                        <button className='btn-secondary' type='button' disabled={savingSeriesEdit} onClick={() => {
+                          setEditingSeries(false);
+                          setSeriesForm(buildRecurringSeriesForm(booking));
+                        }}>
+                          Annulla
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className='space-y-3'>
+                      <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600'>
+                        <p><strong className='text-slate-900'>Serie:</strong> {booking.recurring_series_label || 'Serie ricorrente'}</p>
+                        <p className='mt-2'><strong className='text-slate-900'>Partenza nuova pianificazione:</strong> {seriesForm.start_date}</p>
+                        <p className='mt-2'><strong className='text-slate-900'>Fino al:</strong> {booking.recurring_series_end_date || seriesForm.end_date}</p>
+                        <p className='mt-2 text-xs text-slate-500'>L&apos;aggiornamento sostituisce le occorrenze future della serie. Le partite gia giocate restano nello storico.</p>
+                      </div>
+                      <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!editableBooking} onClick={() => setEditingSeries(true)}>
+                        Modifica intera serie
+                      </button>
+                      {booking.status !== 'CONFIRMED' ? <p className='text-xs text-slate-500'>La modifica serie e disponibile solo da una prenotazione confermata.</p> : null}
+                      {booking.status === 'CONFIRMED' && !editableBooking ? <p className='text-xs text-slate-500'>La modifica serie e disponibile solo per prenotazioni future.</p> : null}
+                    </div>
+                  )}
+                </SectionCard>
+              ) : null}
 
               <SectionCard title='Azioni rapide' description='Aggiorna lo stato operativo direttamente da qui.'>
                 <div className='space-y-3'>
@@ -241,6 +418,11 @@ export function AdminBookingDetailPage() {
                   <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBookingCompleted(booking.status, booking.end_at)} onClick={() => void updateStatus('COMPLETED')}>Segna completed</button>
                   <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBookingNoShow(booking.status, booking.start_at)} onClick={() => void updateStatus('NO_SHOW')}>Segna no-show</button>
                   <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canCancelBooking(booking.status)} onClick={() => void updateStatus('CANCELLED')}>Annulla prenotazione</button>
+                  {isRecurring && booking.recurring_series_id ? (
+                    <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={savingSeries} onClick={() => void cancelSeries()}>
+                      {savingSeries ? 'Aggiornamento serie in corso…' : 'Annulla intera serie'}
+                    </button>
+                  ) : null}
                   {canRestoreBookingConfirmed(booking.status) ? (
                     <button className='btn-secondary w-full' type='button' onClick={() => void updateStatus('CONFIRMED')}>Ripristina confermata</button>
                   ) : null}
@@ -274,8 +456,46 @@ function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'star
   };
 }
 
+function buildRecurringSeriesForm(
+  booking: Pick<BookingDetail, 'booking_date_local' | 'start_at' | 'duration_minutes' | 'recurring_series_label' | 'recurring_series_end_date' | 'recurring_series_weekday'>,
+): RecurringSeriesPayload {
+  return {
+    label: booking.recurring_series_label || 'Serie ricorrente',
+    weekday: typeof booking.recurring_series_weekday === 'number' ? booking.recurring_series_weekday : getRecurringWeekday(booking.booking_date_local),
+    start_date: booking.booking_date_local,
+    end_date: booking.recurring_series_end_date || booking.booking_date_local,
+    start_time: toRomeTimeValue(booking.start_at),
+    slot_id: booking.start_at,
+    duration_minutes: booking.duration_minutes,
+  };
+}
+
 function canEditBooking(booking: Pick<BookingDetail, 'status' | 'start_at'>) {
   return booking.status === 'CONFIRMED' && new Date(booking.start_at).getTime() > Date.now();
+}
+
+function getRecurringWeekday(dateValue: string) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) {
+    return 0;
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  return (normalizedDate.getUTCDay() + 6) % 7;
+}
+
+function formatBookingWeekdayLabel(dateValue: string) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) {
+    return 'Giorno non disponibile';
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'long',
+    timeZone: 'Europe/Rome',
+  }).format(normalizedDate);
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function toRomeTimeValue(value: string) {

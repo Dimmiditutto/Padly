@@ -7,8 +7,9 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
-import { getAdminSession, listAdminBookings } from '../services/adminApi';
+import { cancelRecurringSeries, getAdminSession, listAdminBookings, updateAdminBookingStatus } from '../services/adminApi';
 import type { AdminDashboardFilters, BookingSummary } from '../types';
+import { canCancelBooking } from '../utils/adminBookingActions';
 import { toDateInputValue } from '../utils/format';
 
 const MONTH_LABELS = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -259,6 +260,60 @@ export function AdminCurrentBookingsPage() {
     await goToWeek(selected.weekStart);
   }
 
+  async function handleCancelBooking(booking: BookingSummary) {
+    if (!canCancelBooking(booking.status)) {
+      return;
+    }
+
+    if (!window.confirm(`Confermi l'annullamento della prenotazione ${booking.public_reference}?`)) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      await updateAdminBookingStatus(booking.id, { status: 'CANCELLED' });
+      setFeedback({ tone: 'success', message: 'Prenotazione annullata con successo.' });
+      await loadWeek(viewWeekStart, false);
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate('/admin/login');
+        return;
+      }
+
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Annullamento prenotazione non riuscito.') });
+    }
+  }
+
+  async function handleCancelSeries(booking: BookingSummary) {
+    if (!booking.recurring_series_id) {
+      return;
+    }
+
+    const seriesLabel = booking.recurring_series_label || booking.public_reference;
+    if (!window.confirm(`Confermi l'annullamento di tutte le occorrenze future della serie "${seriesLabel}"?`)) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      const response = await cancelRecurringSeries(booking.recurring_series_id);
+      setFeedback({
+        tone: 'success',
+        message: `Serie aggiornata: ${response.cancelled_count} occorrenze future annullate, ${response.skipped_count} saltate.`,
+      });
+      await loadWeek(viewWeekStart, false);
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate('/admin/login');
+        return;
+      }
+
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento serie ricorrente non riuscito.') });
+    }
+  }
+
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
@@ -358,18 +413,19 @@ export function AdminCurrentBookingsPage() {
                           dayBookings.map((booking) => {
                             const label = booking.customer_name || booking.recurring_series_label || booking.public_reference;
                             const showStatus = booking.status !== 'CONFIRMED';
+                            const canCancel = canCancelBooking(booking.status);
 
                             return (
-                              <Link
+                              <article
                                 key={booking.id}
-                                to={`/admin/bookings/${booking.id}`}
-                                className='block rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-cyan-400 hover:shadow-md'
+                                className='rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-cyan-400 hover:shadow-md'
                               >
                                 <div className='flex items-start justify-between gap-2'>
                                   <p className='text-sm font-semibold text-slate-950'>{formatBookingTime(booking.start_at)} - {formatBookingTime(booking.end_at)}</p>
                                   {showStatus ? <StatusBadge status={booking.status} /> : null}
                                 </div>
                                 <p className='mt-2 text-sm text-slate-700'>{label}</p>
+                                {booking.recurring_series_label ? <p className='mt-1 text-xs font-medium text-cyan-700'>{booking.recurring_series_label}</p> : null}
                                 {booking.recurring_series_label ? <p className='mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700'>Serie ricorrente</p> : null}
                                 <div className='mt-2 flex items-center gap-2 text-xs text-slate-500'>
                                   <CalendarDays size={12} />
@@ -377,7 +433,36 @@ export function AdminCurrentBookingsPage() {
                                   <Clock3 size={12} />
                                   <span>{booking.duration_minutes} min</span>
                                 </div>
-                              </Link>
+                                <div className='mt-3 flex flex-wrap gap-2'>
+                                  <Link
+                                    to={`/admin/bookings/${booking.id}`}
+                                    aria-label={`Modifica ${booking.public_reference}`}
+                                    className='text-sm font-semibold text-cyan-700 transition hover:text-cyan-900'
+                                  >
+                                    Modifica
+                                  </Link>
+                                  {canCancel ? (
+                                    <button
+                                      type='button'
+                                      aria-label={`Annulla ${booking.public_reference}`}
+                                      className='text-sm font-semibold text-rose-700 transition hover:text-rose-900'
+                                      onClick={() => void handleCancelBooking(booking)}
+                                    >
+                                      Annulla
+                                    </button>
+                                  ) : null}
+                                  {booking.recurring_series_id ? (
+                                    <button
+                                      type='button'
+                                      aria-label={`Annulla serie ${booking.recurring_series_label || booking.public_reference}`}
+                                      className='text-sm font-semibold text-amber-700 transition hover:text-amber-900'
+                                      onClick={() => void handleCancelSeries(booking)}
+                                    >
+                                      Annulla serie
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </article>
                             );
                           })
                         )}

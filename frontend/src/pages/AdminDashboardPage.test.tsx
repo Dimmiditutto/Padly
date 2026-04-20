@@ -50,7 +50,7 @@ function renderDashboard() {
 
 function mockBootstrapSuccess() {
   vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
-  vi.mocked(getAdminReport).mockResolvedValue({ total_bookings: 0, confirmed_bookings: 0, pending_bookings: 0, cancelled_bookings: 0, collected_deposits: 0 });
+  vi.mocked(getAdminReport).mockResolvedValue({ total_bookings: 987, confirmed_bookings: 654, pending_bookings: 32, cancelled_bookings: 0, collected_deposits: 140 });
   vi.mocked(listBlackouts).mockResolvedValue([]);
   vi.mocked(getAdminSettings).mockResolvedValue({
     timezone: 'Europe/Rome',
@@ -141,6 +141,30 @@ describe('AdminDashboardPage', () => {
     expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log');
   });
 
+  it('makes metrics and admin sections collapsible, removes helper cards and keeps log as the last section', async () => {
+    vi.mocked(getAvailability).mockReturnValue(new Promise(() => {}));
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+
+    expect(screen.queryByText('Promemoria pagine admin')).not.toBeInTheDocument();
+    expect(screen.queryByText('Settimana corrente o ricerca avanzata')).not.toBeInTheDocument();
+    expect(screen.queryByText('Audit e attività recenti')).not.toBeInTheDocument();
+
+    const sectionTitles = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
+    expect(sectionTitles.at(-1)).toBe('Log operativi');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazioni totali' }));
+    expect(screen.queryByText('987')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazione manuale' }));
+    expect(screen.queryByLabelText('Nome')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Prenotazione manuale' }));
+    expect(screen.getByLabelText('Nome')).toBeInTheDocument();
+  });
+
   it('submits a manual booking after selecting a slot from the compact picker', async () => {
     renderDashboard();
 
@@ -159,6 +183,7 @@ describe('AdminDashboardPage', () => {
 
     await screen.findByText('Dashboard admin');
     fireEvent.change(screen.getByLabelText('Data di partenza'), { target: { value: '2026-10-25' } });
+    expect(screen.getByLabelText('Fino al')).toHaveValue('2026-10-25');
 
     const recurringSection = screen.getByText('Serie ricorrente').closest('section');
     expect(recurringSection).not.toBeNull();
@@ -170,6 +195,7 @@ describe('AdminDashboardPage', () => {
 
     await waitFor(() => expect(createRecurring).toHaveBeenCalledWith(expect.objectContaining({
       start_date: '2026-10-25',
+      end_date: '2026-10-25',
       weekday: 6,
       start_time: '02:00',
       slot_id: '2026-10-25T01:00:00+00:00',

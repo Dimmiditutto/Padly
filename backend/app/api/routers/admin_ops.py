@@ -25,6 +25,7 @@ from app.services.booking_service import (
     create_blackout,
     create_recurring_series,
     preview_recurring_occurrences,
+    update_recurring_series,
 )
 from app.services.report_service import get_dashboard_report
 
@@ -74,7 +75,7 @@ def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depe
             label=payload.label,
             weekday=payload.weekday,
             start_date=payload.start_date,
-            weeks_count=payload.weeks_count,
+            end_date=payload.end_date,
             start_time_value=payload.start_time,
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
@@ -90,7 +91,26 @@ def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depen
             label=payload.label,
             weekday=payload.weekday,
             start_date=payload.start_date,
-            weeks_count=payload.weeks_count,
+            end_date=payload.end_date,
+            start_time_value=payload.start_time,
+            slot_id=payload.slot_id,
+            duration_minutes=payload.duration_minutes,
+            actor=admin.email,
+        )
+        db.commit()
+    return RecurringCreateResponse(series_id=series.id, created_count=len(created), skipped_count=len(skipped), skipped=skipped)
+
+
+@router.put('/recurring/{series_id}', response_model=RecurringCreateResponse)
+def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCreateResponse:
+    with acquire_single_court_lock(db):
+        series, created, skipped = update_recurring_series(
+            db,
+            series_id=series_id,
+            label=payload.label,
+            weekday=payload.weekday,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
             start_time_value=payload.start_time,
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,

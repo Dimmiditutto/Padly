@@ -111,6 +111,11 @@ export async function createRecurring(payload: RecurringSeriesPayload) {
   return response.data;
 }
 
+export async function updateRecurringSeries(seriesId: string, payload: RecurringSeriesPayload) {
+  const response = await api.put<RecurringCreateResponse>(`/admin/recurring/${seriesId}`, payload);
+  return response.data;
+}
+
 export async function cancelRecurringOccurrences(bookingIds: string[]) {
   const response = await api.post<RecurringCancelResponse>('/admin/recurring/cancel-occurrences', { booking_ids: bookingIds });
   return response.data;

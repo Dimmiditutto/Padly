@@ -142,6 +142,18 @@ class Booking(Base):
     def recurring_series_label(self) -> str | None:
         return self.recurring_series.label if self.recurring_series else None
 
+    @property
+    def recurring_series_start_date(self) -> date | None:
+        return self.recurring_series.start_date if self.recurring_series else None
+
+    @property
+    def recurring_series_end_date(self) -> date | None:
+        return self.recurring_series.end_date if self.recurring_series else None
+
+    @property
+    def recurring_series_weekday(self) -> int | None:
+        return self.recurring_series.weekday if self.recurring_series else None
+
 
 class BookingPayment(Base):
     __tablename__ = 'booking_payments'

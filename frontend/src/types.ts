@@ -37,6 +37,9 @@ export interface BookingSummary {
   source: BookingSource;
   recurring_series_id?: string | null;
   recurring_series_label?: string | null;
+  recurring_series_start_date?: string | null;
+  recurring_series_end_date?: string | null;
+  recurring_series_weekday?: number | null;
   created_at: string;
   cancelled_at?: string | null;
   completed_at?: string | null;
@@ -213,7 +216,7 @@ export interface RecurringSeriesPayload {
   label: string;
   weekday: number;
   start_date: string;
-  weeks_count: number;
+  end_date: string;
   start_time: string;
   slot_id?: string | null;
   duration_minutes: number;
