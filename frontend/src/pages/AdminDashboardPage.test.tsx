@@ -134,11 +134,13 @@ describe('AdminDashboardPage', () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
+    expect(screen.getByText('Padly')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByRole('link', { name: 'Elenco prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log');
+    expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
   });
 
   it('makes metrics and admin sections collapsible, removes helper cards and keeps log as the last section', async () => {
@@ -154,6 +156,11 @@ describe('AdminDashboardPage', () => {
 
     const sectionTitles = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(sectionTitles.at(-1)).toBe('Log operativi');
+
+    expect(screen.queryByText('987')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Prenotazioni totali' }));
+    expect(screen.getByText('987')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazioni totali' }));
     expect(screen.queryByText('987')).not.toBeInTheDocument();

@@ -259,17 +259,17 @@ export function AdminDashboardPage() {
         <div className='relative space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
           <div className='lg:pr-72'>
             <div>
-              <AppBrand light />
+              <AppBrand light label='Padly' />
               <p className='mt-4 text-[24px] font-semibold leading-none text-cyan-100'>Dashboard admin</p>
               <h1 className='mt-2 text-4xl font-bold'>Controllo prenotazioni e operatività</h1>
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative. Prenotazioni e log hanno ora pagine dedicate.</p>
             </div>
           </div>
-          <AdminNav />
           <div className='flex w-full flex-col gap-3 sm:flex-row sm:justify-end lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
             <button onClick={() => void refreshDashboard()} className={HERO_ACTION_BUTTON_CLASS}>Aggiorna dashboard</button>
             <button onClick={logout} className={HERO_ACTION_BUTTON_CLASS}>Esci</button>
           </div>
+          <AdminNav />
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
@@ -530,7 +530,7 @@ export function AdminDashboardPage() {
 }
 
 function StatCard({ title, value }: { title: string; value: string }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <section className='surface-card overflow-hidden p-0'>
