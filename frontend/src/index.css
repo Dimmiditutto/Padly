@@ -91,7 +91,27 @@ h4 {
   }
 
   .status-pill {
-    @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+    @apply inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+
+  .status-pill-confirmed {
+    @apply bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80;
+  }
+
+  .status-pill-pending {
+    @apply bg-amber-50 text-amber-800 ring-1 ring-amber-200/80;
+  }
+
+  .status-pill-completed {
+    @apply bg-cyan-50 text-cyan-800 ring-1 ring-cyan-200/80;
+  }
+
+  .status-pill-danger {
+    @apply bg-rose-50 text-rose-800 ring-1 ring-rose-200/80;
+  }
+
+  .status-pill-neutral {
+    @apply bg-slate-100 text-slate-700 ring-1 ring-slate-200/80;
   }
 
   .alert-base {

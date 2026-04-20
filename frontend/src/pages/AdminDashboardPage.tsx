@@ -26,8 +26,7 @@ import { formatCurrency, formatDateTime, formatRomeWeekdayLabel, toDateInputValu
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
-const HERO_PRIMARY_BUTTON_CLASS = 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-60';
-const HERO_SECONDARY_BUTTON_CLASS = 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-60';
+const HERO_ACTION_BUTTON_CLASS = 'btn-secondary w-full sm:w-auto';
 const SUBTLE_LINK_CLASS = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-100';
 
 function getRequestStatus(error: any) {
@@ -267,9 +266,9 @@ export function AdminDashboardPage() {
             </div>
           </div>
           <AdminNav />
-          <div className='flex w-full flex-wrap justify-end gap-3 lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
-            <button onClick={() => void refreshDashboard()} className={HERO_PRIMARY_BUTTON_CLASS}>Aggiorna dashboard</button>
-            <button onClick={logout} className={HERO_SECONDARY_BUTTON_CLASS}>Esci</button>
+          <div className='flex w-full flex-col gap-3 sm:flex-row sm:justify-end lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
+            <button onClick={() => void refreshDashboard()} className={HERO_ACTION_BUTTON_CLASS}>Aggiorna dashboard</button>
+            <button onClick={logout} className={HERO_ACTION_BUTTON_CLASS}>Esci</button>
           </div>
         </div>
 
@@ -287,18 +286,17 @@ export function AdminDashboardPage() {
         <SectionCard
           title='Prenotazioni e occupazione'
           description='Apri il calendario della settimana corrente oppure passa all’elenco avanzato con filtri per periodo, ricerca libera e gruppi ricorrenti.'
-          actions={
-            <div className='flex flex-wrap gap-2'>
-              <Link to='/admin/prenotazioni-attuali' className='btn-primary'>Prenotazioni Attuali</Link>
-              <Link to='/admin/prenotazioni' className='btn-secondary'>Elenco prenotazioni</Link>
-            </div>
-          }
           elevated
-        />
+        >
+          <div className='mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
+            <Link to='/admin/prenotazioni-attuali' className='btn-primary w-full sm:w-auto'>Prenotazioni Attuali</Link>
+            <Link to='/admin/prenotazioni' className='btn-secondary w-full sm:w-auto'>Elenco prenotazioni</Link>
+          </div>
+        </SectionCard>
 
         <div className='grid gap-6 xl:grid-cols-[1.05fr_0.95fr]'>
           <div className='space-y-6'>
-            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.' collapsible>
+            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.' collapsible defaultExpanded={false}>
               <form className='mt-4 space-y-4' onSubmit={createManualBooking}>
                 <div className='grid gap-3 sm:grid-cols-2'>
                   <div>
@@ -359,7 +357,7 @@ export function AdminDashboardPage() {
               </form>
             </SectionCard>
 
-            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza fino a una data finale e controlla subito eventuali conflitti.' collapsible>
+            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza fino a una data finale e controlla subito eventuali conflitti.' collapsible defaultExpanded={false}>
               <form className='mt-4 space-y-4' onSubmit={submitRecurringPreview}>
                 <div>
                   <label className='field-label' htmlFor='admin-recurring-label'>Nome serie ricorrente</label>
@@ -444,7 +442,7 @@ export function AdminDashboardPage() {
               {recurringPreview.length > 0 ? (
                 <div className='mt-4 space-y-2'>
                   {recurringPreview.map((item) => (
-                    <div key={`${item.booking_date}-${item.start_time}`} className={`rounded-2xl px-4 py-3 text-sm ${item.available ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                    <div key={`${item.booking_date}-${item.start_time}`} className={item.available ? 'alert-success' : 'alert-warning'}>
                       {item.booking_date} • {item.display_start_time} → {item.display_end_time} • {item.available ? 'ok' : item.reason}
                     </div>
                   ))}
@@ -454,7 +452,7 @@ export function AdminDashboardPage() {
           </div>
 
           <div className='space-y-6'>
-            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.' collapsible>
+            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.' collapsible defaultExpanded={false}>
               <form className='mt-4 space-y-3' onSubmit={submitBlackout}>
                 <div>
                   <label className='field-label' htmlFor='admin-blackout-title'>Titolo blackout</label>
@@ -490,7 +488,7 @@ export function AdminDashboardPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.' collapsible>
+            <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.' collapsible defaultExpanded={false}>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
               ) : (

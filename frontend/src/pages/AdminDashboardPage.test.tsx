@@ -158,18 +158,27 @@ describe('AdminDashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazioni totali' }));
     expect(screen.queryByText('987')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazione manuale' }));
     expect(screen.queryByLabelText('Nome')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Espandi Prenotazione manuale' }));
     expect(screen.getByLabelText('Nome')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazione manuale' }));
+    expect(screen.queryByLabelText('Nome')).not.toBeInTheDocument();
   });
 
   it('submits a manual booking after selecting a slot from the compact picker', async () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
-    fireEvent.click(screen.getAllByRole('button', { name: '18:00' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Prenotazione manuale' }));
+
+    const manualSection = screen.getByText('Prenotazione manuale').closest('section');
+    expect(manualSection).not.toBeNull();
+
+    await waitFor(() => expect(within(manualSection as HTMLElement).getByRole('button', { name: '18:00' })).toBeInTheDocument());
+
+    fireEvent.click(within(manualSection as HTMLElement).getByRole('button', { name: '18:00' }));
     fireEvent.click(screen.getByRole('button', { name: 'Crea prenotazione' }));
 
     await waitFor(() => expect(createAdminBooking).toHaveBeenCalledWith(expect.objectContaining({
@@ -182,6 +191,8 @@ describe('AdminDashboardPage', () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Serie ricorrente' }));
+
     fireEvent.change(screen.getByLabelText('Data di partenza'), { target: { value: '2026-10-25' } });
     expect(screen.getByLabelText('Fino al')).toHaveValue('2026-10-25');
 

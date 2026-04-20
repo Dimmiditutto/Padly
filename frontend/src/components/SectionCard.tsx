@@ -26,20 +26,20 @@ export function SectionCard({
   return (
     <section className={`surface-card ${elevated ? 'shadow-lift' : ''}`}>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-        <div>
+        <div className='min-w-0'>
           <h2 className='section-title'>{title}</h2>
           {description ? <p className='mt-1 helper-text'>{description}</p> : null}
         </div>
         {actions || (collapsible && hasContent) ? (
-          <div className='flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end'>
-            {actions ? <div className='shrink-0'>{actions}</div> : null}
+          <div className='flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'>
+            {actions ? <div className='w-full min-w-0 sm:w-auto'>{actions}</div> : null}
             {collapsible && hasContent ? (
               <button
                 type='button'
                 aria-expanded={expanded}
                 aria-controls={contentId}
                 aria-label={`${expanded ? 'Comprimi' : 'Espandi'} ${title}`}
-                className='inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-100'
+                className='inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-100 sm:self-auto'
                 onClick={() => setExpanded((prev) => !prev)}
               >
                 {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
