@@ -138,6 +138,7 @@ describe('AdminBookingsPage', () => {
     await screen.findByText('Ricerca avanzata e gestione ricorrenze');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('button', { name: 'Aggiorna dashboard' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
     expect(screen.getByText('Corso serale')).toBeInTheDocument();
     expect(screen.getByText('PB-BOOK-100')).toBeInTheDocument();

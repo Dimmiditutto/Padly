@@ -138,6 +138,7 @@ describe('AdminCurrentBookingsPage', () => {
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('button', { name: 'Aggiorna dashboard' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
     expect(screen.getByText('Luca Bianchi')).toBeInTheDocument();
     expect(screen.getByText('Marco Verdi')).toBeInTheDocument();

@@ -13,7 +13,7 @@ import { canCancelBooking } from '../utils/adminBookingActions';
 import { toDateInputValue } from '../utils/format';
 
 const MONTH_LABELS = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
-const HERO_ACTION_BUTTON_CLASS = 'btn-secondary w-full sm:w-auto';
+const HERO_ACTION_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 const HERO_ACTIONS_WRAPPER_CLASS = 'sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0';
 
 function getRequestStatus(error: any) {
@@ -332,8 +332,7 @@ export function AdminCurrentBookingsPage() {
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>Consulta velocemente le partite della settimana e apri il dettaglio di ogni prenotazione senza rinunciare alla vista elenco avanzata.</p>
             </div>
             <div className={HERO_ACTIONS_WRAPPER_CLASS}>
-              <Link to='/admin/prenotazioni' className='btn-secondary'>Elenco Prenotazioni</Link>
-              <button className='btn-secondary' type='button' onClick={() => void loadWeek(viewWeekStart)}>Aggiorna</button>
+              <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void loadWeek(viewWeekStart)}>Aggiorna dashboard</button>
               <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>
