@@ -265,7 +265,7 @@ export function AdminDashboardPage() {
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative. Prenotazioni e log hanno ora pagine dedicate.</p>
             </div>
           </div>
-          <div className='flex w-full flex-col gap-3 sm:flex-row sm:justify-end lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
+          <div className='sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0 lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
             <button onClick={() => void refreshDashboard()} className={HERO_ACTION_BUTTON_CLASS}>Aggiorna dashboard</button>
             <button onClick={logout} className={HERO_ACTION_BUTTON_CLASS}>Esci</button>
           </div>
