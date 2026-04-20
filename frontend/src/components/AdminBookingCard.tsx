@@ -13,11 +13,12 @@ export function AdminBookingCard({
   onMarkBalancePaid: (bookingId: string) => Promise<void>;
   onUpdateStatus: (bookingId: string, status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') => Promise<void>;
 }) {
+  const isRecurring = booking.source === 'ADMIN_RECURRING' || (booking.deposit_amount ?? 0) === 0;
   const canCancel = canCancelBooking(booking.status);
   const canComplete = canMarkBookingCompleted(booking.status, booking.end_at);
   const canNoShow = canMarkBookingNoShow(booking.status, booking.start_at);
   const canRestore = canRestoreBookingConfirmed(booking.status);
-  const canMarkBalance = canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at);
+  const canMarkBalance = !isRecurring && canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at);
 
   return (
     <article className='rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm'>
@@ -28,16 +29,17 @@ export function AdminBookingCard({
             <StatusBadge status={booking.status} />
           </div>
           <p className='text-sm text-slate-600'>{booking.customer_name || 'Cliente non associato'} • {booking.customer_phone || '—'}</p>
+          {booking.recurring_series_label ? <p className='text-sm font-medium text-cyan-800'>Serie: {booking.recurring_series_label}</p> : null}
           <div className='flex flex-wrap gap-3 text-sm text-slate-600'>
             <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {booking.booking_date_local}</span>
             <span className='inline-flex items-center gap-1'><Clock3 size={14} /> {booking.duration_minutes} min</span>
-            <span className='inline-flex items-center gap-1'><WalletCards size={14} /> Caparra €{booking.deposit_amount}</span>
+            {!isRecurring ? <span className='inline-flex items-center gap-1'><WalletCards size={14} /> Caparra €{booking.deposit_amount}</span> : null}
           </div>
         </div>
         <Link to={`/admin/bookings/${booking.id}`} className='btn-ghost'>Dettaglio <ArrowRight size={16} /></Link>
       </div>
       <div className='mt-4 flex flex-wrap gap-2'>
-        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalance} onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button>
+        {!isRecurring ? <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalance} onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button> : null}
         <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canComplete} onClick={() => void onUpdateStatus(booking.id, 'COMPLETED')}>Completed</button>
         <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canNoShow} onClick={() => void onUpdateStatus(booking.id, 'NO_SHOW')}>No-show</button>
         <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canCancel} onClick={() => void onUpdateStatus(booking.id, 'CANCELLED')}>Annulla</button>

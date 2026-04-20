@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminDashboardPage } from './AdminDashboardPage';
@@ -10,13 +10,9 @@ vi.mock('../services/adminApi', () => ({
   getAdminReport: vi.fn(),
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
-  listAdminBookings: vi.fn(),
-  listAdminEvents: vi.fn(),
   listBlackouts: vi.fn(),
   logoutAdmin: vi.fn(),
-  markAdminBalancePaid: vi.fn(),
   previewRecurring: vi.fn(),
-  updateAdminBookingStatus: vi.fn(),
   updateAdminSettings: vi.fn(),
 }));
 
@@ -31,13 +27,9 @@ import {
   getAdminReport,
   getAdminSession,
   getAdminSettings,
-  listAdminBookings,
-  listAdminEvents,
   listBlackouts,
   logoutAdmin,
-  markAdminBalancePaid,
   previewRecurring,
-  updateAdminBookingStatus,
   updateAdminSettings,
 } from '../services/adminApi';
 import { getAvailability } from '../services/publicApi';
@@ -48,6 +40,8 @@ function renderDashboard() {
       <Routes>
         <Route path='/admin' element={<AdminDashboardPage />} />
         <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
+        <Route path='/admin/prenotazioni' element={<div>BOOKINGS PAGE</div>} />
+        <Route path='/admin/log' element={<div>LOG PAGE</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -55,9 +49,7 @@ function renderDashboard() {
 
 function mockBootstrapSuccess() {
   vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
-  vi.mocked(listAdminBookings).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(getAdminReport).mockResolvedValue({ total_bookings: 0, confirmed_bookings: 0, pending_bookings: 0, cancelled_bookings: 0, collected_deposits: 0 });
-  vi.mocked(listAdminEvents).mockResolvedValue([]);
   vi.mocked(listBlackouts).mockResolvedValue([]);
   vi.mocked(getAdminSettings).mockResolvedValue({
     timezone: 'Europe/Rome',
@@ -70,7 +62,7 @@ function mockBootstrapSuccess() {
   });
 }
 
-describe('AdminDashboardPage bootstrap', () => {
+describe('AdminDashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockBootstrapSuccess();
@@ -78,9 +70,7 @@ describe('AdminDashboardPage bootstrap', () => {
     vi.mocked(createBlackout).mockResolvedValue({ id: 'blackout-1', message: 'ok' });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
-    vi.mocked(markAdminBalancePaid).mockResolvedValue({} as never);
     vi.mocked(previewRecurring).mockResolvedValue({ occurrences: [] });
-    vi.mocked(updateAdminBookingStatus).mockResolvedValue({} as never);
     vi.mocked(updateAdminSettings).mockResolvedValue({
       timezone: 'Europe/Rome',
       currency: 'EUR',
@@ -90,14 +80,35 @@ describe('AdminDashboardPage bootstrap', () => {
       stripe_enabled: true,
       paypal_enabled: true,
     });
-    vi.mocked(getAvailability).mockResolvedValue({
-      date: '2099-04-16',
-      duration_minutes: 90,
+    vi.mocked(getAvailability).mockImplementation(async (bookingDate: string, durationMinutes: number) => ({
+      date: bookingDate,
+      duration_minutes: durationMinutes,
       deposit_amount: 20,
-      slots: [
-        { slot_id: '2099-04-16T16:00:00Z', start_time: '18:00', end_time: '19:30', display_start_time: '18:00', display_end_time: '19:30', available: true, reason: null },
-      ],
-    });
+      slots: bookingDate === '2026-10-25'
+        ? [
+            {
+              slot_id: '2026-10-25T00:00:00+00:00',
+              start_time: '02:00',
+              end_time: '02:00',
+              display_start_time: '02:00 CEST',
+              display_end_time: '02:00 CET',
+              available: true,
+              reason: null,
+            },
+            {
+              slot_id: '2026-10-25T01:00:00+00:00',
+              start_time: '02:00',
+              end_time: '03:00',
+              display_start_time: '02:00 CET',
+              display_end_time: '03:00 CET',
+              available: true,
+              reason: null,
+            },
+          ]
+        : [
+            { slot_id: '2099-04-16T16:00:00Z', start_time: '18:00', end_time: '19:30', display_start_time: '18:00', display_end_time: '19:30', available: true, reason: null },
+          ],
+    }));
   });
 
   it('shows feedback without redirecting when a non-auth dashboard request fails', async () => {
@@ -118,72 +129,46 @@ describe('AdminDashboardPage bootstrap', () => {
     await screen.findByText('LOGIN PAGE');
   });
 
-  it('closes loading and shows feedback when session validation fails without 401', async () => {
-    vi.mocked(getAdminSession).mockRejectedValue({ response: { status: 500, data: { detail: 'Sessione non disponibile' } } });
-
-    renderDashboard();
-
-    await waitFor(() => expect(screen.getByText('Sessione non disponibile')).toBeInTheDocument());
-    expect(screen.queryByText(/Sto sincronizzando dashboard/)).not.toBeInTheDocument();
-    expect(screen.queryByText('LOGIN PAGE')).not.toBeInTheDocument();
-  });
-
-  it('shows feedback when a manual refresh fails', async () => {
+  it('links the dashboard to the dedicated bookings and log pages', async () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
-    vi.mocked(listAdminBookings).mockRejectedValueOnce({ response: { status: 500, data: { detail: 'Refresh non disponibile' } } });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Aggiorna' }));
-
-    await waitFor(() => expect(screen.getByText('Refresh non disponibile')).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Apri prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
+    expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log');
   });
 
-  it('shows feedback when filter application fails', async () => {
+  it('submits a manual booking after selecting a slot from the compact picker', async () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
-    vi.mocked(listAdminBookings).mockRejectedValueOnce({ response: { status: 500, data: { detail: 'Filtro non disponibile' } } });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Filtra' }));
-
-    await waitFor(() => expect(screen.getByText('Filtro non disponibile')).toBeInTheDocument());
-  });
-
-  it('submits the selected fallback slot_id for ambiguous manual bookings', async () => {
-    vi.mocked(getAvailability).mockResolvedValue({
-      date: '2026-10-25',
-      duration_minutes: 60,
-      deposit_amount: 20,
-      slots: [
-        { slot_id: '2026-10-25T00:00:00Z', start_time: '02:00', end_time: '02:00', display_start_time: '02:00 CEST', display_end_time: '02:00 CET', available: true, reason: null },
-        { slot_id: '2026-10-25T01:00:00Z', start_time: '02:00', end_time: '03:00', display_start_time: '02:00 CET', display_end_time: '03:00', available: true, reason: null },
-      ],
-    });
-
-    renderDashboard();
-
-    await screen.findByText('Dashboard admin');
-    const createButton = screen.getByRole('button', { name: 'Crea prenotazione' });
-    const form = createButton.closest('form');
-    if (!form) {
-      throw new Error('Form prenotazione manuale non trovato');
-    }
-
-    const timeInput = form.querySelector("input[type='time']") as HTMLInputElement | null;
-    if (!timeInput) {
-      throw new Error('Campo orario manuale non trovato');
-    }
-
-    fireEvent.change(timeInput, { target: { value: '02:00' } });
-
-    await screen.findByLabelText('Occorrenza slot');
-    fireEvent.change(screen.getByLabelText('Occorrenza slot'), { target: { value: '2026-10-25T01:00:00Z' } });
-    fireEvent.click(createButton);
+    fireEvent.click(screen.getAllByRole('button', { name: '18:00' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Crea prenotazione' }));
 
     await waitFor(() => expect(createAdminBooking).toHaveBeenCalledWith(expect.objectContaining({
+      start_time: '18:00',
+      slot_id: '2099-04-16T16:00:00Z',
+    })));
+  });
+
+  it('derives the recurring weekday from the selected start date and forwards the selected recurring slot_id', async () => {
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.change(screen.getByLabelText('Data di partenza'), { target: { value: '2026-10-25' } });
+
+    const recurringSection = screen.getByText('Serie ricorrente').closest('section');
+    expect(recurringSection).not.toBeNull();
+
+    await waitFor(() => expect(within(recurringSection as HTMLElement).getByRole('button', { name: '02:00 CET' })).toBeInTheDocument());
+
+    fireEvent.click(within(recurringSection as HTMLElement).getByRole('button', { name: '02:00 CET' }));
+    fireEvent.click(within(recurringSection as HTMLElement).getByRole('button', { name: 'Crea serie' }));
+
+    await waitFor(() => expect(createRecurring).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-10-25',
+      weekday: 6,
       start_time: '02:00',
-      slot_id: '2026-10-25T01:00:00Z',
+      slot_id: '2026-10-25T01:00:00+00:00',
     })));
   });
 });

@@ -138,6 +138,10 @@ class Booking(Base):
     def customer_phone(self) -> str | None:
         return self.customer.phone if self.customer else None
 
+    @property
+    def recurring_series_label(self) -> str | None:
+        return self.recurring_series.label if self.recurring_series else None
+
 
 class BookingPayment(Base):
     __tablename__ = 'booking_payments'

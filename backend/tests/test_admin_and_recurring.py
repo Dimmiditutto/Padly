@@ -338,6 +338,75 @@ def test_admin_manual_booking_accepts_disambiguated_fallback_slot_id(client):
     assert payload['end_at'].startswith('2026-10-25T02:00:00')
 
 
+def test_recurring_preview_accepts_disambiguated_fallback_slot_id(client):
+    admin_login(client)
+    payload = {
+        'label': 'Corso fallback CET',
+        'weekday': date(2026, 10, 25).weekday(),
+        'start_date': '2026-10-25',
+        'weeks_count': 1,
+        'start_time': '02:00',
+        'slot_id': '2026-10-25T01:00:00+00:00',
+        'duration_minutes': 60,
+    }
+
+    preview = client.post('/api/admin/recurring/preview', json=payload)
+
+    assert preview.status_code == 200
+    occurrence = preview.json()['occurrences'][0]
+    assert occurrence['start_time'] == '02:00'
+    assert occurrence['end_time'] == '03:00'
+    assert occurrence['display_start_time'] == '02:00 CET'
+    assert occurrence['display_end_time'] == '03:00'
+
+
+def test_recurring_creation_accepts_disambiguated_fallback_slot_id(client):
+    admin_login(client)
+    payload = {
+        'label': 'Corso fallback creato',
+        'weekday': date(2026, 10, 25).weekday(),
+        'start_date': '2026-10-25',
+        'weeks_count': 1,
+        'start_time': '02:00',
+        'slot_id': '2026-10-25T01:00:00+00:00',
+        'duration_minutes': 60,
+    }
+
+    creation = client.post('/api/admin/recurring', json=payload)
+
+    assert creation.status_code == 200
+    assert creation.json()['created_count'] == 1
+    assert creation.json()['skipped_count'] == 0
+
+    with SessionLocal() as db:
+        booking = db.scalar(select(Booking).where(Booking.recurring_series_id == creation.json()['series_id']))
+
+    assert booking is not None
+    assert booking.booking_date_local.isoformat() == '2026-10-25'
+    assert booking.start_at.isoformat().startswith('2026-10-25T01:00:00')
+    assert booking.end_at.isoformat().startswith('2026-10-25T02:00:00')
+
+
+def test_recurring_routes_reject_mismatched_start_date_and_weekday(client):
+    admin_login(client)
+    payload = {
+        'label': 'Corso incoerente',
+        'weekday': 0,
+        'start_date': '2026-10-25',
+        'weeks_count': 2,
+        'start_time': '18:00',
+        'duration_minutes': 90,
+    }
+
+    preview = client.post('/api/admin/recurring/preview', json=payload)
+    assert preview.status_code == 422
+    assert preview.json()['detail'] == 'Il giorno della settimana deve corrispondere alla data di partenza'
+
+    creation = client.post('/api/admin/recurring', json=payload)
+    assert creation.status_code == 422
+    assert creation.json()['detail'] == 'Il giorno della settimana deve corrispondere alla data di partenza'
+
+
 def test_admin_status_transitions_are_guarded_for_pending_and_cancelled_bookings(client):
     admin_login(client)
     booking = create_public_pending_booking(client, booking_date=future_date(6), start_time='20:00')
@@ -832,3 +901,109 @@ def test_admin_report_summary_counts_only_paid_deposits(client):
         'cancelled_bookings': 1,
         'collected_deposits': 20.0,
     }
+
+
+def test_admin_booking_filters_support_period_and_series_label_query(client):
+    admin_login(client)
+    selected_date = future_date(21)
+    selected_start = datetime.fromisoformat(selected_date).date()
+
+    recurring = client.post(
+        '/api/admin/recurring',
+        json={
+            'label': 'Corso filtro admin',
+            'weekday': selected_start.weekday(),
+            'start_date': selected_date,
+            'weeks_count': 3,
+            'start_time': '19:00',
+            'duration_minutes': 90,
+        },
+    )
+    assert recurring.status_code == 200
+    series_id = recurring.json()['series_id']
+
+    filtered = client.get(
+        '/api/admin/bookings',
+        params={
+            'start_date': selected_date,
+            'end_date': (selected_start + timedelta(days=7)).isoformat(),
+            'query': 'Corso filtro admin',
+        },
+    )
+
+    assert filtered.status_code == 200
+    items = filtered.json()['items']
+    assert len(items) == 2
+    assert all(item['recurring_series_id'] == series_id for item in items)
+    assert all(item['recurring_series_label'] == 'Corso filtro admin' for item in items)
+    assert all(item['deposit_amount'] == 0.0 for item in items)
+
+
+def test_admin_can_cancel_selected_recurring_occurrences_singly_and_in_bulk(client):
+    admin_login(client)
+    selected_date = future_date(22)
+    selected_start = datetime.fromisoformat(selected_date).date()
+
+    recurring = client.post(
+        '/api/admin/recurring',
+        json={
+            'label': 'Corso cancellazioni selettive',
+            'weekday': selected_start.weekday(),
+            'start_date': selected_date,
+            'weeks_count': 3,
+            'start_time': '20:00',
+            'duration_minutes': 90,
+        },
+    )
+    assert recurring.status_code == 200
+
+    listed = client.get('/api/admin/bookings', params={'query': 'Corso cancellazioni selettive'})
+    assert listed.status_code == 200
+    items = listed.json()['items']
+    assert len(items) == 3
+    assert all(item['deposit_amount'] == 0.0 for item in items)
+    booking_ids = [item['id'] for item in items]
+
+    single = client.post('/api/admin/recurring/cancel-occurrences', json={'booking_ids': [booking_ids[0]]})
+    assert single.status_code == 200
+    assert single.json()['cancelled_count'] == 1
+    assert single.json()['booking_ids'] == [booking_ids[0]]
+
+    multiple = client.post('/api/admin/recurring/cancel-occurrences', json={'booking_ids': booking_ids[1:]})
+    assert multiple.status_code == 200
+    assert multiple.json()['cancelled_count'] == 2
+    assert set(multiple.json()['booking_ids']) == set(booking_ids[1:])
+
+    refreshed = client.get('/api/admin/bookings', params={'query': 'Corso cancellazioni selettive'})
+    assert refreshed.status_code == 200
+    assert all(item['status'] == 'CANCELLED' for item in refreshed.json()['items'])
+
+
+def test_admin_can_cancel_all_future_occurrences_for_a_recurring_series(client):
+    admin_login(client)
+    selected_date = future_date(23)
+    selected_start = datetime.fromisoformat(selected_date).date()
+
+    recurring = client.post(
+        '/api/admin/recurring',
+        json={
+            'label': 'Corso cancellazione totale',
+            'weekday': selected_start.weekday(),
+            'start_date': selected_date,
+            'weeks_count': 3,
+            'start_time': '21:00',
+            'duration_minutes': 90,
+        },
+    )
+    assert recurring.status_code == 200
+    series_id = recurring.json()['series_id']
+
+    cancelled = client.post(f'/api/admin/recurring/{series_id}/cancel')
+    assert cancelled.status_code == 200
+    assert cancelled.json()['series_id'] == series_id
+    assert cancelled.json()['cancelled_count'] == 3
+
+    refreshed = client.get('/api/admin/bookings', params={'query': 'Corso cancellazione totale'})
+    assert refreshed.status_code == 200
+    assert len(refreshed.json()['items']) == 3
+    assert all(item['status'] == 'CANCELLED' for item in refreshed.json()['items'])

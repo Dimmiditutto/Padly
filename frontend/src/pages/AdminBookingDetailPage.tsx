@@ -1,14 +1,15 @@
 import { ArrowLeft, CalendarDays, Mail, Phone, WalletCards } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { AdminTimeSlotPicker } from '../components/AdminTimeSlotPicker';
 import { AlertBanner } from '../components/AlertBanner';
+import { DateFieldWithDay } from '../components/DateFieldWithDay';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus } from '../services/adminApi';
-import { getAvailability } from '../services/publicApi';
-import type { AdminBookingUpdatePayload, BookingDetail, TimeSlot } from '../types';
+import type { AdminBookingUpdatePayload, BookingDetail } from '../types';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { formatCurrency, formatDateTime } from '../utils/format';
 
@@ -23,7 +24,6 @@ export function AdminBookingDetailPage() {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [editSlots, setEditSlots] = useState<TimeSlot[]>([]);
   const [editForm, setEditForm] = useState<AdminBookingUpdatePayload>({
     booking_date: '',
     start_time: '18:00',
@@ -32,61 +32,10 @@ export function AdminBookingDetailPage() {
     note: '',
   });
   const editableBooking = booking ? canEditBooking(booking) : false;
-  const matchingEditSlots = useMemo(
-    () => editSlots.filter((slot) => slot.start_time === editForm.start_time),
-    [editSlots, editForm.start_time]
-  );
 
   useEffect(() => {
     void bootstrap();
   }, [bookingId]);
-
-  useEffect(() => {
-    if (!editing) {
-      setEditSlots([]);
-      return;
-    }
-
-    let ignore = false;
-
-    async function loadEditSlots() {
-      try {
-        const response = await getAvailability(editForm.booking_date, editForm.duration_minutes);
-        if (!ignore) {
-          setEditSlots(response.slots);
-        }
-      } catch {
-        if (!ignore) {
-          setEditSlots([]);
-        }
-      }
-    }
-
-    void loadEditSlots();
-
-    return () => {
-      ignore = true;
-    };
-  }, [editing, editForm.booking_date, editForm.duration_minutes]);
-
-  useEffect(() => {
-    if (!editing) {
-      return;
-    }
-
-    if (matchingEditSlots.length === 0) {
-      if (editForm.slot_id) {
-        setEditForm((prev) => ({ ...prev, slot_id: null }));
-      }
-      return;
-    }
-
-    if (matchingEditSlots.some((slot) => slot.slot_id === editForm.slot_id)) {
-      return;
-    }
-
-    setEditForm((prev) => ({ ...prev, slot_id: matchingEditSlots[0].slot_id }));
-  }, [editing, editForm.slot_id, matchingEditSlots]);
 
   async function bootstrap() {
     setLoading(true);
@@ -140,6 +89,10 @@ export function AdminBookingDetailPage() {
 
   async function saveEdit() {
     if (!booking) return;
+    if (!editForm.slot_id || !editForm.start_time) {
+      setError('Seleziona un orario disponibile prima di salvare la modifica.');
+      return;
+    }
     setSavingEdit(true);
     setFeedback('');
     setError('');
@@ -156,12 +109,14 @@ export function AdminBookingDetailPage() {
     }
   }
 
+  const isRecurring = booking ? booking.source === 'ADMIN_RECURRING' || booking.deposit_amount === 0 : false;
+
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='flex items-center justify-between gap-3'>
-          <Link to='/admin' className='btn-secondary'>
-            <ArrowLeft size={16} /> Torna alla dashboard
+          <Link to='/admin/prenotazioni' className='btn-secondary'>
+            <ArrowLeft size={16} /> Torna alle prenotazioni
           </Link>
         </div>
 
@@ -176,7 +131,7 @@ export function AdminBookingDetailPage() {
           <div className='grid gap-6 xl:grid-cols-[1fr_320px]'>
             <SectionCard
               title='Dettaglio prenotazione'
-              description='Controlla dati cliente, stato e riferimenti pagamento.'
+              description={isRecurring ? 'Controlla dati cliente, stato e dettagli della serie ricorrente.' : 'Controlla dati cliente, stato e riferimenti pagamento.'}
               actions={<StatusBadge status={booking.status} />}
               elevated
             >
@@ -185,8 +140,9 @@ export function AdminBookingDetailPage() {
                 <InfoItem label='Durata' value={`${booking.duration_minutes} minuti`} />
                 <InfoItem label='Inizio' value={formatDateTime(booking.start_at)} />
                 <InfoItem label='Fine' value={formatDateTime(booking.end_at)} />
-                <InfoItem label='Caparra' value={formatCurrency(booking.deposit_amount)} />
-                <InfoItem label='Pagamento' value={`${booking.payment_provider} • ${booking.payment_status}`} />
+                {booking.recurring_series_label ? <InfoItem label='Serie ricorrente' value={booking.recurring_series_label} /> : null}
+                {!isRecurring ? <InfoItem label='Caparra' value={formatCurrency(booking.deposit_amount)} /> : null}
+                {!isRecurring ? <InfoItem label='Pagamento' value={`${booking.payment_provider} • ${booking.payment_status}`} /> : null}
                 <InfoItem label='Cliente' value={booking.customer_name || 'Cliente non disponibile'} />
                 <InfoItem label='Creata da' value={booking.created_by} />
               </div>
@@ -197,7 +153,8 @@ export function AdminBookingDetailPage() {
               <div className='mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4'>
                 <p className='text-sm font-semibold text-slate-900'>Note e riferimenti</p>
                 <p className='mt-2 text-sm text-slate-600'>{booking.note || 'Nessuna nota inserita.'}</p>
-                <p className='mt-3 text-xs text-slate-500'>Riferimento pagamento: {booking.payment_reference || 'non ancora disponibile'}</p>
+                {!isRecurring ? <p className='mt-3 text-xs text-slate-500'>Riferimento pagamento: {booking.payment_reference || 'non ancora disponibile'}</p> : null}
+                {isRecurring ? <p className='mt-3 text-xs text-slate-500'>Le prenotazioni ricorrenti non richiedono caparra online o saldo al campo.</p> : null}
               </div>
             </SectionCard>
 
@@ -205,56 +162,38 @@ export function AdminBookingDetailPage() {
               <SectionCard title='Modifica slot' description='Aggiorna data, orario, durata e nota senza ricreare la prenotazione.'>
                 {editing ? (
                   <div className='space-y-4'>
-                    <div className='grid gap-3 sm:grid-cols-2'>
-                      <div>
-                        <label className='field-label' htmlFor='admin-edit-date'>Data</label>
-                        <input
-                          id='admin-edit-date'
-                          className='text-input'
-                          type='date'
-                          value={editForm.booking_date}
-                          onChange={(event) => setEditForm((prev) => ({ ...prev, booking_date: event.target.value, slot_id: null }))}
-                        />
-                      </div>
-                      <div>
-                        <label className='field-label' htmlFor='admin-edit-time'>Orario</label>
-                        <input
-                          id='admin-edit-time'
-                          className='text-input'
-                          type='time'
-                          value={editForm.start_time}
-                          onChange={(event) => setEditForm((prev) => ({ ...prev, start_time: event.target.value, slot_id: null }))}
-                        />
-                      </div>
+                    <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
+                      <DateFieldWithDay
+                        id='admin-edit-date'
+                        label='Data'
+                        value={editForm.booking_date}
+                        onChange={(value) => setEditForm((prev) => ({ ...prev, booking_date: value, start_time: '', slot_id: null }))}
+                      />
                       <div>
                         <label className='field-label' htmlFor='admin-edit-duration'>Durata</label>
                         <select
                           id='admin-edit-duration'
                           className='text-input'
                           value={editForm.duration_minutes}
-                          onChange={(event) => setEditForm((prev) => ({ ...prev, duration_minutes: Number(event.target.value) }))}
+                          onChange={(event) => setEditForm((prev) => ({ ...prev, duration_minutes: Number(event.target.value), start_time: '', slot_id: null }))}
                         >
                           {DURATIONS.map((minutes) => (
                             <option key={minutes} value={minutes}>{minutes} minuti</option>
                           ))}
                         </select>
                       </div>
-                      {matchingEditSlots.length > 1 ? (
-                        <div className='sm:col-span-2'>
-                          <label className='field-label' htmlFor='admin-edit-slot-id'>Occorrenza slot</label>
-                          <select
-                            id='admin-edit-slot-id'
-                            className='text-input'
-                            value={editForm.slot_id || ''}
-                            onChange={(event) => setEditForm((prev) => ({ ...prev, slot_id: event.target.value || null }))}
-                          >
-                            {matchingEditSlots.map((slot) => (
-                              <option key={slot.slot_id} value={slot.slot_id}>{slot.display_start_time} → {slot.display_end_time}</option>
-                            ))}
-                          </select>
-                          <p className='mt-1 text-xs text-slate-500'>Seleziona l'occorrenza corretta quando l'ora locale compare due volte per il cambio ora.</p>
-                        </div>
-                      ) : null}
+                    </div>
+                    <div>
+                      <p className='field-label'>Orario</p>
+                      <AdminTimeSlotPicker
+                        bookingDate={editForm.booking_date}
+                        durationMinutes={editForm.duration_minutes}
+                        selectedSlotId={editForm.slot_id || ''}
+                        includeSelectedUnavailable
+                        onSelect={(slot) => setEditForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }))}
+                      />
+                    </div>
+                    <div className='grid gap-3 sm:grid-cols-2'>
                       <div>
                         <label className='field-label' htmlFor='admin-edit-note'>Nota</label>
                         <textarea
@@ -294,9 +233,11 @@ export function AdminBookingDetailPage() {
 
               <SectionCard title='Azioni rapide' description='Aggiorna lo stato operativo direttamente da qui.'>
                 <div className='space-y-3'>
-                  <button className='btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at)} onClick={() => void markBalance()}>
-                    <WalletCards size={16} /> Segna saldo al campo
-                  </button>
+                  {!isRecurring ? (
+                    <button className='btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at)} onClick={() => void markBalance()}>
+                      <WalletCards size={16} /> Segna saldo al campo
+                    </button>
+                  ) : null}
                   <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBookingCompleted(booking.status, booking.end_at)} onClick={() => void updateStatus('COMPLETED')}>Segna completed</button>
                   <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBookingNoShow(booking.status, booking.start_at)} onClick={() => void updateStatus('NO_SHOW')}>Segna no-show</button>
                   <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canCancelBooking(booking.status)} onClick={() => void updateStatus('CANCELLED')}>Annulla prenotazione</button>
@@ -309,7 +250,7 @@ export function AdminBookingDetailPage() {
               <SectionCard title='Audit rapido' description='Timestamp principali della prenotazione.'>
                 <div className='space-y-3 text-sm text-slate-600'>
                   <p>Creata: <strong>{formatDateTime(booking.created_at)}</strong></p>
-                  <p>Saldo al campo: <strong>{booking.balance_paid_at ? formatDateTime(booking.balance_paid_at) : 'non segnato'}</strong></p>
+                  {!isRecurring ? <p>Saldo al campo: <strong>{booking.balance_paid_at ? formatDateTime(booking.balance_paid_at) : 'non segnato'}</strong></p> : null}
                   <p>Completed: <strong>{booking.completed_at ? formatDateTime(booking.completed_at) : 'non segnato'}</strong></p>
                   <p>No-show: <strong>{booking.no_show_at ? formatDateTime(booking.no_show_at) : 'non segnato'}</strong></p>
                   <p>Annullata: <strong>{booking.cancelled_at ? formatDateTime(booking.cancelled_at) : 'non annullata'}</strong></p>

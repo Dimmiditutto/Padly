@@ -25,6 +25,21 @@ export function formatDateTime(dateValue: string) {
   });
 }
 
+export function formatRomeWeekdayLabel(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) {
+    return '';
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'long',
+    timeZone: 'Europe/Rome',
+  }).format(normalizedDate);
+
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function toDateInputValue(value: Date) {
   const year = value.getFullYear();
   const month = `${value.getMonth() + 1}`.padStart(2, '0');

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.models import (
@@ -601,27 +601,38 @@ def list_bookings(
     db: Session,
     *,
     booking_date: date | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     status_value: str | None = None,
     payment_provider: str | None = None,
     customer_query: str | None = None,
 ) -> tuple[list[Booking], int]:
-    stmt = select(Booking).order_by(Booking.start_at.desc())
+    stmt = (
+        select(Booking)
+        .options(selectinload(Booking.customer), selectinload(Booking.recurring_series))
+        .order_by(Booking.start_at.asc())
+    )
 
     if booking_date:
         stmt = stmt.where(Booking.booking_date_local == booking_date)
+    if start_date:
+        stmt = stmt.where(Booking.booking_date_local >= start_date)
+    if end_date:
+        stmt = stmt.where(Booking.booking_date_local <= end_date)
     if status_value:
         stmt = stmt.where(Booking.status == status_value)
     if payment_provider:
         stmt = stmt.where(Booking.payment_provider == payment_provider)
     if customer_query:
         query = f'%{customer_query.lower()}%'
-        stmt = stmt.join(Customer, isouter=True).where(
+        stmt = stmt.join(Customer, isouter=True).join(RecurringBookingSeries, Booking.recurring_series_id == RecurringBookingSeries.id, isouter=True).where(
             or_(
                 Customer.email.ilike(query),
                 Customer.phone.ilike(query),
                 Customer.first_name.ilike(query),
                 Customer.last_name.ilike(query),
                 Booking.public_reference.ilike(query),
+                RecurringBookingSeries.label.ilike(query),
             )
         )
 
@@ -639,16 +650,23 @@ def create_blackout(db: Session, *, title: str, reason: str | None, start_at: da
     return blackout
 
 
-def _recurring_dates(start_date: date, weekday: int, weeks_count: int) -> list[date]:
-    first = start_date + timedelta(days=(weekday - start_date.weekday()) % 7)
-    dates = [first + timedelta(weeks=offset) for offset in range(weeks_count)]
-    if any(value.year != first.year for value in dates):
+def _validate_recurring_weekday(start_date: date, weekday: int) -> int:
+    expected_weekday = start_date.weekday()
+    if weekday != expected_weekday:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Il giorno della settimana deve corrispondere alla data di partenza')
+    return expected_weekday
+
+
+def _recurring_dates(start_date: date, weeks_count: int) -> list[date]:
+    dates = [start_date + timedelta(weeks=offset) for offset in range(weeks_count)]
+    if any(value.year != start_date.year for value in dates):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='La serie ricorrente deve restare nello stesso anno solare')
     return dates
 
 
-def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, start_date: date, weeks_count: int, start_time_value: str, duration_minutes: int) -> list[dict]:
-    dates = _recurring_dates(start_date, weekday, weeks_count)
+def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, start_date: date, weeks_count: int, start_time_value: str, slot_id: str | None = None, duration_minutes: int) -> list[dict]:
+    _validate_recurring_weekday(start_date, weekday)
+    dates = _recurring_dates(start_date, weeks_count)
     parsed_time = parse_slot_time_value(start_time_value)
     occurrences: list[dict] = []
     for occurrence_date in dates:
@@ -657,7 +675,8 @@ def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, star
         display_start = slot_display_time(local_start.replace(tzinfo=ROME_TZ))
         display_end = slot_display_time(local_end.replace(tzinfo=ROME_TZ))
         try:
-            local_start_at, local_end_at, start_at, end_at = resolve_slot_window(occurrence_date, start_time_value, duration_minutes)
+            occurrence_slot_id = slot_id if occurrence_date == start_date else None
+            local_start_at, local_end_at, start_at, end_at = resolve_slot_window(occurrence_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
             local_start = local_start_at.replace(tzinfo=None)
             local_end = local_end_at.replace(tzinfo=None)
             display_start = slot_display_time(local_start_at)
@@ -684,8 +703,9 @@ def preview_recurring_occurrences(db: Session, *, label: str, weekday: int, star
     return occurrences
 
 
-def create_recurring_series(db: Session, *, label: str, weekday: int, start_date: date, weeks_count: int, start_time_value: str, duration_minutes: int, actor: str) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
+def create_recurring_series(db: Session, *, label: str, weekday: int, start_date: date, weeks_count: int, start_time_value: str, slot_id: str | None = None, duration_minutes: int, actor: str) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
     with acquire_single_court_lock(db):
+        recurring_weekday = _validate_recurring_weekday(start_date, weekday)
         occurrences = preview_recurring_occurrences(
             db,
             label=label,
@@ -693,13 +713,14 @@ def create_recurring_series(db: Session, *, label: str, weekday: int, start_date
             start_date=start_date,
             weeks_count=weeks_count,
             start_time_value=start_time_value,
+            slot_id=slot_id,
             duration_minutes=duration_minutes,
         )
-        dates = _recurring_dates(start_date, weekday, weeks_count)
+        dates = _recurring_dates(start_date, weeks_count)
 
         series = RecurringBookingSeries(
             label=label,
-            weekday=weekday,
+            weekday=recurring_weekday,
             start_time=time.fromisoformat(start_time_value),
             duration_minutes=duration_minutes,
             start_date=dates[0],
@@ -733,7 +754,8 @@ def create_recurring_series(db: Session, *, label: str, weekday: int, start_date
                 continue
 
             booking_date = occurrence['booking_date']
-            local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes)
+            occurrence_slot_id = slot_id if booking_date == start_date else None
+            local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
             booking = Booking(
                 public_reference=make_public_reference(),
                 start_at=start_at,
@@ -741,7 +763,7 @@ def create_recurring_series(db: Session, *, label: str, weekday: int, start_date
                 duration_minutes=duration_minutes,
                 booking_date_local=local_start.date(),
                 status=BookingStatus.CONFIRMED,
-                deposit_amount=calculate_deposit(duration_minutes),
+                deposit_amount=Decimal('0.00'),
                 payment_provider=PaymentProvider.NONE,
                 payment_status=PaymentStatus.UNPAID,
                 note=f'Serie ricorrente: {label}',
@@ -769,3 +791,94 @@ def create_recurring_series(db: Session, *, label: str, weekday: int, start_date
 
         log_event(db, None, 'RECURRING_SERIES_CREATED', f'Serie ricorrente creata: {label}', actor=actor, payload={'created_count': len(created), 'skipped_count': len(skipped)})
         return series, created, skipped
+
+
+def cancel_recurring_occurrences(db: Session, *, booking_ids: list[str], actor: str) -> tuple[list[Booking], int]:
+    unique_booking_ids = list(dict.fromkeys(booking_ids))
+    bookings = db.scalars(
+        select(Booking)
+        .options(selectinload(Booking.recurring_series))
+        .where(
+            Booking.id.in_(unique_booking_ids),
+            Booking.recurring_series_id.is_not(None),
+            Booking.source == BookingSource.ADMIN_RECURRING,
+        )
+        .order_by(Booking.start_at.asc())
+    ).all()
+
+    if len(bookings) != len(unique_booking_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Una o più occorrenze ricorrenti non sono disponibili')
+
+    cancelled: list[Booking] = []
+    skipped_count = 0
+
+    for booking in bookings:
+        try:
+            update_booking_status_by_admin(db, booking, target_status=BookingStatus.CANCELLED, actor=actor)
+            cancelled.append(booking)
+        except HTTPException:
+            skipped_count += 1
+
+    if not cancelled and skipped_count:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Nessuna occorrenza ricorrente annullabile nella selezione')
+
+    if cancelled:
+        log_event(
+            db,
+            None,
+            'RECURRING_OCCURRENCES_CANCELLED',
+            'Occorrenze ricorrenti annullate da admin',
+            actor=actor,
+            payload={
+                'booking_ids': [booking.id for booking in cancelled],
+                'skipped_count': skipped_count,
+            },
+        )
+
+    return cancelled, skipped_count
+
+
+def cancel_recurring_series_future_occurrences(
+    db: Session,
+    *,
+    series_id: str,
+    actor: str,
+) -> tuple[RecurringBookingSeries, list[Booking], int]:
+    series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id))
+    if not series:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
+
+    future_occurrences = db.scalars(
+        select(Booking)
+        .where(
+            Booking.recurring_series_id == series_id,
+            Booking.source == BookingSource.ADMIN_RECURRING,
+            Booking.start_at > datetime.now(UTC),
+        )
+        .order_by(Booking.start_at.asc())
+    ).all()
+
+    cancelled: list[Booking] = []
+    skipped_count = 0
+
+    for booking in future_occurrences:
+        try:
+            update_booking_status_by_admin(db, booking, target_status=BookingStatus.CANCELLED, actor=actor)
+            cancelled.append(booking)
+        except HTTPException:
+            skipped_count += 1
+
+    log_event(
+        db,
+        None,
+        'RECURRING_SERIES_CANCELLED',
+        f'Serie ricorrente aggiornata: {series.label}',
+        actor=actor,
+        payload={
+            'series_id': series.id,
+            'cancelled_count': len(cancelled),
+            'skipped_count': skipped_count,
+        },
+    )
+
+    return series, cancelled, skipped_count

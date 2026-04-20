@@ -2,6 +2,7 @@ export type BookingStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED' | 'COM
 export type PaymentProvider = 'STRIPE' | 'PAYPAL' | 'NONE';
 export type PaymentStatus = 'UNPAID' | 'INITIATED' | 'PAID' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
 export type RefundStatus = 'NOT_REQUIRED' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+export type BookingSource = 'PUBLIC' | 'ADMIN_MANUAL' | 'ADMIN_RECURRING';
 
 export interface ApiMessage {
   message: string;
@@ -33,7 +34,9 @@ export interface BookingSummary {
   customer_phone?: string | null;
   note?: string | null;
   created_by: string;
-  source: string;
+  source: BookingSource;
+  recurring_series_id?: string | null;
+  recurring_series_label?: string | null;
   created_at: string;
   cancelled_at?: string | null;
   completed_at?: string | null;
@@ -146,10 +149,13 @@ export interface ReportResponse {
 }
 
 export interface AdminDashboardFilters {
-  booking_date: string;
+  booking_date?: string;
+  start_date?: string;
+  end_date?: string;
   status: string;
   payment_provider: string;
-  customer: string;
+  customer?: string;
+  query?: string;
 }
 
 export interface AdminBookingStatusPayload {
@@ -209,6 +215,7 @@ export interface RecurringSeriesPayload {
   start_date: string;
   weeks_count: number;
   start_time: string;
+  slot_id?: string | null;
   duration_minutes: number;
 }
 
@@ -221,6 +228,14 @@ export interface RecurringCreateResponse {
   created_count: number;
   skipped_count: number;
   skipped: RecurringOccurrence[];
+}
+
+export interface RecurringCancelResponse {
+  message: string;
+  cancelled_count: number;
+  skipped_count: number;
+  series_id?: string | null;
+  booking_ids: string[];
 }
 
 export interface AdminSession {

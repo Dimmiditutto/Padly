@@ -1,6 +1,6 @@
 Agisci come un **Senior Software Architect**, **Senior Code Reviewer** e **QA tecnico**.
 
-Esegui una **verifica approfondita e rigorosa** del codice attuale, con focus speciale sui file modificati più di recente e sul loro impatto sull’intero progetto.
+Esegui una **verifica approfondita e rigorosa** del codice attuale, con focus speciale sui file modificati più di recente e sul loro impatto sull’intero progetto. Scrivi o Riscrivi/modifica il prompt PROMPT_VERIFICA_ESITO.md specificando nel dettaglio quali sono le modifiche/integrazioni in modo che l'agente sappia già cosa fare
 
 ## Obiettivo
 
@@ -159,6 +159,5 @@ Non scrivere codice.
 Non applicare fix.  
 Non proporre miglioramenti generici non emersi dalla verifica.
 
-Fai prima una **verifica tecnica rigorosa** e poi scrivi un **prompt operativo realmente utile** scrivendo/modificando o riscrivendo il file PROMPT_VERIFICA.md per correggere solo ciò che serve.
+Fai prima una **verifica tecnica rigorosa** e poi scrivi un **prompt operativo realmente utile** scrivendo/modificando o riscrivendo il file PROMPT_VERIFICA_ESITO.md per correggere solo ciò che serve.
 
-Riscrivi/modifica il prompt PROMPT_VERIFICA.md specificando nel dettaglio quali sono le modifiche/integrazioni in modo che l'agente sappia già cosa fare

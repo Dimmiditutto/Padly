@@ -14,6 +14,7 @@ import type {
   BookingDetail,
   BookingListResponse,
   BookingSummary,
+  RecurringCancelResponse,
   RecurringCreateResponse,
   RecurringPreviewResponse,
   RecurringSeriesPayload,
@@ -107,6 +108,16 @@ export async function previewRecurring(payload: RecurringSeriesPayload) {
 
 export async function createRecurring(payload: RecurringSeriesPayload) {
   const response = await api.post<RecurringCreateResponse>('/admin/recurring', payload);
+  return response.data;
+}
+
+export async function cancelRecurringOccurrences(bookingIds: string[]) {
+  const response = await api.post<RecurringCancelResponse>('/admin/recurring/cancel-occurrences', { booking_ids: bookingIds });
+  return response.data;
+}
+
+export async function cancelRecurringSeries(seriesId: string) {
+  const response = await api.post<RecurringCancelResponse>(`/admin/recurring/${seriesId}/cancel`);
   return response.data;
 }
 

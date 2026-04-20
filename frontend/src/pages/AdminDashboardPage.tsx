@@ -1,13 +1,14 @@
 import { CalendarClock, ClipboardList, Repeat2, Settings2 } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AdminBookingCard } from '../components/AdminBookingCard';
+import { FormEvent, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AdminNav } from '../components/AdminNav';
+import { AdminTimeSlotPicker } from '../components/AdminTimeSlotPicker';
 import { AlertBanner } from '../components/AlertBanner';
 import { AppBrand } from '../components/AppBrand';
+import { DateFieldWithDay } from '../components/DateFieldWithDay';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
-import { getAvailability } from '../services/publicApi';
 import {
   createAdminBooking,
   createBlackout,
@@ -15,19 +16,16 @@ import {
   getAdminReport,
   getAdminSession,
   getAdminSettings,
-  listAdminBookings,
-  listAdminEvents,
   listBlackouts,
   logoutAdmin,
-  markAdminBalancePaid,
   previewRecurring,
-  updateAdminBookingStatus,
   updateAdminSettings,
 } from '../services/adminApi';
-import type { AdminEvent, AdminManualBookingPayload, AdminSettings, BlackoutItem, BookingSummary, RecurringOccurrence, ReportResponse, TimeSlot } from '../types';
-import { formatCurrency, formatDateTime, toDateInputValue } from '../utils/format';
+import type { AdminManualBookingPayload, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse } from '../types';
+import { formatCurrency, formatDateTime, formatRomeWeekdayLabel, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
+const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -37,16 +35,23 @@ function getRequestMessage(error: any, fallback: string) {
   return error?.response?.data?.detail || fallback;
 }
 
+function getRecurringWeekday(dateValue: string) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) {
+    return 0;
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  return (normalizedDate.getUTCDay() + 6) % 7;
+}
+
 export function AdminDashboardPage() {
   const navigate = useNavigate();
-  const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [report, setReport] = useState<ReportResponse | null>(null);
-  const [events, setEvents] = useState<AdminEvent[]>([]);
   const [blackouts, setBlackouts] = useState<BlackoutItem[]>([]);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'error' | 'success'; message: string } | null>(null);
-  const [filters, setFilters] = useState({ booking_date: '', status: '', payment_provider: '', customer: '' });
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
     last_name: 'Rossi',
@@ -54,66 +59,31 @@ export function AdminDashboardPage() {
     email: 'mario@example.com',
     note: '',
     booking_date: today,
-    start_time: '18:00',
+    start_time: '',
     slot_id: null,
     duration_minutes: 90,
     payment_provider: 'NONE',
   });
-  const [manualSlots, setManualSlots] = useState<TimeSlot[]>([]);
   const [blackoutForm, setBlackoutForm] = useState({
     title: 'Manutenzione ordinaria',
     reason: 'Pulizia e controllo rete',
     start_at: `${today}T12:00`,
     end_at: `${today}T13:30`,
   });
-  const [recurringForm, setRecurringForm] = useState({ label: 'Allenamento fisso', weekday: 2, start_date: today, weeks_count: 6, start_time: '20:00', duration_minutes: 90 });
+  const [recurringForm, setRecurringForm] = useState<RecurringSeriesPayload>({
+    label: 'Allenamento fisso',
+    weekday: getRecurringWeekday(today),
+    start_date: today,
+    weeks_count: 6,
+    start_time: '',
+    slot_id: null,
+    duration_minutes: 90,
+  });
   const [recurringPreview, setRecurringPreview] = useState<RecurringOccurrence[]>([]);
-  const manualMatchingSlots = useMemo(
-    () => manualSlots.filter((slot) => slot.start_time === manualForm.start_time),
-    [manualSlots, manualForm.start_time]
-  );
 
   useEffect(() => {
     void bootstrap();
   }, []);
-
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadManualSlots() {
-      try {
-        const response = await getAvailability(manualForm.booking_date, manualForm.duration_minutes);
-        if (!ignore) {
-          setManualSlots(response.slots);
-        }
-      } catch {
-        if (!ignore) {
-          setManualSlots([]);
-        }
-      }
-    }
-
-    void loadManualSlots();
-
-    return () => {
-      ignore = true;
-    };
-  }, [manualForm.booking_date, manualForm.duration_minutes]);
-
-  useEffect(() => {
-    if (manualMatchingSlots.length === 0) {
-      if (manualForm.slot_id) {
-        setManualForm((prev) => ({ ...prev, slot_id: null }));
-      }
-      return;
-    }
-
-    if (manualMatchingSlots.some((slot) => slot.slot_id === manualForm.slot_id)) {
-      return;
-    }
-
-    setManualForm((prev) => ({ ...prev, slot_id: manualMatchingSlots[0].slot_id }));
-  }, [manualForm.slot_id, manualMatchingSlots]);
 
   async function bootstrap() {
     setLoading(true);
@@ -131,7 +101,7 @@ export function AdminDashboardPage() {
     }
 
     try {
-      const results = await Promise.allSettled([loadBookings(), loadReport(), loadEvents(), loadBlackouts(), loadSettings()]);
+      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadSettings()]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
         navigate('/admin/login');
@@ -147,19 +117,9 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function loadBookings() {
-    const response = await listAdminBookings(filters);
-    setBookings(response.items);
-  }
-
   async function loadReport() {
     const response = await getAdminReport();
     setReport(response);
-  }
-
-  async function loadEvents() {
-    const response = await listAdminEvents();
-    setEvents(response);
   }
 
   async function loadBlackouts() {
@@ -172,31 +132,32 @@ export function AdminDashboardPage() {
     setSettings(response);
   }
 
-  async function refreshBookings(fallbackMessage: string) {
+  async function refreshDashboard() {
     setFeedback(null);
     try {
-      await loadBookings();
+      await Promise.all([loadReport(), loadBlackouts(), loadSettings()]);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
         navigate('/admin/login');
         return;
       }
-      setFeedback({ tone: 'error', message: getRequestMessage(error, fallbackMessage) });
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento dashboard non riuscito.') });
     }
-  }
-
-  async function applyFilters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await refreshBookings('Applicazione filtri non riuscita.');
   }
 
   async function createManualBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!manualForm.slot_id || !manualForm.start_time) {
+      setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la prenotazione manuale.' });
+      return;
+    }
+
     setFeedback(null);
     try {
       await createAdminBooking(manualForm);
       setFeedback({ tone: 'success', message: 'Prenotazione manuale creata con successo.' });
-      await Promise.all([loadBookings(), loadReport(), loadEvents()]);
+      await loadReport();
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione prenotazione non riuscita.' });
     }
@@ -208,7 +169,7 @@ export function AdminDashboardPage() {
     try {
       await createBlackout(blackoutForm);
       setFeedback({ tone: 'success', message: 'Blackout creato correttamente.' });
-      await Promise.all([loadBookings(), loadEvents(), loadBlackouts()]);
+      await loadBlackouts();
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione blackout non riuscita.' });
     }
@@ -216,50 +177,34 @@ export function AdminDashboardPage() {
 
   async function submitRecurringPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!recurringForm.start_time || !recurringForm.slot_id) {
+      setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
+      return;
+    }
+
     try {
       const response = await previewRecurring(recurringForm);
       setRecurringPreview(response.occurrences);
+      setFeedback(null);
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Preview ricorrenza non disponibile.' });
     }
   }
 
   async function createRecurringSeries() {
+    if (!recurringForm.start_time || !recurringForm.slot_id) {
+      setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
+      return;
+    }
+
     setFeedback(null);
     try {
       const response = await createRecurring(recurringForm);
       setFeedback({ tone: 'success', message: `Serie creata. Occorrenze create: ${response.created_count}. Saltate: ${response.skipped_count}.` });
-      await Promise.all([loadBookings(), loadReport(), loadEvents()]);
+      await loadReport();
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione serie ricorrente non riuscita.' });
-    }
-  }
-
-  async function markBookingState(bookingId: string, status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') {
-    setFeedback(null);
-    try {
-      await updateAdminBookingStatus(bookingId, { status });
-      await Promise.all([loadBookings(), loadReport(), loadEvents()]);
-    } catch (error: any) {
-      if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
-        return;
-      }
-      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento stato non riuscito.') });
-    }
-  }
-
-  async function markBalancePaid(bookingId: string) {
-    setFeedback(null);
-    try {
-      await markAdminBalancePaid(bookingId);
-      await Promise.all([loadBookings(), loadEvents()]);
-    } catch (error: any) {
-      if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
-        return;
-      }
-      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Marcatura saldo non riuscita.') });
     }
   }
 
@@ -288,18 +233,25 @@ export function AdminDashboardPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
-        <div className='flex flex-col gap-3 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft sm:flex-row sm:items-center sm:justify-between'>
-          <div>
-            <AppBrand light />
-            <p className='mt-4 text-sm font-semibold text-cyan-200'>Dashboard admin</p>
-            <h1 className='text-3xl font-bold'>Controllo prenotazioni e operatività</h1>
+        <div className='space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
+          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
+            <div>
+              <AppBrand light />
+              <p className='mt-4 text-[24px] font-semibold leading-none text-cyan-100'>Dashboard admin</p>
+              <h1 className='mt-2 text-4xl font-bold'>Controllo prenotazioni e operatività</h1>
+              <p className='mt-2 max-w-2xl text-sm text-slate-300'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative. Prenotazioni e log hanno ora pagine dedicate.</p>
+            </div>
+            <div className='flex flex-wrap gap-3'>
+              <button onClick={() => void refreshDashboard()} className='btn-secondary'>Aggiorna dashboard</button>
+              <button onClick={logout} className='btn-secondary'>Esci</button>
+            </div>
           </div>
-          <button onClick={logout} className='btn-secondary'>Esci</button>
+          <AdminNav />
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
 
-        {loading ? <LoadingBlock label='Sto sincronizzando dashboard, report e log…' /> : null}
+        {loading ? <LoadingBlock label='Sto sincronizzando dashboard, blackout e regole operative…' /> : null}
 
         <div className='grid gap-4 md:grid-cols-4'>
           <StatCard title='Prenotazioni totali' value={String(report?.total_bookings ?? 0)} />
@@ -308,107 +260,217 @@ export function AdminDashboardPage() {
           <StatCard title='Caparre incassate' value={formatCurrency(report?.collected_deposits ?? 0)} />
         </div>
 
-        <div className='grid gap-6 xl:grid-cols-[1.2fr_0.8fr]'>
-          <div className='space-y-6'>
-            <SectionCard
-              title='Prenotazioni'
-              description='Filtra, controlla stato e apri il dettaglio completo di ogni richiesta.'
-              actions={<button className='btn-secondary' onClick={() => void refreshBookings('Aggiornamento prenotazioni non riuscito.')}>Aggiorna</button>}
-              elevated
-            >
+        <div className='grid gap-4 xl:grid-cols-2'>
+          <SectionCard
+            title='Prenotazioni e occupazione'
+            description='Consulta la nuova vista dedicata con filtri per periodo, ricerca libera e gruppi ricorrenti espandibili.'
+            actions={<Link to='/admin/prenotazioni' className='btn-secondary'>Apri prenotazioni</Link>}
+            elevated
+          >
+            <div className='flex items-start gap-4 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4'>
+              <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
+                <ClipboardList size={20} />
+              </div>
+              <div className='space-y-1 text-sm text-slate-600'>
+                <p className='font-semibold text-slate-950'>Filtri periodo, utente o serie</p>
+                <p>La lista prenotazioni ora separa le occorrenze ricorrenti, consente annullamenti singoli o multipli e rende più leggibile l’occupazione degli slot.</p>
+              </div>
+            </div>
+          </SectionCard>
 
-              <form className='mb-4 grid gap-3 md:grid-cols-4' onSubmit={applyFilters}>
-                <input className='text-input' type='date' value={filters.booking_date} onChange={(e) => setFilters((prev) => ({ ...prev, booking_date: e.target.value }))} />
-                <select className='text-input' value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}>
-                  <option value=''>Tutti gli stati</option>
-                  <option value='PENDING_PAYMENT'>PENDING_PAYMENT</option>
-                  <option value='CONFIRMED'>CONFIRMED</option>
-                  <option value='CANCELLED'>CANCELLED</option>
-                  <option value='COMPLETED'>COMPLETED</option>
-                  <option value='NO_SHOW'>NO_SHOW</option>
-                  <option value='EXPIRED'>EXPIRED</option>
-                </select>
-                <select className='text-input' value={filters.payment_provider} onChange={(e) => setFilters((prev) => ({ ...prev, payment_provider: e.target.value }))}>
-                  <option value=''>Tutti i pagamenti</option>
-                  <option value='STRIPE'>STRIPE</option>
-                  <option value='PAYPAL'>PAYPAL</option>
-                  <option value='NONE'>NONE</option>
-                </select>
-                <input className='text-input' placeholder='Cliente o riferimento' value={filters.customer} onChange={(e) => setFilters((prev) => ({ ...prev, customer: e.target.value }))} />
-                <button className='btn-primary' type='submit'>Filtra</button>
-              </form>
+          <SectionCard
+            title='Log operativi'
+            description='Consulta gli ultimi eventi business del backend in una pagina dedicata.'
+            actions={<Link to='/admin/log' className='btn-secondary'>Apri log</Link>}
+            elevated
+          >
+            <div className='flex items-start gap-4 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4'>
+              <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
+                <CalendarClock size={20} />
+              </div>
+              <div className='space-y-1 text-sm text-slate-600'>
+                <p className='font-semibold text-slate-950'>Audit e attività recenti</p>
+                <p>I log non occupano più la dashboard principale: qui restano i flussi operativi, mentre la cronologia resta concentrata in una vista separata.</p>
+              </div>
+            </div>
+          </SectionCard>
+        </div>
 
-              {bookings.length === 0 ? (
-                <EmptyState icon={ClipboardList} title='Nessuna prenotazione per questi filtri' description='Allarga i filtri oppure crea una prenotazione manuale dal pannello laterale.' />
-              ) : (
-                <div className='space-y-3'>
-                  {bookings.map((booking) => (
-                    <AdminBookingCard key={booking.id} booking={booking} onMarkBalancePaid={markBalancePaid} onUpdateStatus={markBookingState} />
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-
-            <SectionCard title='Log essenziali' description='Traccia sintetica di booking, pagamenti e operazioni admin.'>
-              {events.length === 0 ? (
-                <EmptyState icon={CalendarClock} title='Nessun evento recente' description='I log business compariranno qui dopo le prime operazioni.' />
-              ) : (
-                <div className='space-y-2'>
-                  {events.map((event) => (
-                    <div key={event.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm'>
-                      <div className='flex items-center justify-between gap-3'>
-                        <span className='font-semibold text-slate-800'>{event.event_type}</span>
-                        <span className='text-xs text-slate-500'>{formatDateTime(event.created_at)}</span>
-                      </div>
-                      <p className='mt-1 text-slate-600'>{event.message}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-          </div>
-
+        <div className='grid gap-6 xl:grid-cols-[1.05fr_0.95fr]'>
           <div className='space-y-6'>
             <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.'>
-              <form className='mt-4 space-y-3' onSubmit={createManualBooking}>
-                <input className='text-input' placeholder='Nome' value={manualForm.first_name} onChange={(e) => setManualForm((prev) => ({ ...prev, first_name: e.target.value }))} />
-                <input className='text-input' placeholder='Cognome' value={manualForm.last_name} onChange={(e) => setManualForm((prev) => ({ ...prev, last_name: e.target.value }))} />
-                <input className='text-input' placeholder='Telefono' value={manualForm.phone} onChange={(e) => setManualForm((prev) => ({ ...prev, phone: e.target.value }))} />
-                <input className='text-input' placeholder='Email' value={manualForm.email} onChange={(e) => setManualForm((prev) => ({ ...prev, email: e.target.value }))} />
-                <div className='grid grid-cols-2 gap-2'>
-                  <input className='text-input' type='date' value={manualForm.booking_date} onChange={(e) => setManualForm((prev) => ({ ...prev, booking_date: e.target.value, slot_id: null }))} />
-                  <input className='text-input' type='time' value={manualForm.start_time} onChange={(e) => setManualForm((prev) => ({ ...prev, start_time: e.target.value, slot_id: null }))} />
-                </div>
-                <select className='text-input' value={manualForm.duration_minutes} onChange={(e) => setManualForm((prev) => ({ ...prev, duration_minutes: Number(e.target.value) }))}>
-                  {[60, 90, 120, 150, 180, 210, 240, 270, 300].map((value) => <option key={value} value={value}>{value} minuti</option>)}
-                </select>
-                {manualMatchingSlots.length > 1 ? (
-                  <div className='space-y-1'>
-                    <label className='field-label' htmlFor='manual-slot-id'>Occorrenza slot</label>
-                    <select
-                      id='manual-slot-id'
-                      className='text-input'
-                      value={manualForm.slot_id || ''}
-                      onChange={(e) => setManualForm((prev) => ({ ...prev, slot_id: e.target.value || null }))}
-                    >
-                      {manualMatchingSlots.map((slot) => (
-                        <option key={slot.slot_id} value={slot.slot_id}>{slot.display_start_time} → {slot.display_end_time}</option>
-                      ))}
-                    </select>
-                    <p className='text-xs text-slate-500'>Seleziona l'occorrenza corretta quando l'ora locale compare due volte per il cambio ora.</p>
+              <form className='mt-4 space-y-4' onSubmit={createManualBooking}>
+                <div className='grid gap-3 sm:grid-cols-2'>
+                  <div>
+                    <label className='field-label' htmlFor='admin-manual-first-name'>Nome</label>
+                    <input id='admin-manual-first-name' className='text-input' value={manualForm.first_name} onChange={(event) => setManualForm((prev) => ({ ...prev, first_name: event.target.value }))} />
                   </div>
-                ) : null}
-                <textarea className='text-input min-h-20' placeholder='Nota interna o dettaglio cliente' value={manualForm.note} onChange={(e) => setManualForm((prev) => ({ ...prev, note: e.target.value }))} />
+                  <div>
+                    <label className='field-label' htmlFor='admin-manual-last-name'>Cognome</label>
+                    <input id='admin-manual-last-name' className='text-input' value={manualForm.last_name} onChange={(event) => setManualForm((prev) => ({ ...prev, last_name: event.target.value }))} />
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='admin-manual-phone'>Telefono</label>
+                    <input id='admin-manual-phone' className='text-input' value={manualForm.phone} onChange={(event) => setManualForm((prev) => ({ ...prev, phone: event.target.value }))} />
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='admin-manual-email'>Email</label>
+                    <input id='admin-manual-email' className='text-input' type='email' value={manualForm.email} onChange={(event) => setManualForm((prev) => ({ ...prev, email: event.target.value }))} />
+                  </div>
+                </div>
+
+                <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
+                  <DateFieldWithDay
+                    id='admin-manual-date'
+                    label='Data prenotazione'
+                    value={manualForm.booking_date}
+                    min={today}
+                    onChange={(value) => setManualForm((prev) => ({ ...prev, booking_date: value, start_time: '', slot_id: null }))}
+                  />
+                  <div>
+                    <label className='field-label' htmlFor='admin-manual-duration'>Durata</label>
+                    <select
+                      id='admin-manual-duration'
+                      className='text-input'
+                      value={manualForm.duration_minutes}
+                      onChange={(event) => setManualForm((prev) => ({ ...prev, duration_minutes: Number(event.target.value), start_time: '', slot_id: null }))}
+                    >
+                      {DURATIONS.map((value) => <option key={value} value={value}>{value} minuti</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <p className='field-label'>Orario</p>
+                  <AdminTimeSlotPicker
+                    bookingDate={manualForm.booking_date}
+                    durationMinutes={manualForm.duration_minutes}
+                    selectedSlotId={manualForm.slot_id || ''}
+                    onSelect={(slot) => setManualForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }))}
+                  />
+                </div>
+
+                <div>
+                  <label className='field-label' htmlFor='admin-manual-note'>Nota interna</label>
+                  <textarea id='admin-manual-note' className='text-input min-h-24' value={manualForm.note} onChange={(event) => setManualForm((prev) => ({ ...prev, note: event.target.value }))} />
+                </div>
+
                 <button className='btn-primary w-full' type='submit'>Crea prenotazione</button>
               </form>
             </SectionCard>
 
+            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza nello stesso anno solare e controlla subito i conflitti.'>
+              <form className='mt-4 space-y-4' onSubmit={submitRecurringPreview}>
+                <div>
+                  <label className='field-label' htmlFor='admin-recurring-label'>Nome serie ricorrente</label>
+                  <input id='admin-recurring-label' className='text-input' value={recurringForm.label} onChange={(event) => setRecurringForm((prev) => ({ ...prev, label: event.target.value }))} />
+                </div>
+
+                <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
+                  <DateFieldWithDay
+                    id='admin-recurring-date'
+                    label='Data di partenza'
+                    value={recurringForm.start_date}
+                    min={today}
+                    onChange={(value) => {
+                      setRecurringForm((prev) => ({
+                        ...prev,
+                        start_date: value,
+                        weekday: getRecurringWeekday(value),
+                        start_time: '',
+                        slot_id: null,
+                      }));
+                    }}
+                  />
+                  <div className='surface-muted self-start'>
+                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno serie</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.start_date)}</p>
+                  </div>
+                </div>
+
+                <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+                  <div>
+                    <label className='field-label' htmlFor='admin-recurring-duration'>Durata</label>
+                    <select
+                      id='admin-recurring-duration'
+                      className='text-input'
+                      value={recurringForm.duration_minutes}
+                      onChange={(event) => {
+                        setRecurringForm((prev) => ({ ...prev, duration_minutes: Number(event.target.value), start_time: '', slot_id: null }));
+                      }}
+                    >
+                      {DURATIONS.map((value) => <option key={value} value={value}>{value} minuti</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='admin-recurring-weeks'>Nr. settimane</label>
+                    <input
+                      id='admin-recurring-weeks'
+                      className='text-input'
+                      type='number'
+                      min={1}
+                      max={52}
+                      value={recurringForm.weeks_count}
+                      onChange={(event) => setRecurringForm((prev) => ({ ...prev, weeks_count: Number(event.target.value) }))}
+                    />
+                  </div>
+                  <div className='surface-muted self-end'>
+                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Prima ricorrenza</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.start_date)} {recurringForm.start_date}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className='field-label'>Orario della serie</p>
+                  <AdminTimeSlotPicker
+                    bookingDate={recurringForm.start_date}
+                    durationMinutes={recurringForm.duration_minutes}
+                    selectedSlotId={recurringForm.slot_id || ''}
+                    onSelect={(slot) => {
+                      setRecurringForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }));
+                    }}
+                  />
+                </div>
+
+                <div className='grid gap-2 sm:grid-cols-2'>
+                  <button className='btn-secondary' type='submit'>Preview conflitti</button>
+                  <button className='btn-primary' type='button' onClick={() => void createRecurringSeries()}>Crea serie</button>
+                </div>
+              </form>
+
+              {recurringPreview.length > 0 ? (
+                <div className='mt-4 space-y-2'>
+                  {recurringPreview.map((item) => (
+                    <div key={`${item.booking_date}-${item.start_time}`} className={`rounded-2xl px-4 py-3 text-sm ${item.available ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                      {item.booking_date} • {item.display_start_time} → {item.display_end_time} • {item.available ? 'ok' : item.reason}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </SectionCard>
+          </div>
+
+          <div className='space-y-6'>
             <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.'>
               <form className='mt-4 space-y-3' onSubmit={submitBlackout}>
-                <input className='text-input' value={blackoutForm.title} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, title: e.target.value }))} />
-                <input className='text-input' value={blackoutForm.reason} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, reason: e.target.value }))} />
-                <input className='text-input' type='datetime-local' value={blackoutForm.start_at} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, start_at: e.target.value }))} />
-                <input className='text-input' type='datetime-local' value={blackoutForm.end_at} onChange={(e) => setBlackoutForm((prev) => ({ ...prev, end_at: e.target.value }))} />
+                <div>
+                  <label className='field-label' htmlFor='admin-blackout-title'>Titolo blackout</label>
+                  <input id='admin-blackout-title' className='text-input' value={blackoutForm.title} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, title: event.target.value }))} />
+                </div>
+                <div>
+                  <label className='field-label' htmlFor='admin-blackout-reason'>Descrizione</label>
+                  <input id='admin-blackout-reason' className='text-input' value={blackoutForm.reason} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, reason: event.target.value }))} />
+                </div>
+                <div className='grid gap-3 sm:grid-cols-2'>
+                  <div>
+                    <label className='field-label' htmlFor='admin-blackout-start'>Data e ora inizio</label>
+                    <input id='admin-blackout-start' className='text-input' type='datetime-local' value={blackoutForm.start_at} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, start_at: event.target.value }))} />
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='admin-blackout-end'>Data e ora fine</label>
+                    <input id='admin-blackout-end' className='text-input' type='datetime-local' value={blackoutForm.end_at} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, end_at: event.target.value }))} />
+                  </div>
+                </div>
                 <button className='btn-primary w-full' type='submit'>Crea blackout</button>
               </form>
               <div className='mt-4 space-y-2'>
@@ -425,45 +487,6 @@ export function AdminDashboardPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza nello stesso anno solare e controlla subito i conflitti.'>
-              <form className='mt-4 space-y-3' onSubmit={submitRecurringPreview}>
-                <input className='text-input' value={recurringForm.label} onChange={(e) => setRecurringForm((prev) => ({ ...prev, label: e.target.value }))} />
-                <div className='grid grid-cols-2 gap-2'>
-                  <input className='text-input' type='date' value={recurringForm.start_date} onChange={(e) => setRecurringForm((prev) => ({ ...prev, start_date: e.target.value }))} />
-                  <select className='text-input' value={recurringForm.weekday} onChange={(e) => setRecurringForm((prev) => ({ ...prev, weekday: Number(e.target.value) }))}>
-                    <option value={0}>Lunedì</option>
-                    <option value={1}>Martedì</option>
-                    <option value={2}>Mercoledì</option>
-                    <option value={3}>Giovedì</option>
-                    <option value={4}>Venerdì</option>
-                    <option value={5}>Sabato</option>
-                    <option value={6}>Domenica</option>
-                  </select>
-                </div>
-                <div className='grid grid-cols-3 gap-2'>
-                  <input className='text-input' type='time' value={recurringForm.start_time} onChange={(e) => setRecurringForm((prev) => ({ ...prev, start_time: e.target.value }))} />
-                  <select className='text-input' value={recurringForm.duration_minutes} onChange={(e) => setRecurringForm((prev) => ({ ...prev, duration_minutes: Number(e.target.value) }))}>
-                    {[60, 90, 120, 150, 180, 210, 240, 270, 300].map((value) => <option key={value} value={value}>{value} min</option>)}
-                  </select>
-                  <input className='text-input' type='number' min={1} max={52} value={recurringForm.weeks_count} onChange={(e) => setRecurringForm((prev) => ({ ...prev, weeks_count: Number(e.target.value) }))} />
-                </div>
-                <div className='grid gap-2 sm:grid-cols-2'>
-                  <button className='btn-secondary' type='submit'>Preview conflitti</button>
-                  <button className='btn-primary' type='button' onClick={() => void createRecurringSeries()}>Crea serie</button>
-                </div>
-              </form>
-
-              {recurringPreview.length > 0 && (
-                <div className='mt-4 space-y-2'>
-                  {recurringPreview.map((item) => (
-                    <div key={`${item.booking_date}-${item.start_time}`} className={`rounded-2xl px-4 py-3 text-sm ${item.available ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                      {item.booking_date} • {item.display_start_time} → {item.display_end_time} • {item.available ? 'ok' : item.reason}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-
             <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.'>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
@@ -472,15 +495,15 @@ export function AdminDashboardPage() {
                   <div className='grid gap-3 sm:grid-cols-3'>
                     <div>
                       <label className='field-label'>Hold pagamento</label>
-                      <input className='text-input' type='number' min={5} max={120} value={settings.booking_hold_minutes} onChange={(e) => setSettings((prev) => prev ? { ...prev, booking_hold_minutes: Number(e.target.value) } : prev)} />
+                      <input className='text-input' type='number' min={5} max={120} value={settings.booking_hold_minutes} onChange={(event) => setSettings((prev) => prev ? { ...prev, booking_hold_minutes: Number(event.target.value) } : prev)} />
                     </div>
                     <div>
                       <label className='field-label'>Soglia rimborso annullamento</label>
-                      <input className='text-input' type='number' min={1} max={168} value={settings.cancellation_window_hours} onChange={(e) => setSettings((prev) => prev ? { ...prev, cancellation_window_hours: Number(e.target.value) } : prev)} />
+                      <input className='text-input' type='number' min={1} max={168} value={settings.cancellation_window_hours} onChange={(event) => setSettings((prev) => prev ? { ...prev, cancellation_window_hours: Number(event.target.value) } : prev)} />
                     </div>
                     <div>
                       <label className='field-label'>Reminder</label>
-                      <input className='text-input' type='number' min={1} max={168} value={settings.reminder_window_hours} onChange={(e) => setSettings((prev) => prev ? { ...prev, reminder_window_hours: Number(e.target.value) } : prev)} />
+                      <input className='text-input' type='number' min={1} max={168} value={settings.reminder_window_hours} onChange={(event) => setSettings((prev) => prev ? { ...prev, reminder_window_hours: Number(event.target.value) } : prev)} />
                     </div>
                   </div>
                   <div className='surface-muted'>
@@ -490,6 +513,29 @@ export function AdminDashboardPage() {
                   <button className='btn-primary w-full' type='submit'>Salva regole</button>
                 </form>
               )}
+            </SectionCard>
+
+            <SectionCard title='Promemoria pagine admin' description='La gestione operativa è stata separata per ridurre il rumore nella dashboard.'>
+              <div className='space-y-3'>
+                <div className='flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700'>
+                  <div className='flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
+                    <Repeat2 size={16} />
+                  </div>
+                  <div>
+                    <p className='font-semibold text-slate-950'>Ricorrenze e occupazione</p>
+                    <p>Usa la pagina prenotazioni per annullare singole occorrenze, selezioni multiple o intere serie ricorrenti.</p>
+                  </div>
+                </div>
+                <div className='flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700'>
+                  <div className='flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm'>
+                    <Settings2 size={16} />
+                  </div>
+                  <div>
+                    <p className='font-semibold text-slate-950'>Configurazione e controllo</p>
+                    <p>La dashboard mantiene i form principali e le regole operative, evitando una pagina unica troppo densa.</p>
+                  </div>
+                </div>
+              </div>
             </SectionCard>
           </div>
         </div>

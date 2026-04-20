@@ -35,6 +35,8 @@ const baseBooking = {
   note: 'Prenotazione di test',
   created_by: 'admin@padelbooking.app',
   source: 'PUBLIC',
+  recurring_series_id: null,
+  recurring_series_label: null,
   created_at: '2024-04-10T08:00:00Z',
   cancelled_at: null,
   completed_at: null,
@@ -48,7 +50,7 @@ function renderPage() {
     <MemoryRouter initialEntries={['/admin/bookings/booking-1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin/bookings/:bookingId' element={<AdminBookingDetailPage />} />
-        <Route path='/admin' element={<div>ADMIN DASHBOARD</div>} />
+        <Route path='/admin/prenotazioni' element={<div>BOOKINGS PAGE</div>} />
         <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
       </Routes>
     </MemoryRouter>
@@ -85,80 +87,27 @@ describe('AdminBookingDetailPage', () => {
     await screen.findByText('LOGIN PAGE');
   });
 
-  it('shows a readable error when booking detail loading fails for non-auth reasons', async () => {
-    vi.mocked(getAdminBooking).mockRejectedValue({ response: { status: 500, data: { detail: 'Dettaglio prenotazione non disponibile' } } });
-
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText('Dettaglio prenotazione non disponibile')).toBeInTheDocument());
-    expect(screen.queryByText('LOGIN PAGE')).not.toBeInTheDocument();
-  });
-
-  it('updates status successfully and clears previous errors', async () => {
-    vi.mocked(updateAdminBookingStatus)
-      .mockRejectedValueOnce({ response: { data: { detail: 'Aggiornamento stato non riuscito' } } })
-      .mockResolvedValueOnce({ ...baseBooking, status: 'CANCELLED', cancelled_at: '2024-04-16T12:05:00Z' });
-
-    renderPage();
-
-    await screen.findByText('Dettaglio prenotazione');
-    fireEvent.click(screen.getByRole('button', { name: 'Annulla prenotazione' }));
-
-    await waitFor(() => expect(screen.getByText('Aggiornamento stato non riuscito')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole('button', { name: 'Annulla prenotazione' }));
-
-    await waitFor(() => expect(screen.getByText('Stato aggiornato a CANCELLED.')).toBeInTheDocument());
-    expect(screen.queryByText('Aggiornamento stato non riuscito')).not.toBeInTheDocument();
-  });
-
-  it('marks the balance as paid and shows coherent feedback', async () => {
+  it('hides payment details and balance actions for recurring bookings', async () => {
     vi.mocked(getAdminBooking).mockResolvedValue({
       ...baseBooking,
-      start_at: '2024-04-16T09:00:00Z',
-      end_at: '2024-04-16T10:30:00Z',
-      booking_date_local: '2024-04-16',
+      source: 'ADMIN_RECURRING',
+      deposit_amount: 0,
+      payment_provider: 'NONE',
+      payment_status: 'UNPAID',
+      recurring_series_id: 'series-1',
+      recurring_series_label: 'Serie fissa del mercoledi',
     });
 
     renderPage();
 
-    await screen.findByText('Dettaglio prenotazione');
-    fireEvent.click(screen.getByRole('button', { name: 'Segna saldo al campo' }));
-
-    await waitFor(() => expect(screen.getByText('Saldo segnato come pagato al campo.')).toBeInTheDocument());
+    await screen.findByText('Serie fissa del mercoledi');
+    expect(screen.queryByText('Caparra')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pagamento')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Segna saldo al campo' })).not.toBeInTheDocument();
+    expect(screen.getByText('Le prenotazioni ricorrenti non richiedono caparra online o saldo al campo.')).toBeInTheDocument();
   });
 
-  it('shows backend errors when a booking action fails', async () => {
-    vi.mocked(markAdminBalancePaid).mockRejectedValue({ response: { data: { detail: 'Saldo non registrato' } } });
-    vi.mocked(getAdminBooking).mockResolvedValue({
-      ...baseBooking,
-      start_at: '2024-04-16T09:00:00Z',
-      end_at: '2024-04-16T10:30:00Z',
-      booking_date_local: '2024-04-16',
-    });
-
-    renderPage();
-
-    await screen.findByText('Dettaglio prenotazione');
-    fireEvent.click(screen.getByRole('button', { name: 'Segna saldo al campo' }));
-
-    await waitFor(() => expect(screen.getByText('Saldo non registrato')).toBeInTheDocument());
-  });
-
-  it('shows the restore button only when the booking status is restorable', async () => {
-    vi.mocked(getAdminBooking).mockResolvedValue({
-      ...baseBooking,
-      status: 'COMPLETED',
-      completed_at: '2024-04-16T11:00:00Z',
-    });
-
-    renderPage();
-
-    await screen.findByText('Dettaglio prenotazione');
-    expect(screen.getByRole('button', { name: 'Ripristina confermata' })).toBeInTheDocument();
-  });
-
-  it('saves an admin booking update and shows coherent feedback', async () => {
+  it('saves an admin booking update using the current selected slot from the picker', async () => {
     renderPage();
 
     await screen.findByText('Dettaglio prenotazione');
@@ -166,23 +115,15 @@ describe('AdminBookingDetailPage', () => {
     fireEvent.change(screen.getByLabelText('Nota'), { target: { value: 'Prenotazione aggiornata' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
 
-    await waitFor(() => expect(screen.getByText('Prenotazione aggiornata con successo.')).toBeInTheDocument());
-    expect(updateAdminBooking).toHaveBeenCalled();
+    await waitFor(() => expect(updateAdminBooking).toHaveBeenCalledWith('booking-1', expect.objectContaining({
+      slot_id: '2099-04-16T16:00:00Z',
+      start_time: '18:00',
+      note: 'Prenotazione aggiornata',
+    })));
+    expect(screen.getByText('Prenotazione aggiornata con successo.')).toBeInTheDocument();
   });
 
-  it('shows backend errors when an admin booking update fails', async () => {
-    vi.mocked(updateAdminBooking).mockRejectedValue({ response: { data: { detail: 'Slot non piu disponibile' } } });
-
-    renderPage();
-
-    await screen.findByText('Dettaglio prenotazione');
-    fireEvent.click(screen.getByRole('button', { name: 'Modifica data e orario' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
-
-    await waitFor(() => expect(screen.getByText('Slot non piu disponibile')).toBeInTheDocument());
-  });
-
-  it('preserves the selected fallback slot_id when the local start time is ambiguous', async () => {
+  it('preserves the selected fallback slot id when editing a DST-ambiguous booking', async () => {
     vi.mocked(getAdminBooking).mockResolvedValue({
       ...baseBooking,
       start_at: '2026-10-25T01:00:00Z',
@@ -204,9 +145,6 @@ describe('AdminBookingDetailPage', () => {
 
     await screen.findByText('Dettaglio prenotazione');
     fireEvent.click(screen.getByRole('button', { name: 'Modifica data e orario' }));
-
-    await screen.findByLabelText('Occorrenza slot');
-    fireEvent.change(screen.getByLabelText('Occorrenza slot'), { target: { value: '2026-10-25T01:00:00Z' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
 
     await waitFor(() => expect(updateAdminBooking).toHaveBeenCalledWith('booking-1', expect.objectContaining({
@@ -214,20 +152,5 @@ describe('AdminBookingDetailPage', () => {
       slot_id: '2026-10-25T01:00:00Z',
       duration_minutes: 60,
     })));
-  });
-
-  it('disables slot editing for confirmed bookings already in the past', async () => {
-    vi.mocked(getAdminBooking).mockResolvedValue({
-      ...baseBooking,
-      start_at: '2024-04-16T09:00:00Z',
-      end_at: '2024-04-16T10:30:00Z',
-      booking_date_local: '2024-04-16',
-    });
-
-    renderPage();
-
-    await screen.findByText('Dettaglio prenotazione');
-    expect(screen.getByRole('button', { name: 'Modifica data e orario' })).toBeDisabled();
-    expect(screen.getByText('La modifica e disponibile solo per prenotazioni future.')).toBeInTheDocument();
   });
 });

@@ -37,6 +37,8 @@ class BookingSummary(BaseModel):
     note: str | None = None
     created_by: str
     source: BookingSource
+    recurring_series_id: str | None = None
+    recurring_series_label: str | None = None
     created_at: datetime
     cancelled_at: datetime | None = None
     completed_at: datetime | None = None

@@ -17,20 +17,39 @@ router = APIRouter(prefix='/admin/bookings', tags=['Admin Bookings'])
 @router.get('', response_model=BookingListResponse)
 def get_bookings(
     booking_date: str | None = Query(default=None),
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
     status_value: str | None = Query(default=None, alias='status'),
     payment_provider: str | None = Query(default=None),
     customer_query: str | None = Query(default=None, alias='customer'),
+    text_query: str | None = Query(default=None, alias='query'),
     db: Session = Depends(get_db),
     admin: Admin = Depends(get_current_admin),
 ) -> BookingListResponse:
-    if booking_date:
+    def parse_date_filter(value: str | None, detail: str):
+        if not value:
+            return None
         try:
-            parsed_date = datetime.fromisoformat(booking_date).date()
+            return datetime.fromisoformat(value).date()
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail='Data filtro non valida') from exc
-    else:
-        parsed_date = None
-    items, total = list_bookings(db, booking_date=parsed_date, status_value=status_value, payment_provider=payment_provider, customer_query=customer_query)
+            raise HTTPException(status_code=422, detail=detail) from exc
+
+    parsed_date = parse_date_filter(booking_date, 'Data filtro non valida')
+    parsed_start_date = parse_date_filter(start_date, 'Data inizio filtro non valida')
+    parsed_end_date = parse_date_filter(end_date, 'Data fine filtro non valida')
+
+    if parsed_start_date and parsed_end_date and parsed_start_date > parsed_end_date:
+        raise HTTPException(status_code=422, detail='Intervallo date filtro non valido')
+
+    items, total = list_bookings(
+        db,
+        booking_date=parsed_date,
+        start_date=parsed_start_date,
+        end_date=parsed_end_date,
+        status_value=status_value,
+        payment_provider=payment_provider,
+        customer_query=text_query or customer_query,
+    )
     return BookingListResponse(items=items, total=total)
 
 

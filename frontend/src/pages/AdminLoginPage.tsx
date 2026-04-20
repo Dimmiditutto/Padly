@@ -69,7 +69,6 @@ export function AdminLoginPage() {
         <AppBrand />
         <p className='mt-5 text-sm font-semibold text-cyan-700'>Area admin</p>
         <h1 className='mt-2 text-3xl font-bold text-slate-950'>Accesso riservato</h1>
-        <p className='mt-2 text-sm text-slate-600'>Gestisci prenotazioni, blackout, ricorrenze e report essenziali.</p>
 
         <form className='mt-6 space-y-4' onSubmit={handleSubmit}>
           <div>

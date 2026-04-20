@@ -102,6 +102,7 @@ class RecurringSeriesPreviewRequest(BaseModel):
     start_date: date
     weeks_count: int = Field(ge=1, le=52)
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
+    slot_id: str | None = None
     duration_minutes: int
 
     @field_validator('duration_minutes')
@@ -136,6 +137,18 @@ class RecurringCreateResponse(BaseModel):
     created_count: int
     skipped_count: int
     skipped: list[RecurringOccurrence]
+
+
+class RecurringCancelOccurrencesRequest(BaseModel):
+    booking_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class RecurringCancelResponse(BaseModel):
+    message: str
+    cancelled_count: int
+    skipped_count: int
+    series_id: str | None = None
+    booking_ids: list[str] = Field(default_factory=list)
 
 
 class BookingListResponse(BaseModel):
