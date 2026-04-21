@@ -51,9 +51,9 @@ def normalize_rate_limit_path(path: str) -> str:
 
 def bootstrap_admin_account(db: Session) -> None:
     default_club = ensure_default_club(db)
-    configured_email = str(settings.admin_email)
+    configured_email = str(settings.admin_email).strip().lower()
     configured_password = settings.admin_password
-    existing_admin = db.query(Admin).order_by(Admin.created_at.asc()).first()
+    existing_admin = db.query(Admin).filter(Admin.club_id == default_club.id).order_by(Admin.created_at.asc()).first()
 
     if existing_admin:
         credentials_match = existing_admin.email.strip().lower() == configured_email and verify_password(

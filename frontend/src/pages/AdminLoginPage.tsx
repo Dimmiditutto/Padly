@@ -1,12 +1,15 @@
 import { ArrowLeft } from 'lucide-react';
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { AppBrand } from '../components/AppBrand';
 import { loginAdmin, requestAdminPasswordReset } from '../services/adminApi';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 
 export function AdminLoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -21,8 +24,8 @@ export function AdminLoginPage() {
     setError('');
     setFeedback(null);
     try {
-      await loginAdmin(normalizedEmail, password);
-      navigate('/admin');
+      await loginAdmin(normalizedEmail, password, tenantSlug);
+      navigate(withTenantPath('/admin', tenantSlug));
     } catch (requestError: any) {
       if (!requestError?.response) {
         setError('Backend non raggiungibile. Avvia il server e riprova.');
@@ -47,7 +50,7 @@ export function AdminLoginPage() {
     setFeedback(null);
 
     try {
-      const response = await requestAdminPasswordReset(normalizedEmail);
+      const response = await requestAdminPasswordReset(normalizedEmail, tenantSlug);
       setFeedback({ tone: 'info', message: response.message });
     } catch (requestError: any) {
       if (!requestError?.response) {
@@ -63,7 +66,7 @@ export function AdminLoginPage() {
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
       <div className='surface-card w-full max-w-md'>
-        <Link to='/' className='btn-secondary inline-flex'>
+        <Link to={withTenantPath('/', tenantSlug)} className='btn-secondary inline-flex'>
           <ArrowLeft size={16} /> Torna alla prenotazione
         </Link>
         <AppBrand />

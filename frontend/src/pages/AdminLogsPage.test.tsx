@@ -10,6 +10,15 @@ vi.mock('../services/adminApi', () => ({
 
 import { getAdminSession, listAdminEvents } from '../services/adminApi';
 
+const adminSession = {
+  email: 'admin@padelbooking.app',
+  full_name: 'Admin',
+  role: 'SUPERADMIN',
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  club_public_name: 'PadelBooking',
+} as const;
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/admin/log']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -24,7 +33,7 @@ function renderPage() {
 describe('AdminLogsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(getAdminSession).mockResolvedValue({ ...adminSession });
     vi.mocked(listAdminEvents).mockResolvedValue([
       {
         id: 'event-1',

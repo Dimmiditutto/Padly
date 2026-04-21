@@ -263,9 +263,10 @@ def assert_slot_available(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Fascia bloccata dall\'admin')
 
 
-def build_daily_slots(db: Session, *, booking_date: date, duration_minutes: int) -> list[dict]:
+def build_daily_slots(db: Session, *, booking_date: date, duration_minutes: int, club_id: str | None = None) -> list[dict]:
     slots: list[dict] = []
     now_utc = datetime.now(UTC)
+    resolved_club_id = club_id or get_default_club_id(db)
 
     for local_start in iter_local_slot_starts(booking_date):
         start_at = local_start.astimezone(UTC)
@@ -282,7 +283,7 @@ def build_daily_slots(db: Session, *, booking_date: date, duration_minutes: int)
 
             if available:
                 try:
-                    assert_slot_available(db, start_at=start_at, end_at=end_at)
+                    assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
                 except HTTPException as exc:
                     available = False
                     reason = str(exc.detail)
@@ -306,6 +307,7 @@ def build_daily_slots(db: Session, *, booking_date: date, duration_minutes: int)
 def create_public_booking(
     db: Session,
     *,
+    club_id: str | None = None,
     first_name: str,
     last_name: str,
     phone: str,
@@ -318,16 +320,16 @@ def create_public_booking(
     payment_provider: PaymentProvider,
 ) -> Booking:
     with acquire_single_court_lock(db):
-        club_id = get_default_club_id(db)
+        resolved_club_id = club_id or get_default_club_id(db)
         if not _is_public_provider_available(payment_provider):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_public_provider_unavailable_detail(payment_provider))
 
         local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
-        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=club_id)
+        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
 
-        customer = get_or_create_customer(db, club_id=club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
+        customer = get_or_create_customer(db, club_id=resolved_club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
         booking = Booking(
-            club_id=club_id,
+            club_id=resolved_club_id,
             public_reference=make_public_reference(),
             customer_id=customer.id,
             start_at=start_at,
@@ -340,7 +342,7 @@ def create_public_booking(
             payment_status=PaymentStatus.UNPAID,
             note=note,
             cancel_token=make_cancel_token(),
-            expires_at=datetime.now(UTC) + timedelta(minutes=get_booking_rules(db)['booking_hold_minutes']),
+            expires_at=datetime.now(UTC) + timedelta(minutes=get_booking_rules(db, club_id=resolved_club_id)['booking_hold_minutes']),
             created_by='public',
             source=BookingSource.PUBLIC,
         )
@@ -438,7 +440,7 @@ def update_booking_by_admin(
             detail='Durata non modificabile: cambierebbe la caparra già incassata',
         )
 
-    assert_slot_available(db, start_at=start_at, end_at=end_at, exclude_booking_id=booking.id)
+    assert_slot_available(db, start_at=start_at, end_at=end_at, exclude_booking_id=booking.id, club_id=booking.club_id)
 
     previous_payload = {
         'booking_date': booking.booking_date_local.isoformat(),
@@ -557,7 +559,7 @@ def mark_booking_paid(
             return booking
 
         try:
-            assert_slot_available(db, start_at=booking.start_at, end_at=booking.end_at, exclude_booking_id=booking.id)
+            assert_slot_available(db, start_at=booking.start_at, end_at=booking.end_at, exclude_booking_id=booking.id, club_id=booking.club_id)
         except HTTPException:
             if booking.status == BookingStatus.EXPIRED:
                 log_event(db, booking, 'LATE_PAYMENT_CONFLICT', 'Pagamento arrivato dopo la scadenza con slot non più disponibile', actor='payment')
@@ -598,11 +600,12 @@ def expire_pending_booking_if_needed(
     return True
 
 
-def expire_pending_bookings(db: Session) -> list[Booking]:
+def expire_pending_bookings(db: Session, *, club_id: str | None = None) -> list[Booking]:
     now = datetime.now(UTC)
+    resolved_club_id = club_id or get_default_club_id(db)
     expired = db.scalars(
         select(Booking).where(
-            Booking.club_id == get_default_club_id(db),
+            Booking.club_id == resolved_club_id,
             Booking.status == BookingStatus.PENDING_PAYMENT,
             Booking.expires_at.is_not(None),
             Booking.expires_at < now,
@@ -614,12 +617,13 @@ def expire_pending_bookings(db: Session) -> list[Booking]:
     return expired
 
 
-def upcoming_reminders(db: Session, hours_ahead: int = 24) -> list[Booking]:
+def upcoming_reminders(db: Session, hours_ahead: int = 24, *, club_id: str | None = None) -> list[Booking]:
     now = datetime.now(UTC)
     upper = now + timedelta(hours=hours_ahead)
+    resolved_club_id = club_id or get_default_club_id(db)
     return db.scalars(
         select(Booking).where(
-            Booking.club_id == get_default_club_id(db),
+            Booking.club_id == resolved_club_id,
             Booking.status == BookingStatus.CONFIRMED,
             Booking.start_at >= now,
             Booking.start_at <= upper,

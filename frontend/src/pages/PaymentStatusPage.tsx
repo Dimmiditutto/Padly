@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { PublicBookingSummary } from '../types';
 import { getPublicBookingStatus } from '../services/publicApi';
 import { formatCurrency } from '../utils/format';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 
 function BookingSnapshot({ booking }: { booking: PublicBookingSummary }) {
   return (
@@ -24,6 +25,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
   const [searchParams] = useSearchParams();
   const bookingRef = searchParams.get('booking');
   const cancelToken = searchParams.get('cancelToken');
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [booking, setBooking] = useState<PublicBookingSummary | null>(null);
   const [loading, setLoading] = useState(Boolean(bookingRef));
   const [statusLookupFailed, setStatusLookupFailed] = useState(false);
@@ -50,7 +52,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
 
     const fetchStatus = async () => {
       try {
-        const response = await getPublicBookingStatus(bookingRef);
+        const response = await getPublicBookingStatus(bookingRef, tenantSlug);
         if (mounted) {
           setBooking(response.booking);
           setStatusLookupFailed(false);
@@ -74,7 +76,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
       mounted = false;
       stopPolling();
     };
-  }, [bookingRef]);
+  }, [bookingRef, tenantSlug]);
 
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
@@ -117,7 +119,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
             <p className='text-sm text-slate-600'>La conferma finale arriva appena il sistema chiude il controllo sullo slot.</p>
             {booking ? <BookingSnapshot booking={booking} /> : null}
             <AlertBanner tone='info'>Se hai chiuso la pagina troppo presto, questa schermata si aggiorna da sola finché lo stato prenotazione non si stabilizza.</AlertBanner>
-            {canShowCancellationAction ? <CancellationAction cancelToken={cancelToken!} /> : null}
+            {canShowCancellationAction ? <CancellationAction cancelToken={cancelToken!} tenantSlug={tenantSlug} /> : null}
           </div>
         ) : variant === 'cancelled' ? (
           <div className='space-y-4'>
@@ -139,7 +141,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
                 <p className='text-sm text-slate-600'>La prenotazione risulta già confermata. Ignora questa schermata di annullamento.</p>
                 {booking ? <BookingSnapshot booking={booking} /> : null}
                 <AlertBanner tone='info'>Se hai ricevuto questo redirect dopo un ritorno del provider, lo stato valido resta quello mostrato qui.</AlertBanner>
-                {canShowCancellationAction ? <CancellationAction cancelToken={cancelToken!} /> : null}
+                {canShowCancellationAction ? <CancellationAction cancelToken={cancelToken!} tenantSlug={tenantSlug} /> : null}
               </>
             ) : cancelledExpired ? (
               <>
@@ -181,19 +183,19 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
         )}
 
         <div className='mt-6'>
-          <Link to='/' className='btn-primary'>Torna alla prenotazione</Link>
+          <Link to={withTenantPath('/', tenantSlug)} className='btn-primary'>Torna alla prenotazione</Link>
         </div>
       </div>
     </div>
   );
 }
 
-function CancellationAction({ cancelToken }: { cancelToken: string }) {
+function CancellationAction({ cancelToken, tenantSlug }: { cancelToken: string; tenantSlug?: string | null }) {
   return (
     <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left'>
       <p className='text-sm font-semibold text-slate-900'>Devi annullare la prenotazione?</p>
       <p className='mt-1 text-sm text-slate-600'>Puoi gestirla da questo link self-service e verificare se la caparra e rimborsabile in base al momento della cancellazione.</p>
-      <Link to={`/booking/cancel?token=${encodeURIComponent(cancelToken)}`} className='btn-secondary mt-3 inline-flex'>Apri annullamento self-service</Link>
+      <Link to={withTenantPath(`/booking/cancel?token=${encodeURIComponent(cancelToken)}`, tenantSlug)} className='btn-secondary mt-3 inline-flex'>Apri annullamento self-service</Link>
     </div>
   );
 }

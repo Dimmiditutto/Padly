@@ -61,8 +61,14 @@ describe('PublicCancellationPage', () => {
     });
     vi.mocked(getPublicConfig).mockResolvedValue({
       app_name: 'PadelBooking',
+      tenant_id: 'club-1',
+      tenant_slug: 'default-club',
+      public_name: 'PadelBooking Savona',
       timezone: 'Europe/Rome',
       currency: 'EUR',
+      contact_email: 'help@padelbooking.app',
+      support_email: 'help@padelbooking.app',
+      support_phone: '+390101010101',
       booking_hold_minutes: 15,
       cancellation_window_hours: 24,
       stripe_enabled: true,
@@ -77,7 +83,9 @@ describe('PublicCancellationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Conferma annullamento e rimborso' }));
 
     await waitFor(() => expect(screen.getByText('Prenotazione annullata e caparra rimborsata automaticamente')).toBeInTheDocument());
-    expect(cancelPublicBooking).toHaveBeenCalledWith('cancel-token-1');
+    expect(getPublicCancellation).toHaveBeenCalledWith('cancel-token-1', null);
+    expect(getPublicConfig).toHaveBeenCalledWith(null);
+    expect(cancelPublicBooking).toHaveBeenCalledWith('cancel-token-1', null);
   });
 
   it('shows a clear no-refund warning for late cancellations', async () => {
@@ -138,5 +146,19 @@ describe('PublicCancellationPage', () => {
     await waitFor(() => expect(screen.getByText('Rimborso automatico non riuscito')).toBeInTheDocument());
     expect(screen.getByText('Rimborso automatico non riuscito. Il team gestira il caso manualmente.')).toBeInTheDocument();
     expect(screen.getByText('Prenotazione gia annullata')).toBeInTheDocument();
+  });
+
+  it('preserves tenant context in api calls and back links', async () => {
+    renderPage('/booking/cancel?token=cancel-token-1&tenant=roma-club');
+
+    await screen.findByText('Annullamento self-service');
+
+    expect(getPublicCancellation).toHaveBeenCalledWith('cancel-token-1', 'roma-club');
+    expect(getPublicConfig).toHaveBeenCalledWith('roma-club');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Mantieni la prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conferma annullamento e rimborso' }));
+    await waitFor(() => expect(cancelPublicBooking).toHaveBeenCalledWith('cancel-token-1', 'roma-club'));
   });
 });

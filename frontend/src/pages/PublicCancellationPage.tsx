@@ -9,10 +9,12 @@ import { StatusBadge } from '../components/StatusBadge';
 import { cancelPublicBooking, getPublicCancellation, getPublicConfig } from '../services/publicApi';
 import type { PublicCancellationResponse, PublicConfig } from '../types';
 import { formatCurrency, formatDateTime } from '../utils/format';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 
 export function PublicCancellationPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [cancellation, setCancellation] = useState<PublicCancellationResponse | null>(null);
   const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,7 +29,7 @@ export function PublicCancellationPage() {
 
   useEffect(() => {
     void bootstrap();
-  }, [token]);
+  }, [token, tenantSlug]);
 
   async function bootstrap() {
     setLoading(true);
@@ -39,7 +41,7 @@ export function PublicCancellationPage() {
     }
 
     try {
-      const preview = await getPublicCancellation(token);
+      const preview = await getPublicCancellation(token, tenantSlug);
       setCancellation(preview);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.detail || 'Non riesco a verificare la prenotazione da questo link.');
@@ -47,7 +49,7 @@ export function PublicCancellationPage() {
     }
 
     try {
-      const config = await getPublicConfig();
+      const config = await getPublicConfig(tenantSlug);
       setPublicConfig(config);
     } catch {
       setPublicConfig(null);
@@ -61,12 +63,12 @@ export function PublicCancellationPage() {
     setSubmitting(true);
     setError('');
     try {
-      const response = await cancelPublicBooking(token);
+      const response = await cancelPublicBooking(token, tenantSlug);
       setCancellation(response);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.detail || 'Annullamento non riuscito.');
       try {
-        const preview = await getPublicCancellation(token);
+        const preview = await getPublicCancellation(token, tenantSlug);
         setCancellation(preview);
       } catch {
         // Best effort refresh only.
@@ -79,7 +81,7 @@ export function PublicCancellationPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell max-w-3xl space-y-6'>
-        <Link to='/' className='btn-secondary inline-flex'>Torna alla prenotazione</Link>
+        <Link to={withTenantPath('/', tenantSlug)} className='btn-secondary inline-flex'>Torna alla prenotazione</Link>
 
         {loading ? (
           <LoadingBlock label='Sto verificando il link di annullamento…' />
@@ -132,7 +134,7 @@ export function PublicCancellationPage() {
                         ? 'Conferma annullamento e rimborso'
                         : 'Conferma annullamento'}
                   </button>
-                  <Link to='/' className='btn-secondary'>Mantieni la prenotazione</Link>
+                  <Link to={withTenantPath('/', tenantSlug)} className='btn-secondary'>Mantieni la prenotazione</Link>
                 </div>
               ) : (
                 <div className='mt-5 flex items-center gap-3 rounded-[24px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600'>

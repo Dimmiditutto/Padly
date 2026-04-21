@@ -17,8 +17,14 @@ const originalLocation = window.location;
 
 const baseConfig = {
   app_name: 'PadelBooking',
+  tenant_id: 'club-default',
+  tenant_slug: 'default-club',
+  public_name: 'PadelBooking',
   timezone: 'Europe/Rome',
   currency: 'EUR',
+  contact_email: 'help@padelbooking.app',
+  support_email: 'help@padelbooking.app',
+  support_phone: '+390101010101',
   booking_hold_minutes: 15,
   cancellation_window_hours: 24,
   stripe_enabled: true,

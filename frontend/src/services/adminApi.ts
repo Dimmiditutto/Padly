@@ -21,28 +21,33 @@ import type {
   ReportResponse,
 } from '../types';
 
-export async function loginAdmin(email: string, password: string) {
-  const response = await api.post<AdminSession>('/admin/auth/login', { email, password });
+function withTenantParams(tenantSlug?: string | null) {
+  return tenantSlug ? { tenant: tenantSlug } : undefined;
+}
+
+
+export async function loginAdmin(email: string, password: string, tenantSlug?: string | null) {
+  const response = await api.post<AdminSession>('/admin/auth/login', { email, password }, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function requestAdminPasswordReset(email: string) {
-  const response = await api.post<ApiMessage>('/admin/auth/password-reset/request', { email });
+export async function requestAdminPasswordReset(email: string, tenantSlug?: string | null) {
+  const response = await api.post<ApiMessage>('/admin/auth/password-reset/request', { email }, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function confirmAdminPasswordReset(token: string, newPassword: string) {
-  const response = await api.post<ApiMessage>('/admin/auth/password-reset/confirm', { token, new_password: newPassword });
+export async function confirmAdminPasswordReset(token: string, newPassword: string, tenantSlug?: string | null) {
+  const response = await api.post<ApiMessage>('/admin/auth/password-reset/confirm', { token, new_password: newPassword }, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function logoutAdmin() {
-  const response = await api.post<ApiMessage>('/admin/auth/logout');
+export async function logoutAdmin(tenantSlug?: string | null) {
+  const response = await api.post<ApiMessage>('/admin/auth/logout', undefined, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function getAdminSession() {
-  const response = await api.get<AdminSession>('/admin/auth/me');
+export async function getAdminSession(tenantSlug?: string | null) {
+  const response = await api.get<AdminSession>('/admin/auth/me', { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 

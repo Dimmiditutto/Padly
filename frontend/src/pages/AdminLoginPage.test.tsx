@@ -11,9 +11,18 @@ vi.mock('../services/adminApi', () => ({
 
 import { loginAdmin, requestAdminPasswordReset } from '../services/adminApi';
 
-function renderPage() {
+const adminSession = {
+  email: 'info@padelsavona.it',
+  full_name: 'Admin',
+  role: 'SUPERADMIN',
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  club_public_name: 'PadelBooking',
+} as const;
+
+function renderPage(path = '/admin/login') {
   return render(
-    <MemoryRouter initialEntries={['/admin/login']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin/login' element={<AdminLoginPage />} />
         <Route path='/admin' element={<div>ADMIN DASHBOARD</div>} />
@@ -33,7 +42,7 @@ function deferred<T>() {
 describe('AdminLoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(loginAdmin).mockResolvedValue({ email: 'info@padelsavona.it', full_name: 'Admin' });
+    vi.mocked(loginAdmin).mockResolvedValue({ ...adminSession });
     vi.mocked(requestAdminPasswordReset).mockResolvedValue({ message: "Se l'account esiste, ti ho inviato un link per reimpostare la password." });
   });
 
@@ -58,7 +67,7 @@ describe('AdminLoginPage', () => {
     await user.type(screen.getByLabelText('Email'), '  INFO@PadelSavona.IT  ');
     await user.click(screen.getByRole('button', { name: 'Password dimenticata?' }));
 
-    await waitFor(() => expect(requestAdminPasswordReset).toHaveBeenCalledWith('info@padelsavona.it'));
+    await waitFor(() => expect(requestAdminPasswordReset).toHaveBeenCalledWith('info@padelsavona.it', null));
     expect(screen.getByText("Se l'account esiste, ti ho inviato un link per reimpostare la password.")).toBeInTheDocument();
   });
 
@@ -81,7 +90,27 @@ describe('AdminLoginPage', () => {
     await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
 
     await screen.findByText('ADMIN DASHBOARD');
-    expect(loginAdmin).toHaveBeenCalledWith('info@padelsavona.it', 'P4d3ls4v0n4!');
+    expect(loginAdmin).toHaveBeenCalledWith('info@padelsavona.it', 'P4d3ls4v0n4!', null);
+  });
+
+  it('preserves tenant context in links, login and reset request', async () => {
+    const user = userEvent.setup();
+    renderPage('/admin/login?tenant=roma-club');
+
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
+
+    await user.type(screen.getByLabelText('Email'), 'ADMIN@ROMA.EXAMPLE');
+    await user.type(screen.getByLabelText('Password'), 'RomaTenant123!');
+    await user.click(screen.getByRole('button', { name: 'Entra nella dashboard' }));
+
+    await screen.findByText('ADMIN DASHBOARD');
+    expect(loginAdmin).toHaveBeenCalledWith('admin@roma.example', 'RomaTenant123!', 'roma-club');
+
+    renderPage('/admin/login?tenant=roma-club');
+    await user.type(screen.getByLabelText('Email'), 'ADMIN@ROMA.EXAMPLE');
+    await user.click(screen.getByRole('button', { name: 'Password dimenticata?' }));
+
+    await waitFor(() => expect(requestAdminPasswordReset).toHaveBeenCalledWith('admin@roma.example', 'roma-club'));
   });
 
   it('shows the backend error detail on login failure', async () => {
@@ -112,7 +141,7 @@ describe('AdminLoginPage', () => {
 
   it('shows loading state, disables the button and avoids double submit while the request is pending', async () => {
     const user = userEvent.setup();
-    const pending = deferred<{ email: string; full_name: string }>();
+    const pending = deferred<typeof adminSession>();
     vi.mocked(loginAdmin).mockReturnValue(pending.promise);
 
     renderPage();
@@ -125,7 +154,7 @@ describe('AdminLoginPage', () => {
     await user.click(screen.getByRole('button', { name: 'Accesso in corso…' }));
     expect(loginAdmin).toHaveBeenCalledTimes(1);
 
-    pending.resolve({ email: 'info@padelsavona.it', full_name: 'Admin' });
+    pending.resolve({ ...adminSession });
     await screen.findByText('ADMIN DASHBOARD');
   });
 });

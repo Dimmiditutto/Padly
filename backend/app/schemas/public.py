@@ -80,8 +80,14 @@ class PublicConfigResponse(BaseModel):
     model_config = ConfigDict(extra='ignore')
 
     app_name: str
+    tenant_id: str
+    tenant_slug: str
+    public_name: str
     timezone: str
     currency: str = 'EUR'
+    contact_email: str | None = None
+    support_email: str | None = None
+    support_phone: str | None = None
     booking_hold_minutes: int
     cancellation_window_hours: int
     stripe_enabled: bool

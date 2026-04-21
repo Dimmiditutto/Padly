@@ -4,10 +4,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { AppBrand } from '../components/AppBrand';
 import { confirmAdminPasswordReset } from '../services/adminApi';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 
 export function AdminPasswordResetPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token')?.trim() || '';
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -34,7 +36,7 @@ export function AdminPasswordResetPage() {
     setSuccessMessage('');
 
     try {
-      const response = await confirmAdminPasswordReset(token, newPassword);
+      const response = await confirmAdminPasswordReset(token, newPassword, tenantSlug);
       setSuccessMessage(response.message);
       setNewPassword('');
       setConfirmPassword('');
@@ -52,7 +54,7 @@ export function AdminPasswordResetPage() {
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
       <div className='surface-card w-full max-w-md'>
-        <Link to='/admin/login' className='btn-secondary inline-flex'>
+        <Link to={withTenantPath('/admin/login', tenantSlug)} className='btn-secondary inline-flex'>
           <ArrowLeft size={16} /> Torna al login
         </Link>
         <AppBrand />

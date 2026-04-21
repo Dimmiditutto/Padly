@@ -51,6 +51,7 @@ describe('PaymentStatusPage', () => {
     renderStatusPage('/booking/success?booking=PB-REF-123');
 
     await waitFor(() => expect(screen.getByText('Pagamento ricevuto')).toBeInTheDocument());
+    expect(getPublicBookingStatus).toHaveBeenCalledWith('PB-REF-123', null);
     expect(screen.queryByText('Pagamento non confermato')).not.toBeInTheDocument();
   });
 
@@ -106,5 +107,14 @@ describe('PaymentStatusPage', () => {
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Apri annullamento self-service' })).toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'Apri annullamento self-service' })).toHaveAttribute('href', '/booking/cancel?token=cancel-token-123');
+  });
+
+  it('preserves tenant context in booking status calls and links', async () => {
+    renderStatusPage('/booking/success?booking=PB-REF-123&cancelToken=cancel-token-123&tenant=roma-club');
+
+    await waitFor(() => expect(screen.getByText('Pagamento ricevuto')).toBeInTheDocument());
+    expect(getPublicBookingStatus).toHaveBeenCalledWith('PB-REF-123', 'roma-club');
+    expect(screen.getByRole('link', { name: 'Apri annullamento self-service' })).toHaveAttribute('href', '/booking/cancel?token=cancel-token-123&tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
   });
 });

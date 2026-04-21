@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
-from urllib.parse import urlencode
 
 import httpx
 import stripe
@@ -18,6 +17,7 @@ from app.models import Booking, BookingPayment, BookingStatus, PaymentProvider, 
 from app.services.booking_service import as_utc, calculate_deposit, expire_pending_booking_if_needed, log_event, mark_booking_paid
 from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
+from app.services.tenant_service import build_club_app_url
 
 
 class PaymentGateway(Protocol):
@@ -52,11 +52,11 @@ REFUND_STATUS_FAILED = 'FAILED'
 ONLINE_REFUND_PROVIDERS = {PaymentProvider.STRIPE, PaymentProvider.PAYPAL}
 
 
-def _booking_redirect_query(booking: Booking) -> str:
+def _booking_redirect_params(booking: Booking) -> dict[str, str]:
     params = {'booking': booking.public_reference}
     if booking.cancel_token:
         params['cancelToken'] = booking.cancel_token
-    return urlencode(params)
+    return params
 
 
 class StripeGateway:
@@ -69,15 +69,15 @@ class StripeGateway:
             query_params = {'booking': booking.public_reference, 'provider': 'stripe'}
             if booking.cancel_token:
                 query_params['cancelToken'] = booking.cancel_token
-            query = urlencode(query_params)
-            return PaymentInitResult(checkout_url=f"{settings.app_url}/api/payments/mock/complete?{query}", provider_reference=f"mock-stripe-{booking.public_reference}")
+            checkout_url = build_club_app_url(booking.club, '/api/payments/mock/complete', query_params=query_params)
+            return PaymentInitResult(checkout_url=checkout_url, provider_reference=f"mock-stripe-{booking.public_reference}")
 
         stripe.api_key = settings.stripe_secret_key
-        redirect_query = _booking_redirect_query(booking)
+        redirect_params = _booking_redirect_params(booking)
         session = stripe.checkout.Session.create(
             mode='payment',
-            success_url=f"{settings.app_url}/booking/success?{redirect_query}",
-            cancel_url=f"{settings.app_url}/api/payments/stripe/cancel?{redirect_query}",
+            success_url=build_club_app_url(booking.club, '/booking/success', query_params=redirect_params),
+            cancel_url=build_club_app_url(booking.club, '/api/payments/stripe/cancel', query_params=redirect_params),
             client_reference_id=booking.public_reference,
             metadata={'booking_id': booking.id, 'public_reference': booking.public_reference},
             line_items=[
@@ -162,10 +162,10 @@ class PayPalGateway:
             query_params = {'booking': booking.public_reference, 'provider': 'paypal'}
             if booking.cancel_token:
                 query_params['cancelToken'] = booking.cancel_token
-            query = urlencode(query_params)
-            return PaymentInitResult(checkout_url=f"{settings.app_url}/api/payments/mock/complete?{query}", provider_reference=f"mock-paypal-{booking.public_reference}")
+            checkout_url = build_club_app_url(booking.club, '/api/payments/mock/complete', query_params=query_params)
+            return PaymentInitResult(checkout_url=checkout_url, provider_reference=f"mock-paypal-{booking.public_reference}")
 
-        redirect_query = _booking_redirect_query(booking)
+        redirect_params = _booking_redirect_params(booking)
         body = {
             'intent': 'CAPTURE',
             'purchase_units': [
@@ -178,8 +178,8 @@ class PayPalGateway:
                 }
             ],
             'application_context': {
-                'return_url': f'{settings.app_url}/api/payments/paypal/return?{redirect_query}',
-                'cancel_url': f'{settings.app_url}/api/payments/paypal/cancel?{redirect_query}',
+                'return_url': build_club_app_url(booking.club, '/api/payments/paypal/return', query_params=redirect_params),
+                'cancel_url': build_club_app_url(booking.club, '/api/payments/paypal/cancel', query_params=redirect_params),
                 'brand_name': settings.app_name,
                 'user_action': 'PAY_NOW',
             },
@@ -361,8 +361,8 @@ def _refund_message_for_status(status_value: str, *, required: bool, before_canc
     return error or 'Il rimborso automatico della caparra non e andato a buon fine.'
 
 
-def _refund_cutoff_hours(db: Session) -> int:
-    return get_booking_rules(db)['cancellation_window_hours']
+def _refund_cutoff_hours(db: Session, booking: Booking) -> int:
+    return get_booking_rules(db, club_id=booking.club_id)['cancellation_window_hours']
 
 
 def _hours_until_booking_start(booking: Booking) -> float:
@@ -516,7 +516,7 @@ def get_booking_refund_snapshot(db: Session, booking: Booking) -> RefundResult:
 
     amount = _to_decimal((payment.refunded_amount if payment and payment.refunded_amount is not None else None) or (payment.amount if payment else booking.deposit_amount))
     paid_online_payment = booking.payment_status == PaymentStatus.PAID and provider in ONLINE_REFUND_PROVIDERS
-    cutoff_hours = _refund_cutoff_hours(db)
+    cutoff_hours = _refund_cutoff_hours(db, booking)
     within_refund_block_window = paid_online_payment and _hours_until_booking_start(booking) < cutoff_hours
 
     if payment and payment.refund_status:

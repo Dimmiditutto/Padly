@@ -72,8 +72,14 @@ export interface PublicBookingSummary {
 
 export interface PublicConfig {
   app_name: string;
+  tenant_id: string;
+  tenant_slug: string;
+  public_name: string;
   timezone: string;
   currency: string;
+  contact_email?: string | null;
+  support_email?: string | null;
+  support_phone?: string | null;
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   stripe_enabled: boolean;
@@ -244,11 +250,21 @@ export interface RecurringCancelResponse {
 export interface AdminSession {
   email: string;
   full_name: string;
+  role: string;
+  club_id: string;
+  club_slug: string;
+  club_public_name: string;
 }
 
 export interface AdminSettings {
+  club_id: string;
+  club_slug: string;
+  public_name: string;
   timezone: string;
   currency: string;
+  notification_email: string;
+  support_email?: string | null;
+  support_phone?: string | null;
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   reminder_window_hours: number;
@@ -257,6 +273,10 @@ export interface AdminSettings {
 }
 
 export interface AdminSettingsUpdatePayload {
+  public_name?: string | null;
+  notification_email?: string | null;
+  support_email?: string | null;
+  support_phone?: string | null;
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   reminder_window_hours: number;

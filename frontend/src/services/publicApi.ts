@@ -9,39 +9,44 @@ import type {
   PublicConfig,
 } from '../types';
 
-export async function getPublicConfig() {
-  const response = await api.get<PublicConfig>('/public/config');
+function withTenantParams(tenantSlug?: string | null) {
+  return tenantSlug ? { tenant: tenantSlug } : undefined;
+}
+
+
+export async function getPublicConfig(tenantSlug?: string | null) {
+  const response = await api.get<PublicConfig>('/public/config', { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function getAvailability(date: string, durationMinutes: number) {
+export async function getAvailability(date: string, durationMinutes: number, tenantSlug?: string | null) {
   const response = await api.get<AvailabilityResponse>('/public/availability', {
-    params: { date, duration_minutes: durationMinutes },
+    params: { date, duration_minutes: durationMinutes, ...withTenantParams(tenantSlug) },
   });
   return response.data;
 }
 
-export async function createPublicBooking(payload: PublicBookingPayload) {
-  const response = await api.post<PublicBookingCreateResponse>('/public/bookings', payload);
+export async function createPublicBooking(payload: PublicBookingPayload, tenantSlug?: string | null) {
+  const response = await api.post<PublicBookingCreateResponse>('/public/bookings', payload, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function createPublicCheckout(bookingId: string) {
-  const response = await api.post<PaymentInitResponse>(`/public/bookings/${bookingId}/checkout`);
+export async function createPublicCheckout(bookingId: string, tenantSlug?: string | null) {
+  const response = await api.post<PaymentInitResponse>(`/public/bookings/${bookingId}/checkout`, undefined, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function getPublicBookingStatus(publicReference: string) {
-  const response = await api.get<BookingStatusResponse>(`/public/bookings/${publicReference}/status`);
+export async function getPublicBookingStatus(publicReference: string, tenantSlug?: string | null) {
+  const response = await api.get<BookingStatusResponse>(`/public/bookings/${publicReference}/status`, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function getPublicCancellation(token: string) {
-  const response = await api.get<PublicCancellationResponse>(`/public/bookings/cancel/${token}`);
+export async function getPublicCancellation(token: string, tenantSlug?: string | null) {
+  const response = await api.get<PublicCancellationResponse>(`/public/bookings/cancel/${token}`, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 
-export async function cancelPublicBooking(token: string) {
-  const response = await api.post<PublicCancellationResponse>(`/public/bookings/cancel/${token}`);
+export async function cancelPublicBooking(token: string, tenantSlug?: string | null) {
+  const response = await api.post<PublicCancellationResponse>(`/public/bookings/cancel/${token}`, undefined, { params: withTenantParams(tenantSlug) });
   return response.data;
 }

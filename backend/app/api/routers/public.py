@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.api.deps import get_current_club
 from app.core.db import get_db
-from app.models import Booking, BookingStatus, PaymentProvider, PaymentStatus
+from app.models import Booking, BookingStatus, Club, PaymentProvider, PaymentStatus
 from app.schemas.common import SimpleMessage
 from app.schemas.public import (
     AvailabilityResponse,
@@ -72,11 +72,18 @@ def _build_public_cancellation_response(db: Session, booking: Booking, *, messag
 
 
 @router.get('/config', response_model=PublicConfigResponse)
-def get_public_config(db: Session = Depends(get_db)) -> PublicConfigResponse:
-    booking_rules = get_booking_rules(db)
+def get_public_config(current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicConfigResponse:
+    booking_rules = get_booking_rules(db, club_id=current_club.id)
     return PublicConfigResponse(
-        app_name=settings.app_name,
-        timezone=settings.timezone,
+        app_name=current_club.public_name,
+        tenant_id=current_club.id,
+        tenant_slug=current_club.slug,
+        public_name=current_club.public_name,
+        timezone=current_club.timezone,
+        currency=current_club.currency,
+        contact_email=current_club.support_email or current_club.notification_email,
+        support_email=current_club.support_email,
+        support_phone=current_club.support_phone,
         booking_hold_minutes=booking_rules['booking_hold_minutes'],
         cancellation_window_hours=booking_rules['cancellation_window_hours'],
         stripe_enabled=is_stripe_checkout_available(),
@@ -88,22 +95,28 @@ def get_public_config(db: Session = Depends(get_db)) -> PublicConfigResponse:
 def get_availability(
     booking_date: date = Query(alias='date'),
     duration_minutes: int = Query(default=90),
+    current_club: Club = Depends(get_current_club),
     db: Session = Depends(get_db),
 ) -> AvailabilityResponse:
     return AvailabilityResponse(
         date=booking_date,
         duration_minutes=duration_minutes,
         deposit_amount=calculate_deposit(duration_minutes),
-        slots=build_daily_slots(db, booking_date=booking_date, duration_minutes=duration_minutes),
+        slots=build_daily_slots(db, booking_date=booking_date, duration_minutes=duration_minutes, club_id=current_club.id),
     )
 
 
 @router.post('/bookings', response_model=PublicBookingCreateResponse, status_code=status.HTTP_201_CREATED)
-def create_booking(payload: PublicBookingCreateRequest, db: Session = Depends(get_db)) -> PublicBookingCreateResponse:
+def create_booking(
+    payload: PublicBookingCreateRequest,
+    current_club: Club = Depends(get_current_club),
+    db: Session = Depends(get_db),
+) -> PublicBookingCreateResponse:
     with acquire_single_court_lock(db):
         assert_checkout_available(payload.payment_provider)
         booking = create_public_booking(
             db,
+            club_id=current_club.id,
             first_name=payload.first_name,
             last_name=payload.last_name,
             phone=payload.phone,
@@ -121,9 +134,9 @@ def create_booking(payload: PublicBookingCreateRequest, db: Session = Depends(ge
 
 
 @router.post('/bookings/{booking_id}/checkout', response_model=PaymentInitResponse)
-def create_checkout(booking_id: str, db: Session = Depends(get_db)) -> PaymentInitResponse:
+def create_checkout(booking_id: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PaymentInitResponse:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == current_club.id))
         if not booking:
             raise HTTPException(status_code=404, detail='Prenotazione non trovata')
         if expire_pending_booking_if_needed(db, booking):
@@ -144,9 +157,9 @@ def create_checkout(booking_id: str, db: Session = Depends(get_db)) -> PaymentIn
 
 
 @router.get('/bookings/{public_reference}/status', response_model=BookingStatusResponse)
-def booking_status(public_reference: str, db: Session = Depends(get_db)) -> BookingStatusResponse:
+def booking_status(public_reference: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> BookingStatusResponse:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.public_reference == public_reference))
+        booking = db.scalar(select(Booking).where(Booking.public_reference == public_reference, Booking.club_id == current_club.id))
         if not booking:
             raise HTTPException(status_code=404, detail='Prenotazione non trovata')
         if expire_pending_booking_if_needed(db, booking):
@@ -155,9 +168,9 @@ def booking_status(public_reference: str, db: Session = Depends(get_db)) -> Book
 
 
 @router.get('/bookings/cancel/{cancel_token}', response_model=PublicCancellationResponse)
-def get_public_cancellation(cancel_token: str, db: Session = Depends(get_db)) -> PublicCancellationResponse:
+def get_public_cancellation(cancel_token: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicCancellationResponse:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token))
+        booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token, Booking.club_id == current_club.id))
         if not booking:
             raise HTTPException(status_code=404, detail='Link annullamento non valido')
 
@@ -167,9 +180,9 @@ def get_public_cancellation(cancel_token: str, db: Session = Depends(get_db)) ->
 
 
 @router.post('/bookings/cancel/{cancel_token}', response_model=PublicCancellationResponse)
-def cancel_public_booking(cancel_token: str, db: Session = Depends(get_db)) -> PublicCancellationResponse:
+def cancel_public_booking(cancel_token: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicCancellationResponse:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token))
+        booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token, Booking.club_id == current_club.id))
         if not booking:
             raise HTTPException(status_code=404, detail='Link annullamento non valido')
 

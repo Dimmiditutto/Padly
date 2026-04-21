@@ -14,6 +14,15 @@ vi.mock('../services/adminApi', () => ({
 import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
 import type { BookingSummary } from '../types';
 
+const adminSession = {
+  email: 'admin@padelbooking.app',
+  full_name: 'Admin',
+  role: 'SUPERADMIN',
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  club_public_name: 'PadelBooking',
+} as const;
+
 const currentWeekBooking: BookingSummary = {
   id: 'booking-current-1',
   public_reference: 'PB-WEEK-001',
@@ -107,7 +116,7 @@ describe('AdminCurrentBookingsPage', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-04-20T12:00:00Z'));
     vi.clearAllMocks();
-    vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(getAdminSession).mockResolvedValue({ ...adminSession });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(updateAdminBookingStatus).mockResolvedValue({ ...currentWeekBooking, status: 'CANCELLED', cancelled_at: '2026-04-20T12:05:00Z' });
     vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 3, skipped_count: 0, booking_ids: ['booking-current-2'], series_id: 'series-42' });

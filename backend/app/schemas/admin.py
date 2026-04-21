@@ -25,6 +25,10 @@ class AdminLoginRequest(BaseModel):
 class AdminMeResponse(BaseModel):
     email: EmailStr
     full_name: str
+    role: str
+    club_id: str
+    club_slug: str
+    club_public_name: str
 
 
 class AdminPasswordResetRequest(BaseModel):
@@ -165,8 +169,14 @@ class ReportResponse(BaseModel):
 
 
 class AdminSettingsResponse(BaseModel):
+    club_id: str
+    club_slug: str
+    public_name: str
     timezone: str
     currency: str
+    notification_email: EmailStr
+    support_email: EmailStr | None = None
+    support_phone: str | None = None
     booking_hold_minutes: int
     cancellation_window_hours: int
     reminder_window_hours: int
@@ -175,6 +185,25 @@ class AdminSettingsResponse(BaseModel):
 
 
 class AdminSettingsUpdateRequest(BaseModel):
+    public_name: str | None = Field(default=None, min_length=2, max_length=140)
+    notification_email: EmailStr | None = None
+    support_email: EmailStr | None = None
+    support_phone: str | None = Field(default=None, max_length=50)
     booking_hold_minutes: int = Field(ge=5, le=120)
     cancellation_window_hours: int = Field(ge=1, le=168)
     reminder_window_hours: int = Field(ge=1, le=168)
+
+    @field_validator('notification_email', mode='before')
+    @classmethod
+    def normalize_notification_email(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return _normalize_email(value)
+
+    @field_validator('support_email', mode='before')
+    @classmethod
+    def normalize_support_email(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = _normalize_email(value)
+        return normalized or None

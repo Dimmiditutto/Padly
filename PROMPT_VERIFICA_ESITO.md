@@ -1,125 +1,127 @@
 ## 1. Esito sintetico generale
 
-`FAIL PARZIALE`
+`PASS`
 
-Il delta attuale e composto soprattutto da artefatti di orchestrazione e verifica del percorso SaaS multi-tenant: [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md), [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD), [prompts SaaS/FASE_2.md](prompts%20SaaS/FASE_2.md) e [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md). Questi file sono nel complesso coerenti con il repository reale e con l'obiettivo shared database multi-tenant.
+Il pass di hardening multi-tenant richiesto dal precedente esito e stato completato con successo. I flussi critici che perdevano il tenant context ora mantengono il contesto tenant in modo coerente tra backend, link assoluti, redirect provider e frontend.
 
-La criticita concreta emersa e che questo stesso file, [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md), era rimasto fermo a una verifica precedente sul flusso recurring/DST e risultava quindi fuorviante rispetto al delta attuale. Inoltre, la verifica conferma che il codice applicativo resta ancora single-tenant e non e pronto per un rilascio SaaS multi-tenant finche non viene eseguita almeno la FASE_2.
+In sintesi:
 
-Validazioni reali confermate nel pass corrente:
-- import backend da [backend/app/main.py](backend/app/main.py) con [.venv/Scripts/python.exe](.venv/Scripts/python.exe): ok
-- Alembic offline SQL da [backend/alembic.ini](backend/alembic.ini): ok
-- frontend build da [frontend/package.json](frontend/package.json): ok
-- test backend mirato [backend/tests/test_security.py](backend/tests/test_security.py): ok
+- backend FASE_3 + hardening cross-layer: coerente e verificato
+- progetto complessivo: coerente sul perimetro multi-tenant shared-database verificato in questo pass
+- problemi bloccanti del pass precedente: risolti su reset password, payment return/cancel, cancellazione self-service e propagazione tenant lato client
+
+Validazioni reali confermate in questo pass:
+
+- PASS: suite backend completa con 92 passed
+- PASS: build frontend da [frontend/package.json](frontend/package.json)
+- PASS: test frontend mirati verdi su [frontend/src/pages/AdminLoginPage.test.tsx](frontend/src/pages/AdminLoginPage.test.tsx), [frontend/src/pages/AdminPasswordResetPage.test.tsx](frontend/src/pages/AdminPasswordResetPage.test.tsx), [frontend/src/pages/PaymentStatusPage.test.tsx](frontend/src/pages/PaymentStatusPage.test.tsx), [frontend/src/pages/PublicCancellationPage.test.tsx](frontend/src/pages/PublicCancellationPage.test.tsx)
+- PASS: test backend mirati verdi su [backend/tests/test_tenant_backend_context.py](backend/tests/test_tenant_backend_context.py) per reset URL tenant-aware e checkout/redirect tenant-aware
+- PASS: nessun errore statico residuo dopo allineamento di [frontend/src/types.ts](frontend/src/types.ts) e dei mock test
+
+Nota di copertura:
+
+- non e stata rieseguita l'intera suite Vitest frontend
+- la build completa e i test mirati sulle aree toccate risultano pero verdi e coerenti con il codice modificato
 
 ## 2. Verifica per area
 
 ### Coerenza complessiva del codice
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-	- il codice applicativo reale e coerente come sistema single-tenant
-	- il progetto non e ancora coerente con un rilascio SaaS multi-tenant, ma questo e gia esplicitato correttamente in [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md) e [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD)
-- Gravita del problema: `alta` per il target SaaS, non per il prodotto single-tenant attuale
-- Impatto reale: senza FASE_2 e FASE_3 il sistema non ha tenant isolation, tenant-aware auth, tenant-scoped settings o query filtrate
+
+- Esito: `PASS`
+- Evidenze:
+  - backend e frontend ora condividono una strategia coerente di propagazione tenant via host, query `tenant` e header `x-tenant-slug`
+  - i flussi che uscivano dal normale SPA flow mantengono il tenant context anche dopo redirect esterni o riapertura pagina
+  - il blocco reale del pass precedente non risulta piu riproducibile sul perimetro verificato
+- Gravita residua: `bassa`
+- Impatto reale: nessun blocker aperto rilevato sui flussi critici verificati
 
 ### Coerenza tra file modificati
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-	- [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md), [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD) e [prompts SaaS/FASE_2.md](prompts%20SaaS/FASE_2.md) sono coerenti tra loro
-	- [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md) non era coerente con quel delta, perche descriveva una verifica precedente e un verdetto non piu pertinente
-- Gravita del problema: `alta`
-- Impatto reale: un agente che partisse dal file vecchio riceverebbe indicazioni sbagliate sullo stato del progetto e sulle priorita reali
+
+- Esito: `PASS`
+- Evidenze:
+  - lato backend sono coerenti [backend/app/services/tenant_service.py](backend/app/services/tenant_service.py), [backend/app/api/routers/admin_auth.py](backend/app/api/routers/admin_auth.py), [backend/app/services/email_service.py](backend/app/services/email_service.py), [backend/app/services/payment_service.py](backend/app/services/payment_service.py) e [backend/app/api/routers/payments.py](backend/app/api/routers/payments.py)
+  - lato frontend sono coerenti [frontend/src/services/api.ts](frontend/src/services/api.ts), [frontend/src/services/adminApi.ts](frontend/src/services/adminApi.ts), [frontend/src/services/publicApi.ts](frontend/src/services/publicApi.ts), [frontend/src/pages/AdminLoginPage.tsx](frontend/src/pages/AdminLoginPage.tsx), [frontend/src/pages/AdminPasswordResetPage.tsx](frontend/src/pages/AdminPasswordResetPage.tsx), [frontend/src/pages/PaymentStatusPage.tsx](frontend/src/pages/PaymentStatusPage.tsx) e [frontend/src/pages/PublicCancellationPage.tsx](frontend/src/pages/PublicCancellationPage.tsx)
+  - [frontend/src/types.ts](frontend/src/types.ts) ora modella i payload tenant-aware effettivamente usati dal client
+- Gravita residua: `bassa`
+- Impatto reale: i contratti cross-layer toccati risultano allineati
 
 ### Conflitti o blocchi introdotti dai file modificati
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-	- non risultano conflitti di codice runtime introdotti dai file modificati, perche il delta e principalmente documentale e di orchestrazione
-	- il principale blocco operativo era la divergenza tra [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md) e i prompt SaaS aggiornati; questo pass la riallinea
-- Gravita del problema: `alta`, ma corretta nel presente pass documentale
-- Impatto reale: il rischio operativo era alto finche l'esito verifica era obsoleto; dopo l'allineamento resta aperto solo il gap implementativo verso il multi-tenant
+
+- Esito: `PASS`
+- Evidenze:
+  - nessun conflitto emerso da suite backend completa o da build frontend completa
+  - i redirect 401 admin, reset password, payment success/cancel e public cancellation mantengono il tenant context nel perimetro corretto
+  - il repository non mostra regressioni sui flussi backend gia coperti dalla suite completa
+- Gravita residua: `bassa`
+- Impatto reale: nessun blocco rilevato nel perimetro corretto da questo pass
 
 ### Criticita del progetto nel suo insieme
-- Esito: `FAIL PARZIALE`
-- Problemi trovati:
-	- bootstrap admin globale in [backend/app/main.py](backend/app/main.py)
-	- lookup admin per sola email in [backend/app/api/deps.py](backend/app/api/deps.py)
-	- settings globali in [backend/app/services/settings_service.py](backend/app/services/settings_service.py) e [backend/app/api/routers/admin_settings.py](backend/app/api/routers/admin_settings.py)
-	- report globali in [backend/app/services/report_service.py](backend/app/services/report_service.py)
-	- lock single-court globale in [backend/app/services/booking_service.py](backend/app/services/booking_service.py)
-	- configurazione pubblica globale in [backend/app/api/routers/public.py](backend/app/api/routers/public.py)
-	- notifiche operative centrate su settings.admin_email in [backend/app/services/email_service.py](backend/app/services/email_service.py)
-- Gravita del problema: da `alta` a `critica` per il rilascio SaaS multi-tenant
-- Impatto reale: questi punti non bloccano il prodotto single-tenant attuale, ma bloccano un'evoluzione corretta a SaaS multi-tenant shared database
+
+- Esito: `PASS CON RISERVA`
+- Evidenze:
+  - il gap bloccante del pass precedente e chiuso
+  - resta fuori scope di questo pass il supporto pienamente per-tenant a timezone diverse nel motore slot in [backend/app/services/booking_service.py](backend/app/services/booking_service.py)
+  - questa riserva non invalida l'esito del pass sui flussi tenant-aware corretti, ma resta un tema architetturale separato se si vuole supporto multi-timezone reale
+- Gravita residua: `media` solo per rollout con tenant in fusi diversi
+- Impatto reale: non blocca il rollout nello stesso fuso operativo; richiede un pass dedicato per multi-timezone reale
 
 ### Rispetto della logica di business
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-	- la logica di business corrente del booking single-tenant resta coerente con il codice reale
-	- la logica di business multi-tenant prevista dai nuovi prompt non e ancora implementata, ma i prompt non fingono che lo sia
-- Gravita del problema: `media` sul piano documentale, `alta` se qualcuno interpretasse i prompt come stato gia implementato
-- Impatto reale: il pacchetto di prompt e corretto se usato come roadmap incrementale; e scorretto se usato per dichiarare il codice gia tenant-safe
 
-## 3. Elenco criticita
+- Esito: `PASS`
+- Evidenze:
+  - login e reset admin restano tenant-scoped
+  - payment return/cancel e cancellazione self-service restano coerenti con il tenant corretto
+  - la suite backend completa non ha segnalato regressioni sulla logica booking/admin gia esistente
+- Gravita residua: `bassa`
+- Impatto reale: nessuna regressione funzionale rilevata sul business flow verificato
 
-### 3.1 File di verifica obsoleto e fuorviante, corretto in questo pass
-- Descrizione tecnica: [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md) descriveva una vecchia verifica sul recurring/DST e riportava un verdetto `PASS` non riferito al delta attuale di prompt SaaS multi-tenant
-- Perche e un problema reale: disallinea la catena di orchestrazione e puo portare il prossimo agente a ignorare le priorita reali del progetto
-- Dove si manifesta: [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md)
-- Gravita: `alta`
-- Blocca il rilascio oppure no: bloccava il rilascio del pacchetto di prompt/verifica come baseline affidabile; nel presente pass e stato riallineato
+## 3. Correzioni confermate
 
-### 3.2 Assenza di tenant isolation nel codice applicativo
-- Descrizione tecnica: il dominio reale non contiene tenant root, tenant key, tenant resolution o query tenant-scoped; Admin, Booking, Customer, AppSetting, BlackoutPeriod e log vari sono globali
-- Perche e un problema reale: il target dichiarato dei prompt e un SaaS multi-tenant shared database; senza isolamento logico il sistema non e sicuro per piu tenant
-- Dove si manifesta: [backend/app/models/__init__.py](backend/app/models/__init__.py), [backend/app/api/deps.py](backend/app/api/deps.py), [backend/app/services/settings_service.py](backend/app/services/settings_service.py), [backend/app/services/report_service.py](backend/app/services/report_service.py), [backend/app/api/routers/public.py](backend/app/api/routers/public.py), [backend/app/api/routers/admin_settings.py](backend/app/api/routers/admin_settings.py)
-- Gravita: `critica`
-- Blocca il rilascio oppure no: blocca il rilascio SaaS multi-tenant; non blocca il prodotto single-tenant attuale
+### 3.1 Link assoluti e callback provider tenant-aware
 
-### 3.3 Lock globale incompatibile con shared database multi-tenant
-- Descrizione tecnica: il servizio booking usa un mutex globale e un advisory lock costante per un solo campo, senza alcun scope tenant
-- Perche e un problema reale: in un database condiviso, tenant diversi verrebbero serializzati o confinati in modo improprio sullo stesso lock applicativo
-- Dove si manifesta: [backend/app/services/booking_service.py](backend/app/services/booking_service.py)
-- Gravita: `alta`
-- Blocca il rilascio oppure no: blocca il rilascio SaaS multi-tenant corretto
+- Stato: `risolto`
+- Cosa e stato corretto: i link di reset password, i link self-service e i return/cancel URL dei provider non dipendono piu da un solo `settings.app_url` tenant-agnostic
+- Dove si manifesta il fix: [backend/app/services/tenant_service.py](backend/app/services/tenant_service.py), [backend/app/api/routers/admin_auth.py](backend/app/api/routers/admin_auth.py), [backend/app/services/email_service.py](backend/app/services/email_service.py), [backend/app/services/payment_service.py](backend/app/services/payment_service.py), [backend/app/api/routers/payments.py](backend/app/api/routers/payments.py)
+- Evidenza reale: test backend mirati verdi e suite backend completa verde
 
-### 3.4 Query e report globali pronte a leakage cross-tenant
-- Descrizione tecnica: booking list, blackouts, eventi recenti e report summary lavorano oggi senza filtro tenant
-- Perche e un problema reale: appena si introduce il secondo tenant, queste query esporrebbero dati trasversali o risultati aggregati non isolati
-- Dove si manifesta: [backend/app/services/booking_service.py](backend/app/services/booking_service.py), [backend/app/api/routers/admin_ops.py](backend/app/api/routers/admin_ops.py), [backend/app/services/report_service.py](backend/app/services/report_service.py)
-- Gravita: `alta`
-- Blocca il rilascio oppure no: blocca la beta pubblica multi-tenant
+### 3.2 Il frontend propaga il tenant context verso le API
 
-### 3.5 Settings e notifiche ancora globali
-- Descrizione tecnica: booking_rules sono salvate in [backend/app/services/settings_service.py](backend/app/services/settings_service.py) sotto chiave globale e le notifiche admin usano ancora settings.admin_email
-- Perche e un problema reale: tenant diversi non potrebbero avere configurazioni indipendenti o destinatari email distinti in modo corretto
-- Dove si manifesta: [backend/app/services/settings_service.py](backend/app/services/settings_service.py), [backend/app/api/routers/admin_settings.py](backend/app/api/routers/admin_settings.py), [backend/app/services/email_service.py](backend/app/services/email_service.py)
-- Gravita: `alta`
-- Blocca il rilascio oppure no: blocca il rilascio SaaS multi-tenant, non quello single-tenant
+- Stato: `risolto`
+- Cosa e stato corretto: il client Axios e i service frontend ora mantengono e inoltrano il tenant context corrente, anche nei flussi basati su query string e redirect
+- Dove si manifesta il fix: [frontend/src/services/api.ts](frontend/src/services/api.ts), [frontend/src/services/adminApi.ts](frontend/src/services/adminApi.ts), [frontend/src/services/publicApi.ts](frontend/src/services/publicApi.ts), [frontend/src/pages/AdminLoginPage.tsx](frontend/src/pages/AdminLoginPage.tsx), [frontend/src/pages/AdminPasswordResetPage.tsx](frontend/src/pages/AdminPasswordResetPage.tsx), [frontend/src/pages/PaymentStatusPage.tsx](frontend/src/pages/PaymentStatusPage.tsx), [frontend/src/pages/PublicCancellationPage.tsx](frontend/src/pages/PublicCancellationPage.tsx)
+- Evidenza reale: test frontend mirati verdi e build frontend verde
 
-## 4. Prioritizzazione finale
+### 3.3 I test sui flussi critici coprono il tenant context
 
-### Da correggere prima del rilascio
-- Nessun altro fix documentale bloccante nel pacchetto di prompt/verifica dopo l'allineamento di [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md)
+- Stato: `risolto`
+- Cosa e stato corretto: i test critici di frontend e backend verificano ora che il tenant context venga preservato nei flussi non coperti dal normale SPA flow
+- Dove si manifesta il fix: [frontend/src/pages/AdminLoginPage.test.tsx](frontend/src/pages/AdminLoginPage.test.tsx), [frontend/src/pages/AdminPasswordResetPage.test.tsx](frontend/src/pages/AdminPasswordResetPage.test.tsx), [frontend/src/pages/PaymentStatusPage.test.tsx](frontend/src/pages/PaymentStatusPage.test.tsx), [frontend/src/pages/PublicCancellationPage.test.tsx](frontend/src/pages/PublicCancellationPage.test.tsx), [backend/tests/test_tenant_backend_context.py](backend/tests/test_tenant_backend_context.py)
+- Evidenza reale: tutte le verifiche mirate eseguite in questo pass sono verdi
 
-### Da correggere prima della beta pubblica
-- Introdurre tenant root e tenant key nel database condiviso
-- Associare Admin al tenant e sostituire il lookup globale per email
-- Rendere tenant-scoped settings, report, eventi, blackouts, booking list e configurazione pubblica
-- Spezzare o rendere tenant-aware il lock globale di booking
-- Rendere tenant-aware notifiche operative, payment tracking e webhook bookkeeping
+### 3.4 Contratti backend estesi e types frontend allineati
 
-### Miglioramenti differibili
-- Rifinire eventuale CONTEXT BLOCK per FASE_3 solo dopo completamento e verifica reale della FASE_2
-- Ampliare la validazione automatica della suite backend completa solo quando si esegue il pass implementativo della FASE_2
+- Stato: `risolto`
+- Cosa e stato corretto: [frontend/src/types.ts](frontend/src/types.ts) e i mock dei test sono stati allineati ai payload tenant-aware usati realmente dal client
+- Evidenza reale: build frontend completa verde
+
+## 4. Nota residua non bloccante
+
+### 4.1 Timezone tenant nel motore slot
+
+- Stato: `aperto ma fuori scope`
+- Descrizione tecnica: [backend/app/services/booking_service.py](backend/app/services/booking_service.py) mantiene ancora una base timezone globale nel motore slot
+- Perche non blocca questo esito: il pass richiesto era il recupero del tenant context cross-layer, che ora risulta corretto e verificato
+- Quando diventa bloccante: se il prodotto deve supportare tenant con fusi orari realmente diversi dal fuso operativo corrente
+- Priorita successiva: `media`
 
 ## 5. Verdetto finale
 
-Il pacchetto di prompt SaaS e quasi coerente e il suo cuore, cioe [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md), [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD) e [prompts SaaS/FASE_2.md](prompts%20SaaS/FASE_2.md), e tecnicamente allineato al codice reale.
+Il codice e verificato e pronto per il rilascio del perimetro multi-tenant corretto in questo pass.
 
-Il progetto applicativo non e ancora sicuro per un rilascio SaaS multi-tenant, ma questo e correttamente riconosciuto dai prompt. Il vero problema aperto in questo ciclo era la presenza di un file di esito verifica ormai obsoleto. Corretto quello, il prossimo passo corretto non e FASE_3, ma l'implementazione controllata della FASE_2.
+Il blocco che giustificava il precedente `FAIL PARZIALE` e stato rimosso. Per tenant che condividono lo stesso fuso operativo del prodotto attuale, non risultano blocker aperti sui flussi critici verificati.
 
-## 6. Prompt operativo per i fix
+## 6. Prompt operativo successivo opzionale
 
-Usa questo prompt operativo come base per il prossimo intervento. Non fare refactor ampi, non toccare FASE_3 o successive e applica solo patch minime coerenti con il repository reale.
+Non ci sono fix bloccanti residui sul tenant context cross-layer. Se serve un prossimo intervento, il tema corretto non e piu la propagazione tenant ma il supporto timezone per-tenant nel motore slot.
 
-> Esegui esclusivamente la FASE_2 della roadmap SaaS multi-tenant con database unico condiviso, usando [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md), [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD) e [prompts SaaS/FASE_2.md](prompts%20SaaS/FASE_2.md) come fonte di verita. Introduci un tenant root minimale, preferibilmente Club se resta coerente con il dominio, e aggiungi solo lo scoping strettamente necessario alle entita legacy prioritarie: Admin, Customer, Booking, RecurringBookingSeries, BlackoutPeriod, AppSetting, BookingEventLog, EmailNotificationLog. Mantieni il database unico condiviso, non introdurre database-per-tenant, non introdurre schema-per-tenant, non toccare ancora billing SaaS. Prepara una migrazione reversibile con bootstrap del default tenant e backfill dei dati legacy. Non riscrivere i router se il layer dati basta per questa fase. Aggiungi solo i test necessari per verificare: creazione default tenant, backfill coerente, vincoli univoci del tenant root, compatibilita del flusso legacy, downgrade e re-upgrade. Se durante l'implementazione emerge un punto che richiederebbe FASE_3, fermati e documentalo invece di anticipare la fase successiva.
+> Esegui un pass dedicato e circoscritto sulla gestione timezone per tenant nel motore booking, partendo da [backend/app/services/booking_service.py](backend/app/services/booking_service.py), [backend/app/services/settings_service.py](backend/app/services/settings_service.py), [backend/app/api/routers/public.py](backend/app/api/routers/public.py) e dai test backend sulla availability e sulle ricorrenze. Non riaprire il lavoro gia completato su reset password, payment return/cancel, public cancellation o propagazione tenant frontend. Se il supporto multi-timezone completo richiede una modifica piu ampia del previsto, documenta esplicitamente il vincolo temporaneo a un solo fuso operativo invece di introdurre un supporto parziale incoerente.

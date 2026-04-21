@@ -34,6 +34,31 @@ import {
 } from '../services/adminApi';
 import { getAvailability } from '../services/publicApi';
 
+const adminSession = {
+  email: 'admin@padelbooking.app',
+  full_name: 'Admin',
+  role: 'SUPERADMIN',
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  club_public_name: 'PadelBooking',
+} as const;
+
+const adminSettings = {
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  public_name: 'PadelBooking',
+  timezone: 'Europe/Rome',
+  currency: 'EUR',
+  notification_email: 'desk@padelbooking.app',
+  support_email: 'help@padelbooking.app',
+  support_phone: '+390101010101',
+  booking_hold_minutes: 15,
+  cancellation_window_hours: 24,
+  reminder_window_hours: 24,
+  stripe_enabled: true,
+  paypal_enabled: true,
+} as const;
+
 function renderDashboard() {
   return render(
     <MemoryRouter initialEntries={['/admin']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -49,18 +74,10 @@ function renderDashboard() {
 }
 
 function mockBootstrapSuccess() {
-  vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+  vi.mocked(getAdminSession).mockResolvedValue({ ...adminSession });
   vi.mocked(getAdminReport).mockResolvedValue({ total_bookings: 987, confirmed_bookings: 654, pending_bookings: 32, cancelled_bookings: 0, collected_deposits: 140 });
   vi.mocked(listBlackouts).mockResolvedValue([]);
-  vi.mocked(getAdminSettings).mockResolvedValue({
-    timezone: 'Europe/Rome',
-    currency: 'EUR',
-    booking_hold_minutes: 15,
-    cancellation_window_hours: 24,
-    reminder_window_hours: 24,
-    stripe_enabled: true,
-    paypal_enabled: true,
-  });
+  vi.mocked(getAdminSettings).mockResolvedValue({ ...adminSettings });
 }
 
 describe('AdminDashboardPage', () => {
@@ -72,15 +89,7 @@ describe('AdminDashboardPage', () => {
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(previewRecurring).mockResolvedValue({ occurrences: [] });
-    vi.mocked(updateAdminSettings).mockResolvedValue({
-      timezone: 'Europe/Rome',
-      currency: 'EUR',
-      booking_hold_minutes: 15,
-      cancellation_window_hours: 24,
-      reminder_window_hours: 24,
-      stripe_enabled: true,
-      paypal_enabled: true,
-    });
+    vi.mocked(updateAdminSettings).mockResolvedValue({ ...adminSettings });
     vi.mocked(getAvailability).mockImplementation(async (bookingDate: string, durationMinutes: number) => ({
       date: bookingDate,
       duration_minutes: durationMinutes,

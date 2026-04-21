@@ -13,17 +13,23 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import Admin, Booking, BookingSource, EmailNotificationLog, PaymentProvider, PaymentStatus
 from app.services.settings_service import get_booking_rules
-from app.services.tenant_service import get_default_club_id
+from app.services.tenant_service import build_club_app_url, get_default_club_id
 
 logger = logging.getLogger(__name__)
 OPTIONAL_EMAIL_ENVS = {'development', 'test'}
 
 
 class EmailService:
-    def _localize(self, value: datetime) -> datetime:
+    def _resolve_timezone(self, booking: Booking | None = None) -> ZoneInfo:
+        timezone_name = settings.timezone
+        if booking and booking.club and booking.club.timezone:
+            timezone_name = booking.club.timezone
+        return ZoneInfo(timezone_name)
+
+    def _localize(self, value: datetime, booking: Booking | None = None) -> datetime:
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
-        return value.astimezone(ZoneInfo(settings.timezone))
+        return value.astimezone(self._resolve_timezone(booking))
 
     def _format_currency(self, value: Decimal | int | float) -> str:
         return f"{Decimal(value):.2f}".replace('.', ',')
@@ -37,8 +43,8 @@ class EmailService:
         return labels.get(booking.payment_provider.value, booking.payment_provider.value)
 
     def _base_booking_details(self, booking: Booking) -> list[tuple[str, str]]:
-        start_local = self._localize(booking.start_at)
-        end_local = self._localize(booking.end_at)
+        start_local = self._localize(booking.start_at, booking)
+        end_local = self._localize(booking.end_at, booking)
         return [
             ('Codice prenotazione', booking.public_reference),
             ('Data', start_local.strftime('%d/%m/%Y')),
@@ -69,7 +75,7 @@ class EmailService:
     def _public_cancellation_url(self, booking: Booking) -> str | None:
         if not booking.cancel_token:
             return None
-        return f'{settings.app_url}/booking/cancel?token={booking.cancel_token}'
+        return build_club_app_url(booking.club, '/booking/cancel', query_params={'token': booking.cancel_token})
 
     def _refund_notes(self, booking: Booking, *, cancellation_window_hours: int) -> list[str]:
         if not self._has_online_payment_context(booking):
@@ -167,11 +173,21 @@ class EmailService:
             logger.exception('Invio email fallito')
             return 'FAILED', str(exc)
 
-    def send(self, db: Session, *, booking: Booking | None, to_email: str, template: str, subject: str, html: str) -> str:
+    def send(
+        self,
+        db: Session,
+        *,
+        booking: Booking | None,
+        to_email: str,
+        template: str,
+        subject: str,
+        html: str,
+        club_id: str | None = None,
+    ) -> str:
         status_value, error = self._deliver(to_email, subject, html)
         db.add(
             EmailNotificationLog(
-                club_id=booking.club_id if booking else get_default_club_id(db),
+                club_id=booking.club_id if booking else (club_id or get_default_club_id(db)),
                 booking_id=booking.id if booking else None,
                 recipient=to_email,
                 template=template,
@@ -186,7 +202,7 @@ class EmailService:
         customer = booking.customer
         if not customer:
             return 'SKIPPED'
-        booking_rules = get_booking_rules(db)
+        booking_rules = get_booking_rules(db, club_id=booking.club_id)
         cancellation_window_hours = booking_rules['cancellation_window_hours']
         cancellation_url = self._public_cancellation_url(booking)
         notes = [
@@ -219,7 +235,7 @@ class EmailService:
         customer = booking.customer
         if not customer:
             return 'SKIPPED'
-        booking_rules = get_booking_rules(db)
+        booking_rules = get_booking_rules(db, club_id=booking.club_id)
         notes = [
             'Lo slot torna disponibile per nuove prenotazioni.',
             "Se l'annullamento non era previsto, contatta il circolo indicando il codice prenotazione.",
@@ -299,6 +315,9 @@ class EmailService:
         customer_name = booking.customer_name or 'Cliente non associato'
         customer_email = booking.customer_email or 'Non disponibile'
         customer_phone = booking.customer_phone or 'Non disponibile'
+        recipient = settings.admin_email
+        if booking.club and booking.club.notification_email:
+            recipient = booking.club.notification_email
         html = self._render_email(
             title='Nuova prenotazione ricevuta',
             intro='Una prenotazione è stata confermata con caparra registrata. Di seguito il riepilogo operativo.',
@@ -318,7 +337,7 @@ class EmailService:
         return self.send(
             db,
             booking=booking,
-            to_email=str(settings.admin_email),
+            to_email=str(recipient),
             template='admin_new_booking',
             subject='Nuova prenotazione ricevuta',
             html=html,
@@ -350,6 +369,7 @@ class EmailService:
             template='admin_password_reset',
             subject='Reset password area admin',
             html=html,
+            club_id=admin.club_id,
         )
 
 

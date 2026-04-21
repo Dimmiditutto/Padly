@@ -20,6 +20,15 @@ vi.mock('../services/publicApi', () => ({
 import { cancelRecurringSeries, getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
 import { getAvailability } from '../services/publicApi';
 
+const adminSession = {
+  email: 'admin@padelbooking.app',
+  full_name: 'Admin',
+  role: 'SUPERADMIN',
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  club_public_name: 'PadelBooking',
+} as const;
+
 const baseBooking = {
   id: 'booking-1',
   public_reference: 'PB-BOOK-001',
@@ -65,7 +74,7 @@ function renderPage() {
 describe('AdminBookingDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(getAdminSession).mockResolvedValue({ ...adminSession });
     vi.mocked(getAdminBooking).mockResolvedValue({ ...baseBooking });
     vi.mocked(getAvailability).mockResolvedValue({
       date: baseBooking.booking_date_local,

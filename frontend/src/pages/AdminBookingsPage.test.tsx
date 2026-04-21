@@ -24,6 +24,15 @@ import {
 } from '../services/adminApi';
 import type { BookingSummary } from '../types';
 
+const adminSession = {
+  email: 'admin@padelbooking.app',
+  full_name: 'Admin',
+  role: 'SUPERADMIN',
+  club_id: 'club-default',
+  club_slug: 'default-club',
+  club_public_name: 'PadelBooking',
+} as const;
+
 const singleBooking: BookingSummary = {
   id: 'booking-public-1',
   public_reference: 'PB-BOOK-100',
@@ -118,7 +127,7 @@ function renderPage() {
 describe('AdminBookingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getAdminSession).mockResolvedValue({ email: 'admin@padelbooking.app', full_name: 'Admin' });
+    vi.mocked(getAdminSession).mockResolvedValue({ ...adminSession });
     vi.mocked(listAdminBookings).mockResolvedValue({ items: [singleBooking, ...recurringBookings], total: 3 });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(cancelRecurringOccurrences).mockResolvedValue({ message: 'ok', cancelled_count: 1, skipped_count: 0, booking_ids: ['rec-1'], series_id: null });

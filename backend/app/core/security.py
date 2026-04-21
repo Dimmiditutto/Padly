@@ -84,17 +84,27 @@ def _decode_token(token: str, *, expected_type: str, detail: str, error_status: 
     return payload
 
 
-def create_admin_token(subject: str, password_hash: str, expires_hours: int = 12) -> str:
+def create_admin_token(
+    subject: str,
+    password_hash: str,
+    expires_hours: int = 12,
+    *,
+    club_id: str | None = None,
+    club_slug: str | None = None,
+) -> str:
     now = datetime.now(UTC)
-    return _encode_token(
-        {
-            'sub': subject,
-            'iat': int(now.timestamp()),
-            'exp': int((now + timedelta(hours=expires_hours)).timestamp()),
-            'type': 'admin',
-            'pwd': password_hash_fingerprint(password_hash),
-        }
-    )
+    payload = {
+        'sub': subject,
+        'iat': int(now.timestamp()),
+        'exp': int((now + timedelta(hours=expires_hours)).timestamp()),
+        'type': 'admin',
+        'pwd': password_hash_fingerprint(password_hash),
+    }
+    if club_id:
+        payload['club_id'] = club_id
+    if club_slug:
+        payload['club_slug'] = club_slug
+    return _encode_token(payload)
 
 
 def decode_admin_token(token: str) -> dict[str, Any]:
@@ -106,17 +116,27 @@ def decode_admin_token(token: str) -> dict[str, Any]:
     )
 
 
-def create_admin_password_reset_token(subject: str, password_hash: str, expires_minutes: int = 30) -> str:
+def create_admin_password_reset_token(
+    subject: str,
+    password_hash: str,
+    expires_minutes: int = 30,
+    *,
+    club_id: str | None = None,
+    club_slug: str | None = None,
+) -> str:
     now = datetime.now(UTC)
-    return _encode_token(
-        {
-            'sub': subject,
-            'iat': int(now.timestamp()),
-            'exp': int((now + timedelta(minutes=expires_minutes)).timestamp()),
-            'type': 'admin_password_reset',
-            'pwd': password_hash_fingerprint(password_hash),
-        }
-    )
+    payload = {
+        'sub': subject,
+        'iat': int(now.timestamp()),
+        'exp': int((now + timedelta(minutes=expires_minutes)).timestamp()),
+        'type': 'admin_password_reset',
+        'pwd': password_hash_fingerprint(password_hash),
+    }
+    if club_id:
+        payload['club_id'] = club_id
+    if club_slug:
+        payload['club_slug'] = club_slug
+    return _encode_token(payload)
 
 
 def decode_admin_password_reset_token(token: str) -> dict[str, Any]:

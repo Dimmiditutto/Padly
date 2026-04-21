@@ -58,7 +58,7 @@ describe('AdminPasswordResetPage', () => {
     await user.type(screen.getByLabelText('Conferma nuova password'), 'ResetPass123!');
     await user.click(screen.getByRole('button', { name: 'Salva nuova password' }));
 
-    await waitFor(() => expect(confirmAdminPasswordReset).toHaveBeenCalledWith('test-reset-token', 'ResetPass123!'));
+    await waitFor(() => expect(confirmAdminPasswordReset).toHaveBeenCalledWith('test-reset-token', 'ResetPass123!', null));
     expect(screen.getByText('Password aggiornata. Ora puoi accedere con la nuova password.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Torna al login' })).toHaveAttribute('href', '/admin/login');
   });
@@ -73,5 +73,17 @@ describe('AdminPasswordResetPage', () => {
     await user.click(screen.getByRole('button', { name: 'Salva nuova password' }));
 
     await waitFor(() => expect(screen.getByText('Link di reset non valido o già utilizzato')).toBeInTheDocument());
+  });
+
+  it('preserves tenant context in submit and login link when present in the url', async () => {
+    const user = userEvent.setup();
+    renderPage('/admin/reset-password?token=test-reset-token&tenant=roma-club');
+
+    await user.type(screen.getByLabelText('Nuova password'), 'ResetPass123!');
+    await user.type(screen.getByLabelText('Conferma nuova password'), 'ResetPass123!');
+    await user.click(screen.getByRole('button', { name: 'Salva nuova password' }));
+
+    await waitFor(() => expect(confirmAdminPasswordReset).toHaveBeenCalledWith('test-reset-token', 'ResetPass123!', 'roma-club'));
+    expect(screen.getByRole('link', { name: 'Torna al login' })).toHaveAttribute('href', '/admin/login?tenant=roma-club');
   });
 });
