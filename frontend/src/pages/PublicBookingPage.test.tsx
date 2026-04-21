@@ -59,9 +59,9 @@ const createdBooking = {
   balance_paid_at: null,
 } as const;
 
-function renderPage() {
+function renderPage(path = '/') {
   return render(
-    <MemoryRouter initialEntries={['/']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <PublicBookingPage />
     </MemoryRouter>
   );
@@ -118,9 +118,13 @@ describe('PublicBookingPage', () => {
     expect(screen.getByText('Tariffe informative per giocatore')).toBeInTheDocument();
     expect(screen.getByText('Tariffe informative: non sostituiscono la caparra online.')).toBeInTheDocument();
     expect(screen.getByText('Giorno')).toBeInTheDocument();
+    expect(screen.getByText('Tenant attivo')).toBeInTheDocument();
+    expect(screen.getByText('Slug: default-club • Fuso: Europe/Rome')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'help@padelbooking.app' })).toHaveAttribute('href', 'mailto:help@padelbooking.app');
+    expect(screen.getByRole('link', { name: '+390101010101' })).toHaveAttribute('href', 'tel:+390101010101');
 
-    expect(getPublicConfig).toHaveBeenCalledTimes(1);
-    expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90);
+    expect(getPublicConfig).toHaveBeenCalledWith(null);
+    expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90, null);
     expect(screen.getByRole('button', { name: 'Stripe' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'PayPal' })).not.toBeInTheDocument();
 
@@ -133,8 +137,8 @@ describe('PublicBookingPage', () => {
       slot_id: '2026-05-10T18:00:00+00:00',
       duration_minutes: 90,
       payment_provider: 'STRIPE',
-    })));
-    expect(createPublicCheckout).toHaveBeenCalledWith(createdBooking.id);
+    }), null));
+    expect(createPublicCheckout).toHaveBeenCalledWith(createdBooking.id, null);
     expect(window.location.assign).toHaveBeenCalledWith('/checkout/mock');
   });
 
@@ -157,8 +161,29 @@ describe('PublicBookingPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '18:00' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continua al pagamento della caparra' }));
 
-    await waitFor(() => expect(createPublicBooking).toHaveBeenCalledWith(expect.objectContaining({ payment_provider: 'PAYPAL', slot_id: '2026-05-10T18:00:00+00:00' })));
+    await waitFor(() => expect(createPublicBooking).toHaveBeenCalledWith(expect.objectContaining({ payment_provider: 'PAYPAL', slot_id: '2026-05-10T18:00:00+00:00' }), null));
     expect(window.location.assign).toHaveBeenCalledWith('/checkout/paypal');
+  });
+
+  it('renders tenant-aware branding and preserves tenant query for admin access', async () => {
+    vi.mocked(getPublicConfig).mockResolvedValue({
+      ...baseConfig,
+      tenant_id: 'club-roma',
+      tenant_slug: 'roma-club',
+      public_name: 'Roma Elite Club',
+      contact_email: 'desk@roma-club.example',
+      support_email: 'support@roma-club.example',
+      support_phone: '+39021234567',
+    });
+
+    renderPage('/?tenant=roma-club');
+
+    await screen.findByText('Roma Elite Club: prenota il tuo match in pochi minuti');
+    expect(getPublicConfig).toHaveBeenCalledWith('roma-club');
+    expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90, 'roma-club');
+    expect(screen.getByRole('link', { name: 'desk@roma-club.example' })).toHaveAttribute('href', 'mailto:desk@roma-club.example');
+    expect(screen.getByRole('link', { name: '+39021234567' })).toHaveAttribute('href', 'tel:+39021234567');
+    expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login?tenant=roma-club');
   });
 
   it('shows only slots within the 7:00–24:00 opening window', async () => {
@@ -276,6 +301,6 @@ describe('PublicBookingPage', () => {
     fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-05-11' } });
 
     await screen.findByText('Lunedì');
-    expect(getAvailability).toHaveBeenLastCalledWith('2026-05-11', 90);
+    expect(getAvailability).toHaveBeenLastCalledWith('2026-05-11', 90, null);
   });
 });

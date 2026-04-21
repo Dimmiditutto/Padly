@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminBookingDetailPage } from './AdminBookingDetailPage';
 
@@ -59,13 +59,18 @@ const baseBooking = {
   payment_reference: 'pi_test_123',
 } as const;
 
-function renderPage() {
+function RouteLocation({ label }: { label: string }) {
+  const location = useLocation();
+  return <div>{`${label} ${location.pathname}${location.search}`}</div>;
+}
+
+function renderPage(path = '/admin/bookings/booking-1') {
   return render(
-    <MemoryRouter initialEntries={['/admin/bookings/booking-1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin/bookings/:bookingId' element={<AdminBookingDetailPage />} />
-        <Route path='/admin/prenotazioni' element={<div>BOOKINGS PAGE</div>} />
-        <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
+        <Route path='/admin/prenotazioni' element={<RouteLocation label='BOOKINGS PAGE' />} />
+        <Route path='/admin/login' element={<RouteLocation label='LOGIN PAGE' />} />
       </Routes>
     </MemoryRouter>
   );
@@ -101,7 +106,34 @@ describe('AdminBookingDetailPage', () => {
 
     renderPage();
 
-    await screen.findByText('LOGIN PAGE');
+    await screen.findByText('LOGIN PAGE /admin/login');
+  });
+
+  it('preserves tenant query on login redirect when session validation fails', async () => {
+    vi.mocked(getAdminSession).mockRejectedValue({ response: { status: 401, data: { detail: 'Unauthorized' } } });
+
+    renderPage('/admin/bookings/booking-1?tenant=roma-club');
+
+    await screen.findByText('LOGIN PAGE /admin/login?tenant=roma-club');
+    expect(getAdminSession).toHaveBeenCalledWith('roma-club');
+  });
+
+  it('preserves tenant query in the back link to bookings', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      ...adminSession,
+      club_id: 'club-roma',
+      club_slug: 'roma-club',
+      club_public_name: 'Roma Club',
+    });
+
+    renderPage('/admin/bookings/booking-1?tenant=roma-club');
+
+    await screen.findByText('Dettaglio prenotazione');
+    const backLink = screen.getByRole('link', { name: 'Torna alle prenotazioni' });
+    expect(backLink).toHaveAttribute('href', '/admin/prenotazioni?tenant=roma-club');
+
+    fireEvent.click(backLink);
+    await screen.findByText('BOOKINGS PAGE /admin/prenotazioni?tenant=roma-club');
   });
 
   it('hides payment details and balance actions for recurring bookings', async () => {

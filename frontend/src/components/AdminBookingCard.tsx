@@ -1,7 +1,8 @@
 import { ArrowRight, CalendarDays, Clock3, WalletCards } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { BookingSummary } from '../types';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { StatusBadge } from './StatusBadge';
 
 export function AdminBookingCard({
@@ -13,6 +14,8 @@ export function AdminBookingCard({
   onMarkBalancePaid: (bookingId: string) => Promise<void>;
   onUpdateStatus: (bookingId: string, status: 'CONFIRMED' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED') => Promise<void>;
 }) {
+  const location = useLocation();
+  const tenantSlug = getTenantSlugFromSearchParams(new URLSearchParams(location.search));
   const isRecurring = booking.source === 'ADMIN_RECURRING' || (booking.deposit_amount ?? 0) === 0;
   const canCancel = canCancelBooking(booking.status);
   const canComplete = canMarkBookingCompleted(booking.status, booking.end_at);
@@ -36,7 +39,7 @@ export function AdminBookingCard({
             {!isRecurring ? <span className='inline-flex items-center gap-1'><WalletCards size={14} /> Caparra €{booking.deposit_amount}</span> : null}
           </div>
         </div>
-        <Link to={`/admin/bookings/${booking.id}`} className='btn-ghost'>Dettaglio <ArrowRight size={16} /></Link>
+        <Link to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)} className='btn-ghost'>Dettaglio <ArrowRight size={16} /></Link>
       </div>
       <div className='mt-4 flex flex-wrap gap-2'>
         {!isRecurring ? <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalance} onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button> : null}

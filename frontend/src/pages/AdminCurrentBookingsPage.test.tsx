@@ -96,9 +96,9 @@ const januaryBooking: BookingSummary = {
   customer_name: 'Giulia Neri',
 };
 
-function renderPage() {
+function renderPage(path = '/admin/prenotazioni-attuali') {
   return render(
-    <MemoryRouter initialEntries={['/admin/prenotazioni-attuali']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin' element={<div>CREATE PAGE</div>} />
         <Route path='/admin/prenotazioni-attuali' element={<AdminCurrentBookingsPage />} />
@@ -229,5 +229,24 @@ describe('AdminCurrentBookingsPage', () => {
 
     fireEvent.click(screen.getByLabelText('Modifica PB-WEEK-JAN'));
     await screen.findByText('DETAIL PAGE');
+  });
+
+  it('preserves tenant query in weekly navigation and detail links', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      email: 'admin@roma-club.example',
+      full_name: 'Admin Roma',
+      role: 'SUPERADMIN',
+      club_id: 'club-roma',
+      club_slug: 'roma-club',
+      club_public_name: 'Roma Club',
+    });
+
+    renderPage('/admin/prenotazioni-attuali?tenant=roma-club');
+
+    await screen.findByText('Calendario settimanale prenotazioni');
+    expect(screen.getByText('Tenant attivo: Roma Club')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin?tenant=roma-club');
+    expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni?tenant=roma-club');
+    expect(screen.getByLabelText('Modifica PB-WEEK-001')).toHaveAttribute('href', '/admin/bookings/booking-current-1?tenant=roma-club');
   });
 });

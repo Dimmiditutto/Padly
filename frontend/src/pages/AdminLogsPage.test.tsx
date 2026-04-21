@@ -1,14 +1,15 @@
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminLogsPage } from './AdminLogsPage';
 
 vi.mock('../services/adminApi', () => ({
   getAdminSession: vi.fn(),
   listAdminEvents: vi.fn(),
+  logoutAdmin: vi.fn(),
 }));
 
-import { getAdminSession, listAdminEvents } from '../services/adminApi';
+import { getAdminSession, listAdminEvents, logoutAdmin } from '../services/adminApi';
 
 const adminSession = {
   email: 'admin@padelbooking.app',
@@ -19,12 +20,17 @@ const adminSession = {
   club_public_name: 'PadelBooking',
 } as const;
 
-function renderPage() {
+function RouteLocation({ label }: { label: string }) {
+  const location = useLocation();
+  return <div>{`${label} ${location.pathname}${location.search}`}</div>;
+}
+
+function renderPage(path = '/admin/log') {
   return render(
-    <MemoryRouter initialEntries={['/admin/log']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin/log' element={<AdminLogsPage />} />
-        <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
+        <Route path='/admin/login' element={<RouteLocation label='LOGIN PAGE' />} />
       </Routes>
     </MemoryRouter>
   );
@@ -43,6 +49,7 @@ describe('AdminLogsPage', () => {
         created_at: '2024-04-10T08:00:00Z',
       },
     ]);
+    vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
   });
 
   it('renders the recent admin event list', async () => {
@@ -58,6 +65,32 @@ describe('AdminLogsPage', () => {
 
     renderPage();
 
-    await screen.findByText('LOGIN PAGE');
+    await screen.findByText('LOGIN PAGE /admin/login');
+  });
+
+  it('preserves tenant query on 401 redirects', async () => {
+    vi.mocked(getAdminSession).mockRejectedValue({ response: { status: 401, data: { detail: 'Unauthorized' } } });
+
+    renderPage('/admin/log?tenant=roma-club');
+
+    await screen.findByText('LOGIN PAGE /admin/login?tenant=roma-club');
+    expect(getAdminSession).toHaveBeenCalledWith('roma-club');
+  });
+
+  it('preserves tenant query on logout', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      ...adminSession,
+      club_id: 'club-roma',
+      club_slug: 'roma-club',
+      club_public_name: 'Roma Club',
+    });
+
+    renderPage('/admin/log?tenant=roma-club');
+
+    await screen.findByText('Traccia operativa recente');
+    fireEvent.click(screen.getByRole('button', { name: 'Esci' }));
+
+    await waitFor(() => expect(logoutAdmin).toHaveBeenCalledWith('roma-club'));
+    await screen.findByText('LOGIN PAGE /admin/login?tenant=roma-club');
   });
 });

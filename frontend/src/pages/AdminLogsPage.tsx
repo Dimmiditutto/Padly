@@ -6,9 +6,10 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { getAdminSession, listAdminEvents, logoutAdmin } from '../services/adminApi';
-import type { AdminEvent } from '../types';
+import type { AdminEvent, AdminSession } from '../types';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatDateTime } from '../utils/format';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const HERO_ACTION_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 const HERO_ACTIONS_WRAPPER_CLASS = 'sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0';
@@ -23,25 +24,29 @@ function getRequestMessage(error: any, fallback: string) {
 
 export function AdminLogsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'error'; message: string } | null>(null);
 
   useEffect(() => {
     void bootstrap();
-  }, []);
+  }, [tenantSlug]);
 
   async function bootstrap() {
     setLoading(true);
     setFeedback(null);
 
     try {
-      await getAdminSession();
+      const sessionResponse = await getAdminSession(tenantSlug);
+      setSession(sessionResponse);
       const response = await listAdminEvents();
       setEvents(response);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        navigate(withTenantPath('/admin/login', tenantSlug));
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Non riesco a caricare il log admin in questo momento.') });
@@ -51,8 +56,8 @@ export function AdminLogsPage() {
   }
 
   async function logout() {
-    await logoutAdmin();
-    navigate('/admin/login');
+    await logoutAdmin(tenantSlug);
+    navigate(withTenantPath('/admin/login', tenantSlug));
   }
 
   return (
@@ -70,7 +75,7 @@ export function AdminLogsPage() {
               <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>
-          <AdminNav />
+          <AdminNav session={session} />
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}

@@ -1,6 +1,6 @@
 import { ArrowLeft, CalendarDays, Mail, Phone, WalletCards } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AdminTimeSlotPicker } from '../components/AdminTimeSlotPicker';
 import { AlertBanner } from '../components/AlertBanner';
 import { DateFieldWithDay } from '../components/DateFieldWithDay';
@@ -10,6 +10,7 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelRecurringSeries, getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
 import type { AdminBookingUpdatePayload, BookingDetail, RecurringSeriesPayload } from '../types';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { formatCurrency, formatDateTime } from '../utils/format';
 
@@ -18,6 +19,8 @@ const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 export function AdminBookingDetailPage() {
   const navigate = useNavigate();
   const { bookingId = '' } = useParams();
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
@@ -47,13 +50,13 @@ export function AdminBookingDetailPage() {
 
   useEffect(() => {
     void bootstrap();
-  }, [bookingId]);
+  }, [bookingId, tenantSlug]);
 
   async function bootstrap() {
     setLoading(true);
     setError('');
     try {
-      await getAdminSession();
+      await getAdminSession(tenantSlug);
       const detail = await getAdminBooking(bookingId);
       setBooking(detail);
       setEditForm(buildEditForm(detail));
@@ -62,7 +65,7 @@ export function AdminBookingDetailPage() {
       setEditingSeries(false);
     } catch (requestError: any) {
       if (requestError?.response?.status === 401) {
-        navigate('/admin/login');
+        navigate(withTenantPath('/admin/login', tenantSlug));
         return;
       }
       setError(requestError?.response?.data?.detail || 'Non riesco a caricare il dettaglio prenotazione.');
@@ -197,7 +200,7 @@ export function AdminBookingDetailPage() {
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='flex items-center justify-between gap-3'>
-          <Link to='/admin/prenotazioni' className='btn-secondary'>
+          <Link to={withTenantPath('/admin/prenotazioni', tenantSlug)} className='btn-secondary'>
             <ArrowLeft size={16} /> Torna alle prenotazioni
           </Link>
         </div>

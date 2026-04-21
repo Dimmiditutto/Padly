@@ -59,9 +59,9 @@ const adminSettings = {
   paypal_enabled: true,
 } as const;
 
-function renderDashboard() {
+function renderDashboard(path = '/admin') {
   return render(
-    <MemoryRouter initialEntries={['/admin']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin' element={<AdminDashboardPage />} />
         <Route path='/admin/login' element={<div>LOGIN PAGE</div>} />
@@ -144,6 +144,9 @@ describe('AdminDashboardPage', () => {
 
     await screen.findByText('Dashboard admin');
     expect(screen.getByText('Padly')).toBeInTheDocument();
+    expect(screen.getByText('Tenant attivo: PadelBooking')).toBeInTheDocument();
+    expect(screen.getByText('Slug: default-club')).toBeInTheDocument();
+    expect(screen.getByText('Notifiche: desk@padelbooking.app')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
@@ -227,5 +230,52 @@ describe('AdminDashboardPage', () => {
       start_time: '02:00',
       slot_id: '2026-10-25T01:00:00+00:00',
     })));
+  });
+
+  it('saves tenant profile fields and preserves tenant query in admin links', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      ...adminSession,
+      club_slug: 'roma-club',
+      club_public_name: 'Roma Club',
+    });
+    vi.mocked(getAdminSettings).mockResolvedValue({
+      ...adminSettings,
+      club_slug: 'roma-club',
+      public_name: 'Roma Club',
+      notification_email: 'desk@roma-club.example',
+      support_email: 'support@roma-club.example',
+      support_phone: '+39021234567',
+    });
+    vi.mocked(updateAdminSettings).mockResolvedValue({
+      ...adminSettings,
+      club_slug: 'roma-club',
+      public_name: 'Roma Club Elite',
+      notification_email: 'ops@roma-club.example',
+      support_email: 'help@roma-club.example',
+      support_phone: '+39029876543',
+    });
+
+    renderDashboard('/admin?tenant=roma-club');
+
+    await screen.findByText('Tenant attivo: Roma Club');
+    expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log?tenant=roma-club');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+    fireEvent.change(screen.getByLabelText('Nome pubblico tenant'), { target: { value: 'Roma Club Elite' } });
+    fireEvent.change(screen.getByLabelText('Email notifiche operative'), { target: { value: 'ops@roma-club.example' } });
+    fireEvent.change(screen.getByLabelText('Email supporto pubblico'), { target: { value: 'help@roma-club.example' } });
+    fireEvent.change(screen.getByLabelText('Telefono supporto pubblico'), { target: { value: '+39029876543' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salva impostazioni tenant' }));
+
+    await waitFor(() => expect(updateAdminSettings).toHaveBeenCalledWith({
+      public_name: 'Roma Club Elite',
+      notification_email: 'ops@roma-club.example',
+      support_email: 'help@roma-club.example',
+      support_phone: '+39029876543',
+      booking_hold_minutes: 15,
+      cancellation_window_hours: 24,
+      reminder_window_hours: 24,
+    }));
+    await screen.findByText('Regole operative aggiornate.');
   });
 });

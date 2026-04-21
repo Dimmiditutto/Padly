@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, CalendarDays, Clock3 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AdminNav } from '../components/AdminNav';
 import { AlertBanner } from '../components/AlertBanner';
 import { EmptyState } from '../components/EmptyState';
@@ -8,7 +8,8 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
-import type { AdminDashboardFilters, BookingSummary } from '../types';
+import type { AdminDashboardFilters, AdminSession, BookingSummary } from '../types';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking } from '../utils/adminBookingActions';
 import { toDateInputValue } from '../utils/format';
 
@@ -127,12 +128,15 @@ function buildBookingFilters(weekStart: Date): AdminDashboardFilters {
 
 export function AdminCurrentBookingsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const today = useMemo(() => normalizeDate(new Date()), []);
   const currentWeekStart = useMemo(() => getStartOfWeek(today), [today]);
   const minArrowWeek = useMemo(() => addWeeks(currentWeekStart, -2), [currentWeekStart]);
   const maxArrowWeek = useMemo(() => addWeeks(currentWeekStart, 4), [currentWeekStart]);
   const initialSelection = useMemo(() => getWeekPickerSelection(currentWeekStart), [currentWeekStart]);
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [viewWeekStart, setViewWeekStart] = useState(currentWeekStart);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'error' | 'success'; message: string } | null>(null);
@@ -178,7 +182,7 @@ export function AdminCurrentBookingsPage() {
 
   useEffect(() => {
     void bootstrap();
-  }, []);
+  }, [tenantSlug]);
 
   useEffect(() => {
     setWeekIndex((previous) => {
@@ -194,11 +198,12 @@ export function AdminCurrentBookingsPage() {
     setFeedback(null);
 
     try {
-      await getAdminSession();
+      const sessionResponse = await getAdminSession(tenantSlug);
+      setSession(sessionResponse);
       await loadWeek(currentWeekStart, false);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        navigate(withTenantPath('/admin/login', tenantSlug));
         return;
       }
 
@@ -218,7 +223,7 @@ export function AdminCurrentBookingsPage() {
       setBookings(response.items);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        navigate(withTenantPath('/admin/login', tenantSlug));
         return;
       }
 
@@ -279,7 +284,7 @@ export function AdminCurrentBookingsPage() {
       await loadWeek(viewWeekStart, false);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        navigate(withTenantPath('/admin/login', tenantSlug));
         return;
       }
 
@@ -308,7 +313,7 @@ export function AdminCurrentBookingsPage() {
       await loadWeek(viewWeekStart, false);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        navigate(withTenantPath('/admin/login', tenantSlug));
         return;
       }
 
@@ -317,8 +322,8 @@ export function AdminCurrentBookingsPage() {
   }
 
   async function logout() {
-    await logoutAdmin();
-    navigate('/admin/login');
+    await logoutAdmin(tenantSlug);
+    navigate(withTenantPath('/admin/login', tenantSlug));
   }
 
   return (
@@ -336,7 +341,7 @@ export function AdminCurrentBookingsPage() {
               <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>
-          <AdminNav />
+          <AdminNav session={session} />
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
@@ -442,7 +447,7 @@ export function AdminCurrentBookingsPage() {
                                 </div>
                                 <div className='mt-3 flex flex-wrap gap-2'>
                                   <Link
-                                    to={`/admin/bookings/${booking.id}`}
+                                    to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)}
                                     aria-label={`Modifica ${booking.public_reference}`}
                                     className='text-sm font-semibold text-cyan-700 transition hover:text-cyan-900'
                                   >

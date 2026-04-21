@@ -1,12 +1,13 @@
-import { Calendar, CheckCircle2, Clock3, CreditCard, LogIn, ShieldCheck } from 'lucide-react';
+import { Building2, Calendar, CheckCircle2, Clock3, CreditCard, LogIn, Mail, Phone, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
 import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
 import type { PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, toDateInputValue } from '../utils/format';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -24,6 +25,8 @@ const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
 const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
 
 export function PublicBookingPage() {
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [bookingDate, setBookingDate] = useState(today);
   const [duration, setDuration] = useState(90);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -44,16 +47,17 @@ export function PublicBookingPage() {
     note: '',
     privacy_accepted: false,
   });
-  const bookingDayLabel = useMemo(() => formatBookingDayLabel(bookingDate), [bookingDate]);
+  const bookingDayLabel = useMemo(() => formatBookingDayLabel(bookingDate, publicConfig?.timezone), [bookingDate, publicConfig?.timezone]);
   const visibleSlots = useMemo(() => slots.filter(isSlotWithinOpeningHours), [slots]);
+  const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'PadelBooking';
 
   useEffect(() => {
     void loadConfig();
-  }, []);
+  }, [tenantSlug]);
 
   useEffect(() => {
     void loadAvailability();
-  }, [bookingDate, duration]);
+  }, [bookingDate, duration, tenantSlug]);
 
   const availableProviders = useMemo<PaymentProvider[]>(() => {
     if (!publicConfig) return [];
@@ -80,7 +84,7 @@ export function PublicBookingPage() {
   async function loadConfig() {
     setLoadingConfig(true);
     try {
-      const config = await getPublicConfig();
+      const config = await getPublicConfig(tenantSlug);
       setPublicConfig(config);
     } catch {
       setFeedback({ tone: 'error', message: 'Non riesco a caricare la configurazione pubblica del booking.' });
@@ -94,7 +98,7 @@ export function PublicBookingPage() {
     setFeedback(null);
     setSelectedSlotId('');
     try {
-      const response = await getAvailability(bookingDate, duration);
+      const response = await getAvailability(bookingDate, duration, tenantSlug);
       setSlots(response.slots);
       setDepositAmount(Number(response.deposit_amount));
     } catch (error) {
@@ -129,18 +133,21 @@ export function PublicBookingPage() {
     setFeedback(null);
 
     try {
-      const bookingResponse = await createPublicBooking({
-        ...formData,
-        booking_date: bookingDate,
-        start_time: selectedSlot.start_time,
-        slot_id: selectedSlot.slot_id,
-        duration_minutes: duration,
-        payment_provider: paymentProvider,
-      });
+      const bookingResponse = await createPublicBooking(
+        {
+          ...formData,
+          booking_date: bookingDate,
+          start_time: selectedSlot.start_time,
+          slot_id: selectedSlot.slot_id,
+          duration_minutes: duration,
+          payment_provider: paymentProvider,
+        },
+        tenantSlug,
+      );
 
       const booking = bookingResponse.booking;
       setLastBooking(booking);
-      const checkoutResponse = await createPublicCheckout(booking.id);
+      const checkoutResponse = await createPublicCheckout(booking.id, tenantSlug);
       window.location.assign(checkoutResponse.checkout_url);
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Non è stato possibile avviare la prenotazione.' });
@@ -158,8 +165,9 @@ export function PublicBookingPage() {
               <img src={logoUrl} alt='Logo BG' className='mx-auto block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
             </div>
             <div className='mt-6 max-w-2xl'>
-              <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Prenota il tuo match in pochi minuti</h1>
-              <p className='mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo.</p>
+              <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico tenant-aware</p>
+              <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>{tenantDisplayName}: prenota il tuo match in pochi minuti</h1>
+              <p className='mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo. Il backend mantiene il tenant attivo senza cambiare il flusso prenotazione.</p>
             </div>
             <div className='mt-6 border-t border-white/10 pt-5'>
               <div className='grid gap-3 sm:grid-cols-3'>
@@ -168,6 +176,34 @@ export function PublicBookingPage() {
                 <InfoPill icon={<ShieldCheck size={16} />} title='Conferma rapida' text='Slot protetto server-side' />
               </div>
             </div>
+            {publicConfig ? (
+              <div className='mt-4 rounded-[24px] border border-white/10 bg-white/5 p-4'>
+                <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
+                  <div>
+                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Tenant attivo</p>
+                    <div className='mt-2 flex items-center gap-2 text-lg font-semibold text-white'>
+                      <Building2 size={18} className='text-cyan-200' />
+                      <span>{tenantDisplayName}</span>
+                    </div>
+                    <p className='mt-1 text-sm text-slate-300'>Slug: {publicConfig.tenant_slug} • Fuso: {publicConfig.timezone}</p>
+                  </div>
+                  <div className='flex flex-col gap-2 text-sm text-slate-200'>
+                    {publicConfig.contact_email ? (
+                      <a href={`mailto:${publicConfig.contact_email}`} className='inline-flex items-center gap-2 hover:text-white'>
+                        <Mail size={16} className='text-cyan-200' />
+                        <span>{publicConfig.contact_email}</span>
+                      </a>
+                    ) : null}
+                    {publicConfig.support_phone ? (
+                      <a href={`tel:${publicConfig.support_phone}`} className='inline-flex items-center gap-2 hover:text-white'>
+                        <Phone size={16} className='text-cyan-200' />
+                        <span>{publicConfig.support_phone}</span>
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className='surface-card bg-gradient-to-br from-white to-cyan-50'>
@@ -331,7 +367,7 @@ export function PublicBookingPage() {
             </SectionCard>
               <div className='mt-4 flex justify-end'>
                 <Link
-                  to='/admin/login'
+                  to={withTenantPath('/admin/login', tenantSlug)}
                   className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-200'
                 >
                   <LogIn size={16} />
@@ -346,7 +382,7 @@ export function PublicBookingPage() {
   );
 }
 
-function formatBookingDayLabel(value: string) {
+function formatBookingDayLabel(value: string, timezone = 'Europe/Rome') {
   const [year, month, day] = value.split('-').map(Number);
   if (!year || !month || !day) {
     return '';
@@ -355,7 +391,7 @@ function formatBookingDayLabel(value: string) {
   const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   const label = new Intl.DateTimeFormat('it-IT', {
     weekday: 'long',
-    timeZone: 'Europe/Rome',
+    timeZone: timezone,
   }).format(normalizedDate);
   return label.charAt(0).toUpperCase() + label.slice(1);
 }

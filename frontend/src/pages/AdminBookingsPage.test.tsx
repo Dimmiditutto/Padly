@@ -112,9 +112,9 @@ const recurringBookings: BookingSummary[] = [
   },
 ];
 
-function renderPage() {
+function renderPage(path = '/admin/prenotazioni') {
   return render(
-    <MemoryRouter initialEntries={['/admin/prenotazioni']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path='/admin/prenotazioni' element={<AdminBookingsPage />} />
         <Route path='/admin/prenotazioni-attuali' element={<div>CURRENT BOOKINGS PAGE</div>} />
@@ -145,6 +145,7 @@ describe('AdminBookingsPage', () => {
     renderPage();
 
     await screen.findByText('Ricerca avanzata e gestione ricorrenze');
+    expect(screen.getByText('Tenant attivo: PadelBooking')).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByRole('button', { name: 'Aggiorna dashboard' })).toBeInTheDocument();
@@ -184,5 +185,24 @@ describe('AdminBookingsPage', () => {
 
     await waitFor(() => expect(cancelRecurringSeries).toHaveBeenCalledWith('series-1'));
     expect(screen.getByText('Serie aggiornata: 2 occorrenze future annullate, 0 saltate.')).toBeInTheDocument();
+  });
+
+  it('preserves tenant query in admin nav and booking detail links', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      email: 'admin@roma-club.example',
+      full_name: 'Admin Roma',
+      role: 'SUPERADMIN',
+      club_id: 'club-roma',
+      club_slug: 'roma-club',
+      club_public_name: 'Roma Club',
+    });
+
+    renderPage('/admin/prenotazioni?tenant=roma-club');
+
+    await screen.findByText('Tenant attivo: Roma Club');
+    expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin?tenant=roma-club');
+    expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni?tenant=roma-club');
+    expect(screen.getAllByRole('link', { name: /Dettaglio/ })[0]).toHaveAttribute('href', '/admin/bookings/booking-public-1?tenant=roma-club');
   });
 });

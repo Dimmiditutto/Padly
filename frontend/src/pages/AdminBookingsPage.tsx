@@ -1,6 +1,6 @@
 import { CalendarDays, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AdminBookingCard } from '../components/AdminBookingCard';
 import { AdminNav } from '../components/AdminNav';
 import { AlertBanner } from '../components/AlertBanner';
@@ -17,7 +17,8 @@ import {
   markAdminBalancePaid,
   updateAdminBookingStatus,
 } from '../services/adminApi';
-import type { AdminDashboardFilters, BookingSummary } from '../types';
+import type { AdminDashboardFilters, AdminSession, BookingSummary } from '../types';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking } from '../utils/adminBookingActions';
 import { formatDateTime, toDateInputValue } from '../utils/format';
 
@@ -35,6 +36,9 @@ function getRequestMessage(error: any, fallback: string) {
 
 export function AdminBookingsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'error' | 'success'; message: string } | null>(null);
@@ -50,18 +54,23 @@ export function AdminBookingsPage() {
 
   useEffect(() => {
     void bootstrap();
-  }, []);
+  }, [tenantSlug]);
+
+  function redirectToLogin() {
+    navigate(withTenantPath('/admin/login', tenantSlug));
+  }
 
   async function bootstrap() {
     setLoading(true);
     setFeedback(null);
 
     try {
-      await getAdminSession();
+      const sessionResponse = await getAdminSession(tenantSlug);
+      setSession(sessionResponse);
       await loadBookings();
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
 
@@ -84,7 +93,7 @@ export function AdminBookingsPage() {
       await loadBookings();
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Applicazione filtri non riuscita.') });
@@ -97,7 +106,7 @@ export function AdminBookingsPage() {
       await loadBookings(filters);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, message) });
@@ -112,7 +121,7 @@ export function AdminBookingsPage() {
       await loadBookings();
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento stato non riuscito.') });
@@ -127,7 +136,7 @@ export function AdminBookingsPage() {
       await loadBookings();
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Marcatura saldo non riuscita.') });
@@ -135,8 +144,8 @@ export function AdminBookingsPage() {
   }
 
   async function logout() {
-    await logoutAdmin();
-    navigate('/admin/login');
+    await logoutAdmin(tenantSlug);
+    redirectToLogin();
   }
 
   async function handleCancelOccurrences(seriesId: string, bookingIds: string[], scopeLabel: string) {
@@ -160,7 +169,7 @@ export function AdminBookingsPage() {
       await loadBookings();
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento occorrenze ricorrenti non riuscito.') });
@@ -184,7 +193,7 @@ export function AdminBookingsPage() {
       await loadBookings();
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento serie ricorrente non riuscito.') });
@@ -208,7 +217,7 @@ export function AdminBookingsPage() {
               <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>
-          <AdminNav />
+          <AdminNav session={session} />
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
@@ -380,7 +389,7 @@ export function AdminBookingsPage() {
                                 </div>
                               </div>
                               <div className='flex flex-wrap gap-2'>
-                                <Link to={`/admin/bookings/${booking.id}`} className='btn-ghost'>Dettaglio</Link>
+                                <Link to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)} className='btn-ghost'>Dettaglio</Link>
                                 {isSelectable ? (
                                   <button
                                     className='btn-secondary'

@@ -1,6 +1,6 @@
 import { CalendarClock, ChevronDown, ChevronUp } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AdminNav } from '../components/AdminNav';
 import { AdminTimeSlotPicker } from '../components/AdminTimeSlotPicker';
 import { AlertBanner } from '../components/AlertBanner';
@@ -21,7 +21,8 @@ import {
   previewRecurring,
   updateAdminSettings,
 } from '../services/adminApi';
-import type { AdminManualBookingPayload, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse } from '../types';
+import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse } from '../types';
+import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDateTime, formatRomeWeekdayLabel, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
@@ -60,6 +61,9 @@ function addWeeksToDateInput(dateValue: string, weeksToAdd: number) {
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tenantSlug = getTenantSlugFromSearchParams(searchParams);
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [blackouts, setBlackouts] = useState<BlackoutItem[]>([]);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
@@ -96,16 +100,21 @@ export function AdminDashboardPage() {
 
   useEffect(() => {
     void bootstrap();
-  }, []);
+  }, [tenantSlug]);
+
+  function redirectToLogin() {
+    navigate(withTenantPath('/admin/login', tenantSlug));
+  }
 
   async function bootstrap() {
     setLoading(true);
     setFeedback(null);
     try {
-      await getAdminSession();
+      const sessionResponse = await getAdminSession(tenantSlug);
+      setSession(sessionResponse);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Non riesco a verificare la sessione admin in questo momento.') });
@@ -117,7 +126,7 @@ export function AdminDashboardPage() {
       const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadSettings()]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
 
@@ -151,7 +160,7 @@ export function AdminDashboardPage() {
       await Promise.all([loadReport(), loadBlackouts(), loadSettings()]);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
-        navigate('/admin/login');
+        redirectToLogin();
         return;
       }
       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento dashboard non riuscito.') });
@@ -237,6 +246,10 @@ export function AdminDashboardPage() {
     setFeedback(null);
     try {
       const response = await updateAdminSettings({
+        public_name: settings.public_name,
+        notification_email: settings.notification_email,
+        support_email: settings.support_email || null,
+        support_phone: settings.support_phone || null,
         booking_hold_minutes: settings.booking_hold_minutes,
         cancellation_window_hours: settings.cancellation_window_hours,
         reminder_window_hours: settings.reminder_window_hours,
@@ -249,8 +262,8 @@ export function AdminDashboardPage() {
   }
 
   async function logout() {
-    await logoutAdmin();
-    navigate('/admin/login');
+    await logoutAdmin(tenantSlug);
+    redirectToLogin();
   }
 
   return (
@@ -269,7 +282,7 @@ export function AdminDashboardPage() {
             <button onClick={() => void refreshDashboard()} className={HERO_ACTION_BUTTON_CLASS}>Aggiorna dashboard</button>
             <button onClick={logout} className={HERO_ACTION_BUTTON_CLASS}>Esci</button>
           </div>
-          <AdminNav />
+          <AdminNav session={session} notificationEmail={settings?.notification_email || null} />
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
@@ -289,8 +302,8 @@ export function AdminDashboardPage() {
           elevated
         >
           <div className='mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
-            <Link to='/admin/prenotazioni-attuali' className='btn-primary w-full sm:w-auto'>Prenotazioni Attuali</Link>
-            <Link to='/admin/prenotazioni' className='btn-secondary w-full sm:w-auto'>Elenco prenotazioni</Link>
+            <Link to={withTenantPath('/admin/prenotazioni-attuali', tenantSlug)} className='btn-primary w-full sm:w-auto'>Prenotazioni Attuali</Link>
+            <Link to={withTenantPath('/admin/prenotazioni', tenantSlug)} className='btn-secondary w-full sm:w-auto'>Elenco prenotazioni</Link>
           </div>
         </SectionCard>
 
@@ -488,11 +501,29 @@ export function AdminDashboardPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title='Regole operative' description='Controlla hold pagamento, soglia rimborso e reminder.' collapsible defaultExpanded={false}>
+            <SectionCard title='Profilo tenant e regole operative' description='Aggiorna nome pubblico, contatti operativi e regole del tenant attivo.' collapsible defaultExpanded={false}>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
               ) : (
                 <form className='space-y-3' onSubmit={saveSettings}>
+                  <div className='grid gap-3 sm:grid-cols-2'>
+                    <div>
+                      <label className='field-label' htmlFor='admin-settings-public-name'>Nome pubblico tenant</label>
+                      <input id='admin-settings-public-name' className='text-input' value={settings.public_name} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_name: event.target.value } : prev)} />
+                    </div>
+                    <div>
+                      <label className='field-label' htmlFor='admin-settings-notification-email'>Email notifiche operative</label>
+                      <input id='admin-settings-notification-email' className='text-input' type='email' value={settings.notification_email} onChange={(event) => setSettings((prev) => prev ? { ...prev, notification_email: event.target.value } : prev)} />
+                    </div>
+                    <div>
+                      <label className='field-label' htmlFor='admin-settings-support-email'>Email supporto pubblico</label>
+                      <input id='admin-settings-support-email' className='text-input' type='email' value={settings.support_email || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, support_email: event.target.value || null } : prev)} />
+                    </div>
+                    <div>
+                      <label className='field-label' htmlFor='admin-settings-support-phone'>Telefono supporto pubblico</label>
+                      <input id='admin-settings-support-phone' className='text-input' value={settings.support_phone || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, support_phone: event.target.value || null } : prev)} />
+                    </div>
+                  </div>
                   <div className='grid gap-3 sm:grid-cols-3'>
                     <div>
                       <label className='field-label'>Hold pagamento</label>
@@ -507,11 +538,25 @@ export function AdminDashboardPage() {
                       <input className='text-input' type='number' min={1} max={168} value={settings.reminder_window_hours} onChange={(event) => setSettings((prev) => prev ? { ...prev, reminder_window_hours: Number(event.target.value) } : prev)} />
                     </div>
                   </div>
+                  <div className='grid gap-3 sm:grid-cols-3'>
+                    <div className='surface-muted'>
+                      <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Slug tenant</p>
+                      <p className='mt-2 text-sm font-medium text-slate-900'>{settings.club_slug}</p>
+                    </div>
+                    <div className='surface-muted'>
+                      <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Timezone</p>
+                      <p className='mt-2 text-sm font-medium text-slate-900'>{settings.timezone}</p>
+                    </div>
+                    <div className='surface-muted'>
+                      <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Valuta</p>
+                      <p className='mt-2 text-sm font-medium text-slate-900'>{settings.currency}</p>
+                    </div>
+                  </div>
                   <div className='surface-muted'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Provider</p>
                     <p className='mt-2 text-sm text-slate-700'>Stripe: <strong>{settings.stripe_enabled ? 'disponibile' : 'non disponibile'}</strong> • PayPal: <strong>{settings.paypal_enabled ? 'disponibile' : 'non disponibile'}</strong></p>
                   </div>
-                  <button className='btn-primary w-full' type='submit'>Salva regole</button>
+                  <button className='btn-primary w-full' type='submit'>Salva impostazioni tenant</button>
                 </form>
               )}
             </SectionCard>
@@ -521,7 +566,7 @@ export function AdminDashboardPage() {
         <SectionCard
           title='Log operativi'
           description='Consulta gli ultimi eventi business del backend in una pagina dedicata.'
-          actions={<Link to='/admin/log' className={SUBTLE_LINK_CLASS}>Apri log</Link>}
+          actions={<Link to={withTenantPath('/admin/log', tenantSlug)} className={SUBTLE_LINK_CLASS}>Apri log</Link>}
           elevated
         />
       </div>
