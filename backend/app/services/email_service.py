@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import Admin, Booking, BookingSource, EmailNotificationLog, PaymentProvider, PaymentStatus
 from app.services.settings_service import get_booking_rules
+from app.services.tenant_service import get_default_club_id
 
 logger = logging.getLogger(__name__)
 OPTIONAL_EMAIL_ENVS = {'development', 'test'}
@@ -170,6 +171,7 @@ class EmailService:
         status_value, error = self._deliver(to_email, subject, html)
         db.add(
             EmailNotificationLog(
+                club_id=booking.club_id if booking else get_default_club_id(db),
                 booking_id=booking.id if booking else None,
                 recipient=to_email,
                 template=template,

@@ -15,12 +15,17 @@ os.environ['SMTP_FROM'] = 'noreply@example.com'
 
 from app.core.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.tenant_service import ensure_default_club  # noqa: E402
+from app.core.db import SessionLocal  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def reset_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        ensure_default_club(db)
+        db.commit()
     yield
     Base.metadata.drop_all(bind=engine)
 

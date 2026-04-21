@@ -44,7 +44,7 @@ def _parse_datetime(value: str) -> datetime:
 
 @router.get('/blackouts')
 def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> list[dict]:
-    items = db.scalars(select(BlackoutPeriod).order_by(BlackoutPeriod.start_at.desc())).all()
+    items = db.scalars(select(BlackoutPeriod).where(BlackoutPeriod.club_id == admin.club_id).order_by(BlackoutPeriod.start_at.desc())).all()
     return [
         {
             'id': item.id,
@@ -61,7 +61,7 @@ def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_cur
 @router.post('/blackouts')
 def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> dict:
     with acquire_single_court_lock(db):
-        blackout = create_blackout(db, title=payload.title, reason=payload.reason, start_at=_parse_datetime(payload.start_at), end_at=_parse_datetime(payload.end_at), actor=admin.email)
+        blackout = create_blackout(db, title=payload.title, reason=payload.reason, start_at=_parse_datetime(payload.start_at), end_at=_parse_datetime(payload.end_at), actor=admin.email, club_id=admin.club_id)
         db.commit()
     db.refresh(blackout)
     return {'id': blackout.id, 'message': 'Blackout creato'}
@@ -79,6 +79,7 @@ def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depe
             start_time_value=payload.start_time,
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
+            club_id=admin.club_id,
         )
     )
 
@@ -96,6 +97,7 @@ def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depen
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
             actor=admin.email,
+            club_id=admin.club_id,
         )
         db.commit()
     return RecurringCreateResponse(series_id=series.id, created_count=len(created), skipped_count=len(skipped), skipped=skipped)
@@ -115,6 +117,7 @@ def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db:
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
             actor=admin.email,
+            club_id=admin.club_id,
         )
         db.commit()
     return RecurringCreateResponse(series_id=series.id, created_count=len(created), skipped_count=len(skipped), skipped=skipped)
@@ -123,7 +126,7 @@ def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db:
 @router.post('/recurring/cancel-occurrences', response_model=RecurringCancelResponse)
 def cancel_recurring_selected_occurrences(payload: RecurringCancelOccurrencesRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCancelResponse:
     with acquire_single_court_lock(db):
-        cancelled, skipped = cancel_recurring_occurrences(db, booking_ids=payload.booking_ids, actor=admin.email)
+        cancelled, skipped = cancel_recurring_occurrences(db, booking_ids=payload.booking_ids, actor=admin.email, club_id=admin.club_id)
         db.commit()
 
     return RecurringCancelResponse(
@@ -137,7 +140,7 @@ def cancel_recurring_selected_occurrences(payload: RecurringCancelOccurrencesReq
 @router.post('/recurring/{series_id}/cancel', response_model=RecurringCancelResponse)
 def cancel_recurring_series(series_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCancelResponse:
     with acquire_single_court_lock(db):
-        series, cancelled, skipped = cancel_recurring_series_future_occurrences(db, series_id=series_id, actor=admin.email)
+        series, cancelled, skipped = cancel_recurring_series_future_occurrences(db, series_id=series_id, actor=admin.email, club_id=admin.club_id)
         db.commit()
 
     return RecurringCancelResponse(
@@ -151,12 +154,12 @@ def cancel_recurring_series(series_id: str, db: Session = Depends(get_db), admin
 
 @router.get('/reports/summary', response_model=ReportResponse)
 def report_summary(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> ReportResponse:
-    return ReportResponse(**get_dashboard_report(db))
+    return ReportResponse(**get_dashboard_report(db, club_id=admin.club_id))
 
 
 @router.get('/events')
 def recent_events(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> list[dict]:
-    items = db.scalars(select(BookingEventLog).order_by(BookingEventLog.created_at.desc()).limit(100)).all()
+    items = db.scalars(select(BookingEventLog).where(BookingEventLog.club_id == admin.club_id).order_by(BookingEventLog.created_at.desc()).limit(100)).all()
     return [
         {
             'id': item.id,

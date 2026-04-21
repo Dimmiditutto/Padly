@@ -20,6 +20,7 @@ from app.core.errors import register_exception_handlers
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.core.security import hash_password, verify_password
 from app.models import Admin
+from app.services.tenant_service import ensure_default_club
 
 RATE_WINDOW_SECONDS = 60
 request_log: dict[str, deque[float]] = defaultdict(deque)
@@ -49,6 +50,7 @@ def normalize_rate_limit_path(path: str) -> str:
 
 
 def bootstrap_admin_account(db: Session) -> None:
+    default_club = ensure_default_club(db)
     configured_email = str(settings.admin_email)
     configured_password = settings.admin_password
     existing_admin = db.query(Admin).order_by(Admin.created_at.asc()).first()
@@ -65,7 +67,7 @@ def bootstrap_admin_account(db: Session) -> None:
             )
         return
 
-    db.add(Admin(email=configured_email, full_name='Admin PadelBooking', password_hash=hash_password(configured_password)))
+    db.add(Admin(club_id=default_club.id, email=configured_email, full_name='Admin PadelBooking', password_hash=hash_password(configured_password)))
     try:
         db.commit()
     except IntegrityError:

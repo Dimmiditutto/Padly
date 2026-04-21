@@ -49,13 +49,14 @@ def get_bookings(
         status_value=status_value,
         payment_provider=payment_provider,
         customer_query=text_query or customer_query,
+        club_id=admin.club_id,
     )
     return BookingListResponse(items=items, total=total)
 
 
 @router.get('/{booking_id}', response_model=BookingDetail)
 def get_booking_detail(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingDetail:
-    booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+    booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
     if not booking:
         raise HTTPException(status_code=404, detail='Prenotazione non trovata')
     return booking
@@ -77,6 +78,7 @@ def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depe
             duration_minutes=payload.duration_minutes,
             payment_provider=payload.payment_provider,
             actor=admin.email,
+            club_id=admin.club_id,
         )
         db.commit()
     db.refresh(booking)
@@ -86,7 +88,7 @@ def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depe
 @router.post('/{booking_id}/cancel', response_model=SimpleMessage)
 def cancel_admin_booking(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> SimpleMessage:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
             raise HTTPException(status_code=404, detail='Prenotazione non trovata')
         update_booking_status_by_admin(db, booking, target_status=BookingStatus.CANCELLED, actor=admin.email)
@@ -97,7 +99,7 @@ def cancel_admin_booking(booking_id: str, db: Session = Depends(get_db), admin: 
 @router.put('/{booking_id}', response_model=BookingDetail)
 def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingDetail:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
             raise HTTPException(status_code=404, detail='Prenotazione non trovata')
 
@@ -119,7 +121,7 @@ def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Sess
 @router.post('/{booking_id}/status', response_model=BookingSummary)
 def update_status(booking_id: str, payload: AdminBookingStatusUpdate, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingSummary:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
             raise HTTPException(status_code=404, detail='Prenotazione non trovata')
 
@@ -132,7 +134,7 @@ def update_status(booking_id: str, payload: AdminBookingStatusUpdate, db: Sessio
 @router.post('/{booking_id}/balance-paid', response_model=BookingSummary)
 def mark_balance_paid(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingSummary:
     with acquire_single_court_lock(db):
-        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
             raise HTTPException(status_code=404, detail='Prenotazione non trovata')
 

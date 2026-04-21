@@ -5,7 +5,7 @@ Esegui una **verifica approfondita e rigorosa** del codice attuale, con focus sp
 ## Obiettivo
 
 Non devi apportare alcuna modifica al codice.  
-Devi solo:
+Devi leggere prompt_master.md e STATO_FASE_1.MD per capire esattamente quali sono i file modificati, quali sono le modifiche reali e quale è l’impatto complessivo di queste modifiche sul progetto. Poi:
 
 1. verificare la coerenza complessiva del codice
 2. verificare la coerenza reciproca dei file modificati

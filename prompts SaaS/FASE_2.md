@@ -1,6 +1,6 @@
 # FASE 2 — FONDAMENTA DATI SAAS: TENANT, DOMINI E SCOPING LEGACY
 
-Includi: BLOCCO_COMUNE_V5 + STATO_FASE_1.MD
+Includi: prompt_master.md + STATO_FASE_1.MD
 
 ## Obiettivo
 
@@ -110,3 +110,5 @@ Questa fase deve prevedere:
 - test aggiunti
 - PASS/FAIL reale
 - STATO_FASE_2.MD con schema, decisioni di dominio e note di retrocompatibilita
+
+Quando hai terminato questa fase, non proseguire con implementazioni di FASE_3 o successive senza una richiesta esplicita. Ogni fase deve essere approvata singolarmente e deve poter essere rilasciata senza dipendere da patch future. Scrivi CONTEXT BLOCK per FASE_3 solo se FASE_2 è stata completata con successo e verificata, in modo che fase_3 possa essere implementata con tutte le informazioni reali necessarie e risulti coerente con il codice reale del repository.

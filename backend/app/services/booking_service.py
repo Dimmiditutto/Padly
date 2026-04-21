@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
+from app.services.tenant_service import get_default_club_id
 
 VALID_DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300]
 BLOCKING_STATUSES = [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW]
@@ -183,9 +184,18 @@ def acquire_single_court_lock(db: Session):
         single_court_mutex.release()
 
 
-def log_event(db: Session, booking: Booking | None, event_type: str, message: str, actor: str = 'system', payload: dict | None = None) -> None:
+def log_event(
+    db: Session,
+    booking: Booking | None,
+    event_type: str,
+    message: str,
+    actor: str = 'system',
+    payload: dict | None = None,
+    club_id: str | None = None,
+) -> None:
     db.add(
         BookingEventLog(
+            club_id=booking.club_id if booking else (club_id or get_default_club_id(db)),
             booking_id=booking.id if booking else None,
             event_type=event_type,
             actor=actor,
@@ -195,8 +205,8 @@ def log_event(db: Session, booking: Booking | None, event_type: str, message: st
     )
 
 
-def get_or_create_customer(db: Session, *, first_name: str, last_name: str, phone: str, email: str, note: str | None) -> Customer:
-    customer = db.scalar(select(Customer).where(Customer.email == email, Customer.phone == phone))
+def get_or_create_customer(db: Session, *, club_id: str, first_name: str, last_name: str, phone: str, email: str, note: str | None) -> Customer:
+    customer = db.scalar(select(Customer).where(Customer.club_id == club_id, Customer.email == email, Customer.phone == phone))
     if customer:
         customer.first_name = first_name.strip()
         customer.last_name = last_name.strip()
@@ -204,6 +214,7 @@ def get_or_create_customer(db: Session, *, first_name: str, last_name: str, phon
         return customer
 
     customer = Customer(
+        club_id=club_id,
         first_name=first_name.strip(),
         last_name=last_name.strip(),
         phone=phone.strip(),
@@ -222,8 +233,11 @@ def assert_slot_available(
     end_at: datetime,
     exclude_booking_id: str | None = None,
     exclude_recurring_series_id: str | None = None,
+    club_id: str | None = None,
 ) -> None:
+    resolved_club_id = club_id or get_default_club_id(db)
     overlap_filters = [
+        Booking.club_id == resolved_club_id,
         Booking.start_at < end_at,
         Booking.end_at > start_at,
         Booking.status.in_(BLOCKING_STATUSES),
@@ -239,6 +253,7 @@ def assert_slot_available(
 
     blackout = db.scalar(
         select(BlackoutPeriod).where(
+            BlackoutPeriod.club_id == resolved_club_id,
             BlackoutPeriod.is_active.is_(True),
             BlackoutPeriod.start_at < end_at,
             BlackoutPeriod.end_at > start_at,
@@ -303,14 +318,16 @@ def create_public_booking(
     payment_provider: PaymentProvider,
 ) -> Booking:
     with acquire_single_court_lock(db):
+        club_id = get_default_club_id(db)
         if not _is_public_provider_available(payment_provider):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_public_provider_unavailable_detail(payment_provider))
 
         local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
-        assert_slot_available(db, start_at=start_at, end_at=end_at)
+        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=club_id)
 
-        customer = get_or_create_customer(db, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
+        customer = get_or_create_customer(db, club_id=club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
         booking = Booking(
+            club_id=club_id,
             public_reference=make_public_reference(),
             customer_id=customer.id,
             start_at=start_at,
@@ -351,11 +368,13 @@ def create_admin_booking(
     recurring_series_id: str | None = None,
 ) -> Booking:
     with acquire_single_court_lock(db):
+        club_id = get_default_club_id(db)
         local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
-        assert_slot_available(db, start_at=start_at, end_at=end_at)
+        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=club_id)
 
-        customer = get_or_create_customer(db, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
+        customer = get_or_create_customer(db, club_id=club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
         booking = Booking(
+            club_id=club_id,
             public_reference=make_public_reference(),
             customer_id=customer.id,
             start_at=start_at,
@@ -582,6 +601,7 @@ def expire_pending_bookings(db: Session) -> list[Booking]:
     now = datetime.now(UTC)
     expired = db.scalars(
         select(Booking).where(
+            Booking.club_id == get_default_club_id(db),
             Booking.status == BookingStatus.PENDING_PAYMENT,
             Booking.expires_at.is_not(None),
             Booking.expires_at < now,
@@ -598,6 +618,7 @@ def upcoming_reminders(db: Session, hours_ahead: int = 24) -> list[Booking]:
     upper = now + timedelta(hours=hours_ahead)
     return db.scalars(
         select(Booking).where(
+            Booking.club_id == get_default_club_id(db),
             Booking.status == BookingStatus.CONFIRMED,
             Booking.start_at >= now,
             Booking.start_at <= upper,
@@ -615,10 +636,13 @@ def list_bookings(
     status_value: str | None = None,
     payment_provider: str | None = None,
     customer_query: str | None = None,
+    club_id: str | None = None,
 ) -> tuple[list[Booking], int]:
+    resolved_club_id = club_id or get_default_club_id(db)
     stmt = (
         select(Booking)
         .options(selectinload(Booking.customer), selectinload(Booking.recurring_series))
+        .where(Booking.club_id == resolved_club_id)
         .order_by(Booking.start_at.asc())
     )
 
@@ -649,13 +673,14 @@ def list_bookings(
     return items, len(items)
 
 
-def create_blackout(db: Session, *, title: str, reason: str | None, start_at: datetime, end_at: datetime, actor: str) -> BlackoutPeriod:
+def create_blackout(db: Session, *, title: str, reason: str | None, start_at: datetime, end_at: datetime, actor: str, club_id: str | None = None) -> BlackoutPeriod:
     if end_at <= start_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Intervallo blackout non valido')
 
-    blackout = BlackoutPeriod(title=title.strip(), reason=reason, start_at=start_at, end_at=end_at, created_by=actor)
+    resolved_club_id = club_id or get_default_club_id(db)
+    blackout = BlackoutPeriod(club_id=resolved_club_id, title=title.strip(), reason=reason, start_at=start_at, end_at=end_at, created_by=actor)
     db.add(blackout)
-    log_event(db, None, 'BLACKOUT_CREATED', f'Blackout creato: {title}', actor=actor)
+    log_event(db, None, 'BLACKOUT_CREATED', f'Blackout creato: {title}', actor=actor, club_id=resolved_club_id)
     return blackout
 
 
@@ -692,7 +717,9 @@ def preview_recurring_occurrences(
     slot_id: str | None = None,
     duration_minutes: int,
     exclude_recurring_series_id: str | None = None,
+    club_id: str | None = None,
 ) -> list[dict]:
+    resolved_club_id = club_id or get_default_club_id(db)
     _validate_recurring_weekday(start_date, weekday)
     dates = _recurring_dates(start_date, end_date)
     parsed_time = parse_slot_time_value(start_time_value)
@@ -716,6 +743,7 @@ def preview_recurring_occurrences(
                 start_at=start_at,
                 end_at=end_at,
                 exclude_recurring_series_id=exclude_recurring_series_id,
+                club_id=resolved_club_id,
             )
             available = True
             reason = None
@@ -747,8 +775,10 @@ def create_recurring_series(
     slot_id: str | None = None,
     duration_minutes: int,
     actor: str,
+    club_id: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
     with acquire_single_court_lock(db):
+        resolved_club_id = club_id or get_default_club_id(db)
         recurring_weekday = _validate_recurring_weekday(start_date, weekday)
         occurrences = preview_recurring_occurrences(
             db,
@@ -759,10 +789,12 @@ def create_recurring_series(
             start_time_value=start_time_value,
             slot_id=slot_id,
             duration_minutes=duration_minutes,
+            club_id=resolved_club_id,
         )
         dates = _recurring_dates(start_date, end_date)
 
         series = RecurringBookingSeries(
+            club_id=resolved_club_id,
             label=label,
             weekday=recurring_weekday,
             start_time=time.fromisoformat(start_time_value),
@@ -787,6 +819,7 @@ def create_recurring_series(
                     'RECURRING_OCCURRENCE_SKIPPED',
                     f"Occorrenza ricorrente saltata: {label}",
                     actor=actor,
+                    club_id=resolved_club_id,
                     payload={
                         'label': label,
                         'booking_date': occurrence['booking_date'].isoformat(),
@@ -801,6 +834,7 @@ def create_recurring_series(
             occurrence_slot_id = slot_id if booking_date == start_date else None
             local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
             booking = Booking(
+                club_id=resolved_club_id,
                 public_reference=make_public_reference(),
                 start_at=start_at,
                 end_at=end_at,
@@ -833,7 +867,15 @@ def create_recurring_series(
             )
             created.append(booking)
 
-        log_event(db, None, 'RECURRING_SERIES_CREATED', f'Serie ricorrente creata: {label}', actor=actor, payload={'created_count': len(created), 'skipped_count': len(skipped)})
+        log_event(
+            db,
+            None,
+            'RECURRING_SERIES_CREATED',
+            f'Serie ricorrente creata: {label}',
+            actor=actor,
+            club_id=resolved_club_id,
+            payload={'created_count': len(created), 'skipped_count': len(skipped)},
+        )
         return series, created, skipped
 
 
@@ -849,9 +891,11 @@ def update_recurring_series(
     slot_id: str | None = None,
     duration_minutes: int,
     actor: str,
+    club_id: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
     with acquire_single_court_lock(db):
-        series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id))
+        resolved_club_id = club_id or get_default_club_id(db)
+        series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id, RecurringBookingSeries.club_id == resolved_club_id))
         if not series:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
 
@@ -867,6 +911,7 @@ def update_recurring_series(
             slot_id=slot_id,
             duration_minutes=duration_minutes,
             exclude_recurring_series_id=series_id,
+            club_id=resolved_club_id,
         )
 
         if not any(occurrence['available'] for occurrence in occurrences):
@@ -885,6 +930,7 @@ def update_recurring_series(
         future_occurrences = db.scalars(
             select(Booking)
             .where(
+                Booking.club_id == resolved_club_id,
                 Booking.recurring_series_id == series_id,
                 Booking.source == BookingSource.ADMIN_RECURRING,
                 Booking.start_at > datetime.now(UTC),
@@ -921,6 +967,7 @@ def update_recurring_series(
                     'RECURRING_OCCURRENCE_SKIPPED',
                     f"Occorrenza ricorrente saltata: {label}",
                     actor=actor,
+                    club_id=resolved_club_id,
                     payload={
                         'series_id': series.id,
                         'label': label,
@@ -936,6 +983,7 @@ def update_recurring_series(
             occurrence_slot_id = slot_id if booking_date == start_date else None
             local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
             booking = Booking(
+                club_id=resolved_club_id,
                 public_reference=make_public_reference(),
                 start_at=start_at,
                 end_at=end_at,
@@ -974,6 +1022,7 @@ def update_recurring_series(
             'RECURRING_SERIES_UPDATED',
             f'Serie ricorrente aggiornata: {label}',
             actor=actor,
+            club_id=resolved_club_id,
             payload={
                 'series_id': series.id,
                 'replaced_count': replaced_count,
@@ -996,12 +1045,14 @@ def update_recurring_series(
         return series, created, skipped
 
 
-def cancel_recurring_occurrences(db: Session, *, booking_ids: list[str], actor: str) -> tuple[list[Booking], int]:
+def cancel_recurring_occurrences(db: Session, *, booking_ids: list[str], actor: str, club_id: str | None = None) -> tuple[list[Booking], int]:
+    resolved_club_id = club_id or get_default_club_id(db)
     unique_booking_ids = list(dict.fromkeys(booking_ids))
     bookings = db.scalars(
         select(Booking)
         .options(selectinload(Booking.recurring_series))
         .where(
+            Booking.club_id == resolved_club_id,
             Booking.id.in_(unique_booking_ids),
             Booking.recurring_series_id.is_not(None),
             Booking.source == BookingSource.ADMIN_RECURRING,
@@ -1032,6 +1083,7 @@ def cancel_recurring_occurrences(db: Session, *, booking_ids: list[str], actor: 
             'RECURRING_OCCURRENCES_CANCELLED',
             'Occorrenze ricorrenti annullate da admin',
             actor=actor,
+            club_id=resolved_club_id,
             payload={
                 'booking_ids': [booking.id for booking in cancelled],
                 'skipped_count': skipped_count,
@@ -1046,14 +1098,17 @@ def cancel_recurring_series_future_occurrences(
     *,
     series_id: str,
     actor: str,
+    club_id: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], int]:
-    series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id))
+    resolved_club_id = club_id or get_default_club_id(db)
+    series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id, RecurringBookingSeries.club_id == resolved_club_id))
     if not series:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
 
     future_occurrences = db.scalars(
         select(Booking)
         .where(
+            Booking.club_id == resolved_club_id,
             Booking.recurring_series_id == series_id,
             Booking.source == BookingSource.ADMIN_RECURRING,
             Booking.start_at > datetime.now(UTC),
@@ -1077,6 +1132,7 @@ def cancel_recurring_series_future_occurrences(
         'RECURRING_SERIES_CANCELLED',
         f'Serie ricorrente aggiornata: {series.label}',
         actor=actor,
+        club_id=resolved_club_id,
         payload={
             'series_id': series.id,
             'cancelled_count': len(cancelled),

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import AppSetting
+from app.services.tenant_service import get_default_club_id
 
 BOOKING_RULES_KEY = 'booking_rules'
 
@@ -18,7 +20,8 @@ def default_booking_rules() -> dict[str, int]:
 
 def get_booking_rules(db: Session) -> dict[str, int]:
     defaults = default_booking_rules()
-    record = db.get(AppSetting, BOOKING_RULES_KEY)
+    club_id = get_default_club_id(db)
+    record = db.scalar(select(AppSetting).where(AppSetting.club_id == club_id, AppSetting.key == BOOKING_RULES_KEY))
     if not record:
         return defaults
 
@@ -33,9 +36,10 @@ def update_booking_rules(db: Session, *, booking_hold_minutes: int, cancellation
         'cancellation_window_hours': cancellation_window_hours,
         'reminder_window_hours': reminder_window_hours,
     }
-    record = db.get(AppSetting, BOOKING_RULES_KEY)
+    club_id = get_default_club_id(db)
+    record = db.scalar(select(AppSetting).where(AppSetting.club_id == club_id, AppSetting.key == BOOKING_RULES_KEY))
     if record:
         record.value = value
     else:
-        db.add(AppSetting(key=BOOKING_RULES_KEY, value=value))
+        db.add(AppSetting(club_id=club_id, key=BOOKING_RULES_KEY, value=value))
     return value
