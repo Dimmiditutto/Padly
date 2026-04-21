@@ -364,17 +364,18 @@ def create_admin_booking(
     duration_minutes: int,
     payment_provider: PaymentProvider,
     actor: str,
+    club_id: str | None = None,
     source: BookingSource = BookingSource.ADMIN_MANUAL,
     recurring_series_id: str | None = None,
 ) -> Booking:
     with acquire_single_court_lock(db):
-        club_id = get_default_club_id(db)
+        resolved_club_id = club_id or get_default_club_id(db)
         local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
-        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=club_id)
+        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
 
-        customer = get_or_create_customer(db, club_id=club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
+        customer = get_or_create_customer(db, club_id=resolved_club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
         booking = Booking(
-            club_id=club_id,
+            club_id=resolved_club_id,
             public_reference=make_public_reference(),
             customer_id=customer.id,
             start_at=start_at,
