@@ -65,6 +65,7 @@ async def stripe_billing_webhook(request: Request, db: Session = Depends(get_db)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Billing webhook non configurato.')
 
     if webhook_secret and not _verify_stripe_signature(raw_body, sig_header, webhook_secret):
+        logger.warning('Stripe billing webhook rifiutato per firma non valida.', extra={'event': 'billing_webhook_signature_rejected'})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Firma Stripe non valida.')
 
     try:

@@ -1,125 +1,109 @@
-## 1. Esito sintetico generale
+Agisci come un Senior Software Engineer, Senior Code Reviewer e QA tecnico.
 
-PASS
+Leggi prima:
 
-Il perimetro FASE 5 e ora coerente con la policy commerciale dichiarata sul backend. I fix emersi dalla verifica precedente sono stati applicati con patch locali, i test di enforcement sono stati resi assertivi e la suite backend completa e tornata verde.
+- prompts SaaS/prompt_master.md
+- prompts SaaS/STATO_FASE_6.MD
 
-Sintesi netta:
+Contesto reale gia verificato:
 
-- PASS su enforcement commerciale delle superfici operative public e admin
-- PASS sulla coerenza della policy `PAST_DUE`, ora bloccata come stato non attivo
-- PASS su hardening del webhook billing in produzione
-- PASS su audit operativo minimo per suspend e reactivate del control plane
-- PASS sulle regressioni backend mirate e sulla suite backend completa
+- FASE 6 e stata chiusa con backend suite verde e build frontend verde.
+- La verifica successiva ha pero trovato alcune criticita reali nel nuovo hardening operativo.
+- Devi correggere solo le criticita qui sotto, senza refactor ampi e senza toccare parti non necessarie.
 
-Validazioni reali eseguite:
+## Obiettivo
 
-- PASS: [backend/tests/test_billing_saas.py](backend/tests/test_billing_saas.py), `20 passed`
-- PASS: [backend/tests/test_booking_api.py](backend/tests/test_booking_api.py) + [backend/tests/test_admin_and_recurring.py](backend/tests/test_admin_and_recurring.py), `45 passed`
-- PASS: suite backend completa, `112 passed`
-- NOTA: la build frontend era gia verde nel pass iniziale FASE 5; non e stata rilanciata nel pass finale perche non sono stati toccati file UI
+Applicare patch minime e mirate per correggere esclusivamente queste criticita confermate.
 
-Perimetro verificato e stato finale dei fix:
+### 1. Bypass reale del rate limit tramite tenant hint fittizi
 
-- [backend/app/api/deps.py](backend/app/api/deps.py) espone sia `get_current_club_enforced` sia `get_current_admin_enforced`
-- [backend/app/api/routers/public.py](backend/app/api/routers/public.py) applica l'enforcement alle route operative, mantenendo leggibili solo le superfici read-only coerenti con la policy
-- [backend/app/api/routers/admin_bookings.py](backend/app/api/routers/admin_bookings.py), [backend/app/api/routers/admin_ops.py](backend/app/api/routers/admin_ops.py) e [backend/app/api/routers/admin_settings.py](backend/app/api/routers/admin_settings.py) usano l'admin enforced sulle superfici operative
-- [backend/app/services/billing_service.py](backend/app/services/billing_service.py) include `PAST_DUE` negli stati bloccati e registra audit minimi per azioni platform sensibili
-- [backend/app/api/routers/billing.py](backend/app/api/routers/billing.py) fallisce chiuso in produzione se manca `STRIPE_BILLING_WEBHOOK_SECRET`
-- [backend/app/core/config.py](backend/app/core/config.py) include `STRIPE_BILLING_WEBHOOK_SECRET` e `PLATFORM_API_KEY` tra i requisiti minimi di produzione
-- [backend/tests/test_billing_saas.py](backend/tests/test_billing_saas.py) copre blocchi public/admin per `SUSPENDED`, `PAST_DUE`, trial scaduto, audit platform e hardening del webhook
+Problema confermato:
 
-## 2. Verifica per area
+- [backend/app/main.py](backend/app/main.py) costruisce la chiave di rate limit in `get_rate_limit_tenant_scope()` usando lo slug o host dichiarato dal client, non il tenant realmente risolto.
+- [backend/app/api/deps.py](backend/app/api/deps.py) risolve invece il tenant con fallback al default club tramite `resolve_tenant_context(..., allow_default_fallback=True)`.
+- [backend/app/services/tenant_service.py](backend/app/services/tenant_service.py) conferma che slug o host invalidi ricadono sul tenant di default.
+- Verifica eseguibile gia osservata: con `rate_limit_per_minute = 1`, due richieste verso lo stesso tenant reale ma con `?tenant=foo` e `?tenant=bar` passano entrambe, e due login admin con host invalidi diversi finiscono in bucket diversi pur puntando entrambi al default tenant.
 
-### Coerenza complessiva del codice
+Correzione richiesta:
 
-- Esito: PASS
-- Problemi trovati: nessun blocker attivo nel perimetro backend verificato
-- Gravita del problema: bassa
-- Impatto reale: il layer commerciale ora non si limita al solo dominio dati ma governa davvero le superfici operative previste dalla fase
+- il rate limit deve usare il tenant realmente risolto quando disponibile, non il tenant hint grezzo del client
+- i tenant hint invalidi non devono permettere di creare bucket separati se la request ricade sullo stesso tenant reale
+- mantieni comunque isolamento tra tenant validi distinti
 
-### Coerenza tra file modificati
+File probabili:
 
-- Esito: PASS
-- Problemi trovati: nessun mismatch attivo tra dependency, enforcement, router e test
-- Gravita del problema: bassa
-- Impatto reale: i punti di enforcement introdotti sono ora collegati ai flussi che li richiedono davvero
+- backend/app/main.py
+- backend/app/api/deps.py
+- backend/app/services/tenant_service.py
+- backend/tests/test_hardening_ops.py oppure test backend mirati equivalenti
 
-### Conflitti o blocchi introdotti dai file modificati
+### 2. Healthcheck falso positivo quando lo scheduler dovrebbe essere attivo ma risulta fermo
 
-- Esito: PASS
-- Problemi trovati: nessuna regressione backend emersa nelle validazioni mirate o nella suite completa
-- Gravita del problema: bassa
-- Impatto reale: il pass non ha introdotto rotture sui flussi di booking o sulle superfici admin verificate
+Problema confermato:
 
-### Criticita del progetto nel suo insieme
+- [backend/app/api/routers/payments.py](backend/app/api/routers/payments.py) restituisce `status: ok` e HTTP 200 anche quando `settings.scheduler_enabled == true` e `scheduler.running == false`.
+- [backend/app/core/scheduler.py](backend/app/core/scheduler.py) in `start_scheduler()` intercetta `RuntimeError` e ritorna in silenzio.
+- Questo rende il segnale operativo poco affidabile per readiness e incident response: l'istanza puo apparire sana anche se i job richiesti non sono operativi.
 
-- Esito: PASS CON RISERVE
-- Problemi trovati:
-  - la base commerciale backend e coerente, ma il self-service Stripe Billing end-to-end resta fuori dallo scope di questo fix pass
-  - il banner frontend admin resta migliorabile sul piano UX, ma non blocca il rilascio backend della fase
-- Gravita del problema: media sui miglioramenti futuri, non bloccante sullo stato attuale
-- Impatto reale: il layer commerciale backend e pronto, mentre il percorso subscription self-service puo essere sviluppato in un pass successivo
+Correzione richiesta:
 
-### Rispetto della logica di business
+- se l'istanza e configurata per eseguire i job (`scheduler_enabled=true` fuori da test) e lo scheduler non e running, il healthcheck non deve risultare pienamente sano
+- scegli una soluzione minima e coerente: o HTTP 503/degraded, oppure un comportamento equivalente chiaramente testato e allineato al deployment reale
+- evita refactor ampi del subsystem scheduler
 
-- Esito: PASS
-- Problemi trovati: nessuna incoerenza residua confermata tra policy dichiarata e enforcement backend nel perimetro toccato
-- Gravita del problema: bassa
-- Impatto reale: tenant `PAST_DUE`, `SUSPENDED`, `CANCELLED` e trial scaduto sono ora governati in modo coerente sulle superfici operative previste
+File probabili:
 
-## 3. Elenco criticita residue
+- backend/app/api/routers/payments.py
+- backend/app/core/scheduler.py
+- backend/tests/test_hardening_ops.py oppure test backend mirati equivalenti
 
-### 3.1 Self-service subscription non ancora end-to-end
+### 3. Osservabilita dei job schedulati ancora parziale
 
-- Titolo breve del problema: manca ancora il checkout subscription completo lato provider
-- Descrizione tecnica: il webhook billing e il control plane sono pronti, ma il flusso completo di checkout subscription e customer portal Stripe non rientrava nel perimetro di questo pass
-- Perche e un problema reale: limita l'autonomia operativa del tenant nella gestione del proprio abbonamento
-- Dove si manifesta: integrazione provider billing lato self-service
-- Gravita: media
-- Blocca il rilascio oppure no: no, non blocca la chiusura tecnica della FASE 5 backend
+Problema confermato:
 
-### 3.2 Rifinitura UX del banner admin
+- [backend/app/core/observability.py](backend/app/core/observability.py) viene agganciato soprattutto sul path HTTP.
+- [backend/app/core/scheduler.py](backend/app/core/scheduler.py) emette warning ed exception sui job senza bind esplicito di `club_id` o `tenant_slug` durante i loop per tenant.
+- Risultato: nei flussi reminder/expiry l'osservabilita resta meno utile proprio nei path operativi fuori request-response.
 
-- Titolo breve del problema: margine di miglioramento nella distinzione warning vs blocco
-- Descrizione tecnica: [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx) mostra lo stato subscription correttamente, ma il tono visuale puo essere raffinato in un pass UI dedicato
-- Perche e un problema reale: incide sulla chiarezza percepita dall'admin, non sulla correttezza del backend
-- Dove si manifesta: dashboard admin
-- Gravita: bassa
-- Blocca il rilascio oppure no: no
+Correzione richiesta:
 
-## 4. Prioritizzazione finale
+- aggiungi il minimo contesto osservabile utile ai log dei job schedulati, almeno per tenant o booking coinvolto nei punti di warning/errore principali
+- non introdurre un sistema tracing nuovo
+- mantieni il cambiamento piccolo e coerente con l'observability layer esistente
 
-### Da correggere prima del rilascio
+File probabili:
 
-- nessun blocker backend aperto nel perimetro FASE 5 verificato
+- backend/app/core/scheduler.py
+- backend/app/core/observability.py
+- eventuali test backend mirati se davvero necessari
 
-### Da correggere prima della beta pubblica
+## Regole di lavoro
 
-- completare il self-service Stripe Billing se il rollout richiede onboarding e upgrade autonomi dei tenant
+- non fare refactor ampi
+- non toccare frontend se non emerge una necessita reale da questi fix
+- non cambiare contratti API se non strettamente necessario
+- preferisci patch locali e test mirati
+- non correggere problemi non emersi da questa verifica
 
-### Miglioramenti differibili
+## Test obbligatori
 
-- affinare la UX del banner piano in [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx)
-- introdurre eventuali piani a pagamento seed o CRUD interno per i piani commerciali oltre al `trial`
+Devi aggiungere o aggiornare test che dimostrino almeno:
 
-## 5. Verdetto finale
+1. tenant hint invalidi diversi non bypassano il rate limit quando la request ricade sullo stesso tenant reale
+2. tenant validi distinti restano isolati ai fini del rate limit
+3. il healthcheck segnala correttamente un'istanza con scheduler richiesto ma non running
+4. il tenant legacy default continua a funzionare
 
-Il layer commerciale FASE 5 e chiuso sul backend e risulta coerente con la policy dichiarata nel repository.
+Poi esegui verifiche reali:
 
-La base strutturale introdotta nel pass iniziale e stata resa operativa dai fix successivi: l'enforcement e applicato davvero, `PAST_DUE` non e piu uno stato solo nominale, il webhook billing e protetto in produzione e le azioni platform sensibili lasciano una traccia minima verificabile.
+- test backend mirati sui file toccati
+- suite backend completa se le patch toccano middleware o segnali operativi globali
+- build frontend solo se tocchi il frontend, altrimenti dichiaralo esplicitamente non necessario
 
-Verdetto netto: PASS sul perimetro backend FASE 5, con follow-up facoltativi su self-service billing e rifinitura UX.
+## Output obbligatorio
 
-## 6. Chiusura operativa
-
-Fix eseguiti e validati:
-
-1. enforcement collegato alle superfici public operative
-2. enforcement collegato alle superfici admin operative
-3. policy `PAST_DUE` resa coerente e testata
-4. webhook billing reso fail-closed in produzione
-5. test di enforcement resi assertivi
-6. audit minimo platform aggiunto per suspend e reactivate
-
-Nessun ulteriore fix obbligatorio emerge dal perimetro gia verificato.
+- file toccati
+- bug corretti
+- test aggiunti o aggiornati
+- PASS/FAIL reale dei comandi eseguiti
+- rischi residui, solo se restano davvero

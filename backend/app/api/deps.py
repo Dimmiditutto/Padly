@@ -1,16 +1,25 @@
+import logging
+
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.observability import bind_observability_context
 from app.core.db import get_db
 from app.core.security import COOKIE_NAME, decode_admin_token, password_hash_fingerprint
 from app.models import Admin, Club
 from app.services.tenant_service import TenantContext, resolve_tenant_context
 
+logger = logging.getLogger(__name__)
+
 
 def get_tenant_context(request: Request, db: Session = Depends(get_db)) -> TenantContext:
     requested_slug = request.headers.get('x-tenant-slug') or request.query_params.get('tenant') or request.query_params.get('club')
-    return resolve_tenant_context(db, host=request.headers.get('host'), slug=requested_slug, allow_default_fallback=True)
+    tenant_context = resolve_tenant_context(db, host=request.headers.get('host'), slug=requested_slug, allow_default_fallback=True)
+    request.state.tenant_slug = tenant_context.club.slug
+    request.state.club_id = tenant_context.club.id
+    bind_observability_context(tenant_slug=tenant_context.club.slug, club_id=tenant_context.club.id)
+    return tenant_context
 
 
 def get_current_club(tenant_context: TenantContext = Depends(get_tenant_context)) -> Club:
@@ -42,8 +51,13 @@ def get_current_admin(
     token_club_id = payload.get('club_id')
 
     if not subject:
+        logger.warning('Token admin privo di subject valido', extra={'event': 'admin_auth_invalid_subject'})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Admin non autorizzato')
     if token_club_id and token_club_id != tenant_context.club.id:
+        logger.warning(
+            'Tentativo di riuso sessione admin su tenant diverso',
+            extra={'event': 'admin_cross_tenant_rejected'},
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Admin non autorizzato')
 
     admin = db.scalar(
@@ -54,6 +68,7 @@ def get_current_admin(
         )
     )
     if not admin or payload.get('pwd') != password_hash_fingerprint(admin.password_hash):
+        logger.warning('Sessione admin non valida per il tenant corrente', extra={'event': 'admin_session_rejected'})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Admin non autorizzato')
     return admin
 

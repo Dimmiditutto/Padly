@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import re
 import time
+from datetime import UTC, datetime
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,13 +19,20 @@ from app.api.routers import admin_auth, admin_bookings, admin_ops, admin_setting
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.errors import register_exception_handlers
+from app.core.observability import bind_observability_context, clear_observability_context, configure_logging
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.core.security import hash_password, verify_password
 from app.models import Admin
-from app.services.tenant_service import ensure_default_club
+from app.services.tenant_service import ensure_default_club, resolve_tenant_context
 
 RATE_WINDOW_SECONDS = 60
 request_log: dict[str, deque[float]] = defaultdict(deque)
+SECURITY_HEADERS = {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()'
+}
 logger = logging.getLogger(__name__)
 ADMIN_AUTH_RATE_LIMIT_SUFFIXES = (
     '/admin/auth/login',
@@ -36,10 +45,7 @@ PUBLIC_RATE_LIMIT_PATTERNS = (
     (re.compile(rf'^{re.escape(settings.api_prefix)}/public/bookings/cancel/[^/]+$'), f'{settings.api_prefix}/public/bookings/cancel/:cancel_token'),
 )
 
-logging.basicConfig(
-    level=logging.INFO if settings.app_env != 'development' else logging.DEBUG,
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-)
+configure_logging(logging.INFO if settings.app_env != 'development' else logging.DEBUG)
 
 
 def normalize_rate_limit_path(path: str) -> str:
@@ -47,6 +53,51 @@ def normalize_rate_limit_path(path: str) -> str:
         if pattern.match(path):
             return normalized
     return path
+
+
+def normalize_host(host: str | None) -> str | None:
+    if not host:
+        return None
+    normalized = host.strip().lower()
+    if '://' in normalized:
+        normalized = normalized.split('://', 1)[1]
+    normalized = normalized.split('/', 1)[0]
+    if normalized.count(':') == 1:
+        normalized = normalized.split(':', 1)[0]
+    return normalized or None
+
+
+def get_rate_limit_tenant_scope(request: Request) -> str:
+    requested_slug = request.headers.get('x-tenant-slug') or request.query_params.get('tenant') or request.query_params.get('club')
+    normalized_host = normalize_host(request.headers.get('host'))
+
+    try:
+        with SessionLocal() as db:
+            tenant_context = resolve_tenant_context(
+                db,
+                host=request.headers.get('host'),
+                slug=requested_slug,
+                allow_default_fallback=True,
+            )
+    except Exception:
+        if requested_slug:
+            return f'slug:{requested_slug.strip().lower()}'
+        if normalized_host:
+            return f'host:{normalized_host}'
+        return 'default'
+
+    request.state.tenant_slug = tenant_context.club.slug
+    request.state.club_id = tenant_context.club.id
+    return f'club:{tenant_context.club.id}'
+
+
+def apply_security_headers(request: Request, response) -> None:
+    for header_name, header_value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header_name, header_value)
+
+    forwarded_proto = request.headers.get('x-forwarded-proto', request.url.scheme)
+    if settings.is_production and forwarded_proto == 'https':
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
 
 
 def bootstrap_admin_account(db: Session) -> None:
@@ -93,7 +144,7 @@ register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.app_url, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    allow_origins=settings.allowed_cors_origins,
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
@@ -102,20 +153,68 @@ app.add_middleware(
 
 @app.middleware('http')
 async def rate_limit_middleware(request: Request, call_next):
+    request_id = request.headers.get('x-request-id') or uuid4().hex
+    bind_observability_context(request_id=request_id, tenant_slug=request.query_params.get('tenant') or request.headers.get('x-tenant-slug'))
+
     path = request.url.path
-    if path.startswith(f"{settings.api_prefix}/public") or any(path.endswith(suffix) for suffix in ADMIN_AUTH_RATE_LIMIT_SUFFIXES):
-        client_ip = request.client.host if request.client else 'unknown'
-        key = f'{client_ip}:{normalize_rate_limit_path(path)}'
-        now = time.time()
-        bucket = request_log[key]
-        while bucket and bucket[0] < now - RATE_WINDOW_SECONDS:
-            bucket.popleft()
-        if len(bucket) >= settings.rate_limit_per_minute:
-            return JSONResponse(status_code=429, content={'detail': 'Troppe richieste. Riprova tra poco.'})
-        bucket.append(now)
-    response = await call_next(request)
-    logger.info('%s %s -> %s', request.method, path, response.status_code)
-    return response
+    started_at = time.perf_counter()
+
+    try:
+        if path.startswith(f"{settings.api_prefix}/public") or any(path.endswith(suffix) for suffix in ADMIN_AUTH_RATE_LIMIT_SUFFIXES):
+            client_ip = request.client.host if request.client else 'unknown'
+            tenant_scope = get_rate_limit_tenant_scope(request)
+            bind_observability_context(
+                tenant_slug=getattr(request.state, 'tenant_slug', None),
+                club_id=getattr(request.state, 'club_id', None),
+            )
+            key = f'{client_ip}:{tenant_scope}:{normalize_rate_limit_path(path)}'
+            now = time.time()
+            bucket = request_log[key]
+            while bucket and bucket[0] < now - RATE_WINDOW_SECONDS:
+                bucket.popleft()
+            if len(bucket) >= settings.rate_limit_per_minute:
+                response = JSONResponse(status_code=429, content={'detail': 'Troppe richieste. Riprova tra poco.'})
+            else:
+                bucket.append(now)
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
+
+        bind_observability_context(
+            tenant_slug=getattr(request.state, 'tenant_slug', None),
+            club_id=getattr(request.state, 'club_id', None),
+        )
+        response.headers['X-Request-ID'] = request_id
+        apply_security_headers(request, response)
+
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.info(
+            'Request completata',
+            extra={
+                'event': 'http_request_completed',
+                'http_method': request.method,
+                'path': path,
+                'status_code': response.status_code,
+                'duration_ms': duration_ms,
+                'client_ip': request.client.host if request.client else 'unknown',
+            },
+        )
+        return response
+    except Exception:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.exception(
+            'Request fallita',
+            extra={
+                'event': 'http_request_failed',
+                'http_method': request.method,
+                'path': path,
+                'duration_ms': duration_ms,
+                'client_ip': request.client.host if request.client else 'unknown',
+            },
+        )
+        raise
+    finally:
+        clear_observability_context()
 
 
 app.include_router(public.router, prefix=settings.api_prefix)

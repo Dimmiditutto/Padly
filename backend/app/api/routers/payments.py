@@ -1,17 +1,23 @@
+import logging
+from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.responses import RedirectResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.scheduler import scheduler, scheduler_should_be_running
 from app.models import PaymentProvider
 from app.schemas.common import SimpleMessage
 from app.services.booking_service import acquire_single_court_lock
 from app.services.payment_service import handle_mock_payment, handle_paypal_return, handle_paypal_webhook, handle_stripe_webhook, is_mock_payments_enabled, mark_checkout_cancelled
 
 router = APIRouter(tags=['Payments'])
+logger = logging.getLogger(__name__)
 
 
 def _booking_redirect_url(path: str, booking: str, cancel_token: str | None, tenant: str | None = None) -> str:
@@ -24,8 +30,55 @@ def _booking_redirect_url(path: str, booking: str, cancel_token: str | None, ten
 
 
 @router.get('/health')
-def health() -> dict:
-    return {'status': 'ok', 'service': settings.app_name}
+def health(db: Session = Depends(get_db)):
+    checked_at = datetime.now(UTC).isoformat()
+    scheduler_state = 'disabled'
+    if scheduler_should_be_running():
+        scheduler_state = 'running' if scheduler.running else 'stopped'
+
+    if scheduler_should_be_running() and not scheduler.running:
+        logger.warning('Healthcheck rileva scheduler richiesto ma non running', extra={'event': 'healthcheck_scheduler_stopped'})
+        return JSONResponse(
+            status_code=503,
+            content={
+                'status': 'degraded',
+                'service': settings.app_name,
+                'checked_at': checked_at,
+                'environment': settings.app_env,
+                'checks': {
+                    'database': 'ok',
+                    'scheduler': scheduler_state,
+                },
+            },
+        )
+
+    try:
+        db.execute(text('SELECT 1'))
+    except Exception:
+        logger.exception('Healthcheck database fallito', extra={'event': 'healthcheck_failed'})
+        return JSONResponse(
+            status_code=503,
+            content={
+                'status': 'degraded',
+                'checked_at': checked_at,
+                'environment': settings.app_env,
+                'checks': {
+                    'database': 'error',
+                    'scheduler': scheduler_state,
+                },
+            },
+        )
+
+    return {
+        'status': 'ok',
+        'service': settings.app_name,
+        'checked_at': checked_at,
+        'environment': settings.app_env,
+        'checks': {
+            'database': 'ok',
+            'scheduler': scheduler_state,
+        },
+    }
 
 
 @router.post('/payments/stripe/webhook', response_model=SimpleMessage)

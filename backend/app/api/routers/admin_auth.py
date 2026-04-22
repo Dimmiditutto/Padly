@@ -44,6 +44,12 @@ def login(
         )
     )
     if not admin or not verify_password(payload.password, admin.password_hash):
+        logger.warning(
+            'Login admin fallito per %s sul tenant %s',
+            normalized_email,
+            tenant_context.club.slug,
+            extra={'event': 'admin_login_failed'},
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Credenziali non valide')
 
     token = create_admin_token(admin.email, admin.password_hash, club_id=admin.club_id, club_slug=tenant_context.club.slug)
@@ -51,6 +57,7 @@ def login(
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
+        domain=settings.admin_session_cookie_domain,
         httponly=True,
         secure=settings.is_production,
         samesite='lax',
@@ -69,7 +76,7 @@ def login(
 
 @router.post('/logout')
 def logout(response: Response) -> dict:
-    response.delete_cookie(COOKIE_NAME)
+    response.delete_cookie(COOKIE_NAME, domain=settings.admin_session_cookie_domain)
     return {'message': 'Logout eseguito'}
 
 

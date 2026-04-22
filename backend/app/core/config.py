@@ -27,9 +27,11 @@ class Settings(BaseSettings):
     app_env: str = 'development'
     app_url: str = 'http://localhost:8000'
     api_prefix: str = '/api'
+    cors_allowed_origins: list[str] = Field(default_factory=list)
     secret_key: str = 'change-me-super-secret'
     admin_email: EmailStr = 'admin@padelbooking.app'
     admin_password: str = 'ChangeMe123!'
+    admin_session_cookie_domain: str | None = None
     database_url: str = 'sqlite:///./padelbooking.db'
     timezone: str = 'Europe/Rome'
     scheduler_enabled: bool = True
@@ -69,6 +71,25 @@ class Settings(BaseSettings):
     def normalize_app_url(cls, value: str) -> str:
         normalized = value.rstrip('/')
         return normalized or value
+
+    @field_validator('cors_allowed_origins', mode='before')
+    @classmethod
+    def normalize_cors_allowed_origins(cls, value: object) -> list[str]:
+        if value is None or value == '':
+            return []
+        if isinstance(value, str):
+            return [item.rstrip('/') for item in (origin.strip() for origin in value.split(',')) if item]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip().rstrip('/') for item in value if str(item).strip()]
+        raise ValueError('CORS_ALLOWED_ORIGINS deve essere una lista o una stringa separata da virgole')
+
+    @field_validator('admin_session_cookie_domain', mode='before')
+    @classmethod
+    def normalize_admin_session_cookie_domain(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
     @field_validator('paypal_env')
     @classmethod
@@ -136,6 +157,19 @@ class Settings(BaseSettings):
         docker_path = ROOT_DIR / 'frontend_dist'
         local_path = ROOT_DIR / 'frontend' / 'dist'
         return docker_path if docker_path.exists() else local_path
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        origins = [self.app_url, *self.cors_allowed_origins]
+        if not self.is_production:
+            origins.extend(['http://localhost:5173', 'http://127.0.0.1:5173'])
+
+        deduplicated: list[str] = []
+        for origin in origins:
+            normalized = str(origin).strip().rstrip('/')
+            if normalized and normalized not in deduplicated:
+                deduplicated.append(normalized)
+        return deduplicated
 
 
 @lru_cache

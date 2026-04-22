@@ -1,28 +1,51 @@
-Leggi prompt_master.md
+Leggi prompts SaaS/prompt_master.md
 
-# Patch operativa — Padel Booking
+# Patch operativa coerente con il repo attuale - Padel Booking
 
 Agisci come un Senior Full-Stack Engineer esperto di FastAPI, SQLAlchemy, PostgreSQL, React, TypeScript e Alembic.
-Applica in sequenza le patch descritte di seguito, **patch minima, nessun refactor aggiuntivo**.
-Ogni sezione indica: file, problema risolto, modifica esatta.
+Applica solo patch minime, nessun refactor generale.
+Prima di modificare il codice, allinea ogni intervento al repository reale attuale e non a versioni precedenti del progetto.
 
 ---
 
-## Parte 1 — Compatibilità driver PostgreSQL su Railway
+## Vincoli globali obbligatori
+
+1. Il backend e shared-database multi-tenant. Ogni nuova query su bookings, blackout, recurring series, report o availability deve restare filtrata per club_id.
+2. Il layer commerciale FASE 5 e gia attivo. Ogni nuova route admin operativa deve usare get_current_admin_enforced. Ogni route public operativa deve preservare get_current_club_enforced.
+3. Il frontend e tenant-aware via query param e interceptor axios. Se estendi getAvailability o altre API condivise, non rompere la firma corrente che accetta tenantSlug. Se aggiungi AbortSignal, aggiungilo come parametro opzionale finale.
+4. La chain Alembic attuale termina a 20260422_0004_billing_saas. Non creare revision duplicate e non riusare revision_id gia presenti nel repository.
+5. Se aggiungi campi a PublicConfig o AdminSettings, aggiorna in modo coerente backend schemas, router, frontend types e test. Questo cambia intenzionalmente la response shape e va trattato come modifica esplicita, non come side effect.
+6. I pulsanti Esci nelle pagine admin sono gia presenti. Non riaprire quel lavoro e non duplicare markup o logica di logout.
+7. Non indebolire la policy commerciale gia cablata. Nessuna nuova route admin o public deve aggirare i dependency enforced.
+8. Mantieni separati billing SaaS e booking payments legacy.
+
+---
+
+## Fuori scope esplicito
+
+- Non ricreare il lavoro gia fatto sui pulsanti Esci delle pagine admin.
+- Non sostituire DateFieldWithDay in tutto il progetto per preferenza stilistica. Se lo tocchi, fallo solo dove c'e un problema concreto e senza aprire refactor trasversali.
+- Non creare migration con revision 20260421_0003: esiste gia nel repo.
+- Non rimuovere tenantSlug dalle firme dei service frontend gia tenant-aware.
+- Non introdurre route admin operative con get_current_admin al posto di get_current_admin_enforced.
+
+---
+
+## Parte 1 - Compatibilita PostgreSQL su Railway con psycopg v3
 
 ### Problema
-Railway (e altri provider cloud) espongono la variabile `DATABASE_URL` con prefisso `postgresql://`.
-Il progetto usa **psycopg v3**, che richiede `postgresql+psycopg://`.
-Senza questa conversione il motore SQLAlchemy e le migrazioni Alembic falliscono al primo tentativo di connessione.
 
-### 1.1 — `backend/app/core/db.py`
+Railway e altri provider possono esporre DATABASE_URL con prefisso postgresql://.
+Il progetto usa psycopg v3 e SQLAlchemy deve ricevere postgresql+psycopg://.
 
-Sostituisci la riga che costruisce `engine` con:
+### 1.1 - backend/app/core/db.py
+
+Normalizza settings.database_url prima di creare engine.
+
+Usa questa logica:
 
 ```python
 _db_url = settings.database_url
-# Railway (e altri provider) forniscono "postgresql://" ma il progetto usa psycopg v3;
-# SQLAlchemy richiede il prefisso "postgresql+psycopg://" per il driver corretto.
 if _db_url.startswith('postgresql://'):
     _db_url = _db_url.replace('postgresql://', 'postgresql+psycopg://', 1)
 
@@ -30,9 +53,9 @@ connect_args = {'check_same_thread': False} if _db_url.startswith('sqlite') else
 engine = create_engine(_db_url, future=True, pool_pre_ping=True, connect_args=connect_args)
 ```
 
-### 1.2 — `backend/alembic/env.py`
+### 1.2 - backend/alembic/env.py
 
-Sostituisci la riga `config.set_main_option('sqlalchemy.url', settings.database_url)` con:
+Normalizza allo stesso modo anche la URL usata da Alembic:
 
 ```python
 _alembic_db_url = settings.database_url
@@ -41,122 +64,87 @@ if _alembic_db_url.startswith('postgresql://'):
 config.set_main_option('sqlalchemy.url', _alembic_db_url)
 ```
 
-### 1.3 — `backend/alembic/versions/20260415_0001_initial.py`
+### 1.3 - Alembic migrations: enum e boolean default compatibili con PostgreSQL
 
-**Problema aggiuntivo:** la migrazione iniziale usava `sa.Enum(...).create()` e `CREATE TYPE IF NOT EXISTS` che non funzionano correttamente su Railway PostgreSQL (conflitti con tipi già esistenti da deployment precedenti, `IF NOT EXISTS` non supportato in tutte le versioni).
+Audit e correggi le migration che definiscono enum PostgreSQL o server_default booleani non portabili.
 
-**Soluzione finale verificata:**
+Minimo richiesto:
 
-1. Aggiungi l'import in cima al file:
-   ```python
-   from sqlalchemy.dialects import postgresql
-   ```
+1. In backend/alembic/versions/20260415_0001_initial.py:
+   - usa sqlalchemy.dialects.postgresql.ENUM per i tipi enum PostgreSQL
+   - separa gli oggetti enum usati per create da quelli usati nelle colonne con create_type=False
+   - crea i tipi con checkfirst=True nel blocco upgrade
+   - nel downgrade usa DROP TYPE IF EXISTS solo in ambito PostgreSQL
+   - sostituisci i server_default booleani testuali non portabili con true o false
 
-2. Sostituisci le definizioni degli Enum a livello modulo con oggetti `postgresql.ENUM` distinti:
-   - Oggetti `_enum` per la **creazione** (senza `create_type=False`)
-   - Alias con `create_type=False` per il **riuso nelle colonne** (evita ricreazioni implicite)
+2. Controlla anche le migration successive gia presenti nel repo, in particolare:
+   - backend/alembic/versions/20260421_0003_tenant_foundation.py
+   - backend/alembic/versions/20260422_0004_billing_saas.py
 
-   ```python
-   admin_role_enum = postgresql.ENUM('SUPERADMIN', name='adminrole')
-   booking_status_enum = postgresql.ENUM('PENDING_PAYMENT', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW', 'EXPIRED', name='bookingstatus')
-   payment_provider_enum = postgresql.ENUM('STRIPE', 'PAYPAL', 'NONE', name='paymentprovider')
-   payment_status_enum = postgresql.ENUM('UNPAID', 'INITIATED', 'PAID', 'FAILED', 'CANCELLED', 'EXPIRED', name='paymentstatus')
-   booking_source_enum = postgresql.ENUM('PUBLIC', 'ADMIN_MANUAL', 'ADMIN_RECURRING', name='bookingsource')
+Se trovi server_default booleani espressi come 1 o 0, normalizzali in true o false in modo coerente con PostgreSQL.
 
-   admin_role = postgresql.ENUM('SUPERADMIN', name='adminrole', create_type=False)
-   booking_status = postgresql.ENUM('PENDING_PAYMENT', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW', 'EXPIRED', name='bookingstatus', create_type=False)
-   payment_provider = postgresql.ENUM('STRIPE', 'PAYPAL', 'NONE', name='paymentprovider', create_type=False)
-   payment_status = postgresql.ENUM('UNPAID', 'INITIATED', 'PAID', 'FAILED', 'CANCELLED', 'EXPIRED', name='paymentstatus', create_type=False)
-   booking_source = postgresql.ENUM('PUBLIC', 'ADMIN_MANUAL', 'ADMIN_RECURRING', name='bookingsource', create_type=False)
-   ```
-
-3. Nel blocco `upgrade()`, dopo `op.execute('CREATE EXTENSION IF NOT EXISTS btree_gist')`, sostituisci qualsiasi `CREATE TYPE` manuale con:
-   ```python
-   admin_role_enum.create(bind, checkfirst=True)
-   booking_status_enum.create(bind, checkfirst=True)
-   payment_provider_enum.create(bind, checkfirst=True)
-   payment_status_enum.create(bind, checkfirst=True)
-   booking_source_enum.create(bind, checkfirst=True)
-   ```
-
-4. Correggi i `server_default` delle colonne booleane: PostgreSQL richiede `'true'`/`'false'`, non `'1'`/`'0'`:
-   - `admins.is_active`: `server_default=sa.text('true')`
-   - `blackout_periods.is_active`: `server_default=sa.text('true')`
-
-5. Nel blocco `downgrade()`, sostituisci `booking_source.drop(bind, checkfirst=True)` e simili con:
-   ```python
-   if is_postgresql:
-       op.execute('DROP TYPE IF EXISTS bookingsource')
-       op.execute('DROP TYPE IF EXISTS paymentstatus')
-       op.execute('DROP TYPE IF EXISTS paymentprovider')
-       op.execute('DROP TYPE IF EXISTS bookingstatus')
-       op.execute('DROP TYPE IF EXISTS adminrole')
-   ```
-   Nota: `is_postgresql` deve essere dichiarato anche nel blocco `downgrade()` (`bind = op.get_bind()` / `is_postgresql = bind.dialect.name == 'postgresql'`).
+Vincolo: nessuna migration deve introdurre revision duplicate o branch multipli non necessari.
 
 ---
 
-## Parte 2 — UI admin: pulsante logout e navigazione
+## Parte 2 - UI admin residua, senza riaprire lavoro gia chiuso
 
-### Problema
-Le pagine admin secondarie (`AdminBookingsPage`, `AdminCurrentBookingsPage`, `AdminLogsPage`) non avevano un pulsante "Esci" visibile. Il nav link attivo non si distingueva visivamente. La Dashboard mostrava il link "Log" nel nav header (ridondante per l'admin).
+### Problema reale rimasto
 
-### 2.1 — `frontend/src/components/AdminNav.tsx`
+La navigazione admin puo ancora nascondere il link Log nella Dashboard, ma i pulsanti Esci non vanno toccati: sono gia presenti.
 
-1. Il link attivo usava `className='btn-primary'` — sostituisci con la classe Tailwind inline completa per evitare dipendenze indirette:
-   ```tsx
-   className={isActive
-     ? 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-brand-700 bg-brand-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-cyan-200'
-     : 'btn-secondary'}
-   ```
+### 2.1 - frontend/src/components/AdminNav.tsx
 
-2. Aggiungi la prop `showLog` (opzionale, default `true`) per nascondere il link "Log" in certi contesti:
-   ```tsx
-   export function AdminNav({ showLog = true }: { showLog?: boolean }) {
-     const location = useLocation();
-     const visibleNavItems = showLog ? navItems : navItems.filter((item) => item.to !== '/admin/log');
-     // ... usa visibleNavItems nel map invece di navItems
-   }
-   ```
+1. Mantieni lo stile attuale del link attivo.
+2. Aggiungi la prop opzionale showLog con default true.
+3. Filtra navItems in visibleNavItems quando showLog e false.
+4. Non cambiare la logica tenant-aware del componente.
 
-### 2.2 — `frontend/src/pages/AdminBookingsPage.tsx`
+Esempio di firma attesa:
 
-1. Aggiungi costanti di stile per i pulsanti hero area (sticky bar):
-   ```tsx
-   const HERO_ACTION_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 ... sm:w-auto';
-   const HERO_LOGOUT_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#f6c206] bg-[#f6c206] px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[#f6c206]/50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
-   const HERO_ACTIONS_WRAPPER_CLASS = 'sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0';
-   ```
+```tsx
+export function AdminNav({
+  session,
+  notificationEmail,
+  showLog = true,
+}: {
+  session?: AdminSession | null;
+  notificationEmail?: string | null;
+  showLog?: boolean;
+}) {
+  const visibleNavItems = showLog ? navItems : navItems.filter((item) => item.to !== '/admin/log');
+}
+```
 
-2. Aggiungi la funzione `logout()` e importa `logoutAdmin` da adminApi.
+### 2.2 - frontend/src/pages/AdminDashboardPage.tsx
 
-3. Nella hero area: wrap i bottoni nel `HERO_ACTIONS_WRAPPER_CLASS` e aggiungi:
-   ```tsx
-   <button className={HERO_LOGOUT_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
-   ```
+Usa AdminNav con showLog={false} nella Dashboard.
 
-4. Usa `formatDate` (non solo `formatDateTime`) per le date nelle descrizioni delle serie ricorrenti.
-
-### 2.3 — `frontend/src/pages/AdminCurrentBookingsPage.tsx` e `AdminLogsPage.tsx`
-
-Stessa logica: aggiungi import `logoutAdmin`, aggiungi funzione `logout()`, aggiungi pulsante "Esci" nella hero area con stile `HERO_LOGOUT_BUTTON_CLASS`.
-
-### 2.4 — `frontend/src/pages/AdminDashboardPage.tsx`
-
-1. Usa `<AdminNav showLog={false} />` nella Dashboard per nascondere il link "Log" (già raggiungibile da `AdminBookingsPage`).
-
-2. Nel form serie ricorrenti, sostituisci eventuali componenti `DateFieldWithDay` con `<input type="date">` nativi (label + input separati) per `start_date` e `end_date`. Questo rimuove la dipendenza dal componente custom e consente controllo diretto degli stili.
+Non riaggiungere pulsanti Esci e non rifare la hero bar.
 
 ---
 
-## Parte 3 — Eliminazione serie ricorrenti già annullate
+## Parte 3 - Eliminazione serie ricorrenti gia annullate
 
 ### Problema
-L'admin non poteva eliminare definitivamente dall'elenco una serie ricorrente completamente annullata. Le serie annullate restavano visibili per sempre.
 
-### 3.1 — `backend/app/services/booking_service.py`
+Una serie ricorrente completamente annullata deve poter essere rimossa dall'elenco admin.
 
-Aggiungi alla fine del file la funzione:
+### 3.1 - backend/app/services/booking_service.py
+
+Aggiungi una funzione delete_cancelled_recurring_series con questi vincoli:
+
+1. Deve ricevere club_id oltre a series_id e actor.
+2. Deve cercare la serie filtrando per id e club_id.
+3. Deve cercare le occorrenze filtrando per:
+   - Booking.club_id == resolved_club_id
+   - Booking.recurring_series_id == series_id
+   - Booking.source == BookingSource.ADMIN_RECURRING
+4. Deve permettere l'eliminazione solo se tutte le occorrenze della serie sono gia CANCELLED.
+5. Deve cancellare prima le occorrenze e poi la serie.
+6. Deve registrare un log_event con club_id coerente.
+
+Shape consigliata:
 
 ```python
 def delete_cancelled_recurring_series(
@@ -164,54 +152,13 @@ def delete_cancelled_recurring_series(
     *,
     series_id: str,
     actor: str,
+    club_id: str | None = None,
 ) -> tuple[str, str, list[str]]:
-    series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id))
-    if not series:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
-
-    bookings = db.scalars(
-        select(Booking)
-        .where(
-            Booking.recurring_series_id == series_id,
-            Booking.source == BookingSource.ADMIN_RECURRING,
-        )
-        .order_by(Booking.start_at.asc())
-    ).all()
-
-    if len(bookings) == 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La serie ricorrente non contiene occorrenze eliminabili')
-
-    if any(booking.status != BookingStatus.CANCELLED for booking in bookings):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Puoi eliminare dall\'elenco solo serie ricorrenti già annullate')
-
-    deleted_booking_ids = [booking.id for booking in bookings]
-    series_label = series.label
-
-    for booking in bookings:
-        db.delete(booking)
-
-    db.flush()
-    db.delete(series)
-
-    log_event(
-        db,
-        None,
-        'RECURRING_SERIES_DELETED',
-        f'Serie ricorrente eliminata dall\'elenco: {series_label}',
-        actor=actor,
-        payload={
-            'series_id': series_id,
-            'deleted_count': len(deleted_booking_ids),
-            'booking_ids': deleted_booking_ids,
-        },
-    )
-
-    return series_id, series_label, deleted_booking_ids
 ```
 
-### 3.2 — `backend/app/schemas/admin.py`
+### 3.2 - backend/app/schemas/admin.py
 
-Aggiungi lo schema di risposta:
+Aggiungi:
 
 ```python
 class RecurringDeleteResponse(BaseModel):
@@ -221,28 +168,26 @@ class RecurringDeleteResponse(BaseModel):
     booking_ids: list[str] = Field(default_factory=list)
 ```
 
-### 3.3 — `backend/app/api/routers/admin_ops.py`
+### 3.3 - backend/app/api/routers/admin_ops.py
 
-Aggiungi import di `RecurringDeleteResponse` e `delete_cancelled_recurring_series`, poi aggiungi la route:
+Aggiungi la route DELETE per la serie ricorrente, ma usa get_current_admin_enforced, non get_current_admin.
+
+Firma attesa:
 
 ```python
 @router.delete('/recurring/{series_id}', response_model=RecurringDeleteResponse)
-def delete_recurring_series(series_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringDeleteResponse:
-    with acquire_single_court_lock(db):
-        deleted_series_id, _, deleted_booking_ids = delete_cancelled_recurring_series(db, series_id=series_id, actor=admin.email)
-        db.commit()
-
-    return RecurringDeleteResponse(
-        message="Serie ricorrente eliminata dall'elenco.",
-        series_id=deleted_series_id,
-        deleted_count=len(deleted_booking_ids),
-        booking_ids=deleted_booking_ids,
-    )
+def delete_recurring_series(
+    series_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> RecurringDeleteResponse:
 ```
 
-### 3.4 — `frontend/src/services/adminApi.ts`
+Chiama il service passando club_id=admin.club_id e mantieni acquire_single_court_lock.
 
-Aggiungi la funzione:
+### 3.4 - frontend/src/services/adminApi.ts
+
+Aggiungi:
 
 ```typescript
 export async function deleteRecurringSeries(seriesId: string) {
@@ -251,412 +196,256 @@ export async function deleteRecurringSeries(seriesId: string) {
 }
 ```
 
-### 3.5 — `frontend/src/pages/AdminBookingsPage.tsx`
+### 3.5 - frontend/src/pages/AdminBookingsPage.tsx
 
-1. Importa `deleteRecurringSeries` da adminApi.
+1. Importa deleteRecurringSeries.
+2. Aggiungi handler dedicato per eliminare una serie completamente annullata.
+3. Se entry.isFullyCancelled e true, mostra il bottone Elimina serie al posto dei bottoni di annullamento.
+4. Mantieni la logica tenant-aware esistente su navigate e logout.
 
-2. Aggiungi costante di stile:
-   ```tsx
-   const DELETE_SERIES_BUTTON_CLASS = 'inline-flex min-h-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-200';
-   ```
+### 3.6 - Test minimi richiesti
 
-3. Aggiungi handler:
-   ```tsx
-   async function handleDeleteSeries(seriesId: string, seriesLabel: string) {
-     if (!window.confirm(`Confermi l'eliminazione definitiva della serie annullata "${seriesLabel}" dall'elenco admin?`)) {
-       return;
-     }
-     setFeedback(null);
-     try {
-       const response = await deleteRecurringSeries(seriesId);
-       setSelectedOccurrences((prev) => ({ ...prev, [seriesId]: [] }));
-       setExpandedSeries((prev) => ({ ...prev, [seriesId]: false }));
-       setFeedback({ tone: 'success', message: `Serie eliminata dall'elenco: ${response.deleted_count} occorrenze rimosse.` });
-       await loadBookings();
-     } catch (error: any) {
-       if (getRequestStatus(error) === 401) { navigate('/admin/login'); return; }
-       setFeedback({ tone: 'error', message: getRequestMessage(error, 'Eliminazione serie non riuscita.') });
-     }
-   }
-   ```
+Backend:
+- test che una serie completamente cancellata venga eliminata correttamente
+- test che una serie con almeno una occorrenza non cancellata restituisca 409
+- test che l'endpoint resti nello scope del tenant corretto
 
-4. Nel render delle serie ricorrenti, usa logica condizionale: se la serie è completamente annullata (`entry.isFullyCancelled`), mostra il bottone "Elimina serie" (`DELETE_SERIES_BUTTON_CLASS`) al posto dei bottoni "Annulla selezionate" / "Annulla tutta la serie".
+Frontend:
+- test mirato sulla visibilita del bottone Elimina serie solo per serie fully cancelled
 
 ---
 
-## Parte 4 — Tariffe informative giocatori configurabili
+## Parte 4 - Tariffe informative giocatori configurabili
 
 ### Problema
-Le tariffe per giocatore erano hardcoded nel frontend (`PublicBookingPage.tsx`). Non erano modificabili dall'admin. Il pannello booking pubblico non mostrava i valori aggiornati dall'admin.
 
-### 4.1 — `backend/app/services/settings_service.py`
+Le tariffe informative per giocatore sono hardcoded nel frontend. Devono diventare configurabili da admin e visibili nel booking pubblico.
 
-1. Aggiungi costante con valori di default:
-   ```python
-   DEFAULT_INFORMATIVE_PLAYER_RATES = [
-       'Tesserati: € 7/ora per giocatore',
-       'Non tesserati: € 9/ora per giocatore',
-       '90 minuti: € 10 per giocatore tesserato',
-       '90 minuti: € 13 per giocatore non tesserato',
-   ]
-   ```
+### 4.1 - backend/app/services/settings_service.py
 
-2. Aggiungi `informative_player_rates` al dizionario di default in `default_booking_rules()`.
+1. Aggiungi una costante default:
 
-3. Aggiorna `get_booking_rules()` per gestire la chiave `informative_player_rates` (è una lista, non un intero — trattamento distinto nel merge).
-
-4. Aggiungi parametro `informative_player_rates: list[str]` a `update_booking_rules()` e includilo nel valore salvato.
-
-### 4.2 — `backend/app/schemas/admin.py`
-
-1. Aggiungi validatore helper:
-   ```python
-   def _normalize_non_empty_rate(value: object) -> str:
-       normalized = str(value).strip()
-       if not normalized:
-           raise ValueError('Le tariffe informative non possono essere vuote')
-       return normalized
-   ```
-
-2. Aggiungi campo a `AdminSettingsResponse`:
-   ```python
-   informative_player_rates: list[str]
-   ```
-
-3. Aggiungi campo a `AdminSettingsUpdateRequest` con validatore:
-   ```python
-   informative_player_rates: list[str] = Field(min_length=1, max_length=8)
-
-   @field_validator('informative_player_rates')
-   @classmethod
-   def validate_informative_player_rates(cls, value: list[object]) -> list[str]:
-       return [_normalize_non_empty_rate(item) for item in value]
-   ```
-
-### 4.3 — `backend/app/schemas/public.py`
-
-Aggiungi a `PublicConfigResponse`:
 ```python
-informative_player_rates: list[str]
+DEFAULT_INFORMATIVE_PLAYER_RATES = [
+    'Tesserati: EUR 7/ora per giocatore',
+    'Non tesserati: EUR 9/ora per giocatore',
+    '90 minuti: EUR 10 per giocatore tesserato',
+    '90 minuti: EUR 13 per giocatore non tesserato',
+]
 ```
 
-### 4.4 — `backend/app/api/routers/admin_settings.py`
+2. Aggiungi informative_player_rates alle booking rules di default.
+3. Aggiorna i type hint del service: con questo campo, default_booking_rules e get_booking_rules non sono piu dict[str, int].
+4. Nel merge di get_booking_rules:
+   - i campi numerici restano castati a int
+   - informative_player_rates resta list[str]
+5. update_booking_rules deve accettare informative_player_rates: list[str] e salvarlo nel payload.
 
-Passa `informative_player_rates=payload.informative_player_rates` a `update_booking_rules(...)`.
+### 4.2 - backend/app/schemas/admin.py
 
-### 4.5 — `backend/app/api/routers/public.py`
+1. Aggiungi helper validator per rate non vuote.
+2. Aggiungi informative_player_rates a AdminSettingsResponse.
+3. Aggiungi informative_player_rates a AdminSettingsUpdateRequest con validator dedicato.
 
-Includi `informative_player_rates=booking_rules['informative_player_rates']` nella costruzione di `PublicConfigResponse`.
+### 4.3 - backend/app/schemas/public.py
 
-### 4.6 — `frontend/src/pages/AdminDashboardPage.tsx`
+Aggiungi informative_player_rates a PublicConfigResponse.
 
-1. Nel submit `handleSaveSettings()`: includi `informative_player_rates: settings.informative_player_rates` nel payload.
+### 4.4 - backend/app/api/routers/admin_settings.py
 
-2. Nella sezione "Regole operative": aggiungi un pannello editabile con la lista delle tariffe. Ogni tariffa ha un `<input>` modificabile. L'onChange aggiorna `settings.informative_player_rates[index]`.
+Passa informative_player_rates a update_booking_rules o update_tenant_settings in modo coerente con il design attuale.
 
-3. Aggiorna la description della SectionCard per menzionare le tariffe informative.
+### 4.5 - backend/app/api/routers/public.py
 
-### 4.7 — `frontend/src/pages/PublicBookingPage.tsx`
+Includi informative_player_rates nel PublicConfigResponse.
 
-1. Le tariffe hardcoded diventano fallback:
-   ```tsx
-   const defaultPlayerRates = [ /* stessi valori di prima */ ];
-   const playerRates = publicConfig?.informative_player_rates?.length
-     ? publicConfig.informative_player_rates
-     : defaultPlayerRates;
-   ```
+### 4.6 - frontend/src/types.ts
 
-2. Aggiungi navigazione giorno precedente/successivo accanto al campo data:
-   ```tsx
-   const canGoToPreviousDay = bookingDate > today;
+Aggiorna tutti i contratti TypeScript coerentemente:
 
-   function moveBookingDate(days: number) {
-     setBookingDate((previous) => {
-       const nextDate = addDaysToDateInput(previous, days);
-       return nextDate < today ? today : nextDate;
-     });
-   }
-   ```
-   Nel JSX, wrap l'`<input type="date">` con bottoni `<ChevronLeft>` / `<ChevronRight>` (da lucide-react). Il bottone sinistro è `disabled={!canGoToPreviousDay}`.
+- PublicConfig
+- AdminSettings
+- AdminSettingsUpdatePayload
+
+Senza questo pass il prompt non e valido: il frontend deve conoscere i nuovi campi.
+
+### 4.7 - frontend/src/pages/AdminDashboardPage.tsx
+
+1. Nel salvataggio settings includi informative_player_rates.
+2. Aggiungi una UI minima per modificare la lista delle tariffe informative.
+3. Mantieni patch locale: non rifare l'intero pannello settings.
+
+### 4.8 - frontend/src/pages/PublicBookingPage.tsx
+
+1. Le tariffe hardcoded diventano fallback.
+2. Se publicConfig.informative_player_rates esiste ed e non vuota, usa quella lista.
+
+Nota importante: questa parte modifica intenzionalmente la response shape delle API settings e public config. Aggiorna test e tipi di conseguenza.
 
 ---
 
-## Parte 5 — Performance: bulk query per disponibilità giornaliera
+## Parte 5 - Performance: bulk query per availability giornaliera
 
 ### Problema
-`build_daily_slots()` in `booking_service.py` chiamava `assert_slot_available()` per ogni slot del giorno (es. 16 slot/giorno = 32 query DB per una sola chiamata a `GET /public/availability`). Con Railway/PostgreSQL remoto ogni query costa ~30-80ms.
 
-### 5.1 — `backend/app/services/booking_service.py` — `build_daily_slots()`
+build_daily_slots oggi usa assert_slot_available per ogni slot e genera troppe query.
 
-Prima del loop sugli slot, calcola la finestra del giorno ed esegui 2 query bulk:
+### 5.1 - backend/app/services/booking_service.py - build_daily_slots()
 
-```python
-all_local_starts = iter_local_slot_starts(booking_date)
-if not all_local_starts:
-    return slots
+Ottimizza con due query bulk per giornata, ma preserva il tenant scope.
 
-day_start_utc = all_local_starts[0].astimezone(UTC)
-day_end_utc = all_local_starts[-1].astimezone(UTC) + timedelta(minutes=duration_minutes)
+Logica richiesta:
 
-blocking_bookings = db.scalars(
-    select(Booking).where(
-        Booking.start_at < day_end_utc,
-        Booking.end_at > day_start_utc,
-        Booking.status.in_(BLOCKING_STATUSES),
-    )
-).all()
+1. Calcola una sola volta all_local_starts = list(iter_local_slot_starts(booking_date)).
+2. Se la lista e vuota, ritorna subito [].
+3. Calcola day_start_utc e day_end_utc.
+4. Esegui query bulk su bookings e blackout filtrando anche per resolved_club_id.
 
-active_blackouts = db.scalars(
-    select(BlackoutPeriod).where(
-        BlackoutPeriod.is_active.is_(True),
-        BlackoutPeriod.start_at < day_end_utc,
-        BlackoutPeriod.end_at > day_start_utc,
-    )
-).all()
-```
-
-Nel loop, sostituisci `assert_slot_available()` con check in-memoria:
+Le query devono includere almeno:
 
 ```python
-conflict_booking = next(
-    (b for b in blocking_bookings if b.start_at < end_at and b.end_at > start_at),
-    None,
-)
-if conflict_booking:
-    available = False
-    reason = 'Lo slot non è più disponibile'
-else:
-    conflict_blackout = next(
-        (bl for bl in active_blackouts if bl.start_at < end_at and bl.end_at > start_at),
-        None,
-    )
-    if conflict_blackout:
-        available = False
-        reason = "Fascia bloccata dall'admin"
+Booking.club_id == resolved_club_id
+Booking.start_at < day_end_utc
+Booking.end_at > day_start_utc
+Booking.status.in_(BLOCKING_STATUSES)
 ```
 
-**Non toccare `assert_slot_available()`** — è usata da altri flussi (booking singolo, etc.).
+e
 
-### 5.2 — Nuova migration: `backend/alembic/versions/20260421_0003_availability_indexes.py`
+```python
+BlackoutPeriod.club_id == resolved_club_id
+BlackoutPeriod.is_active.is_(True)
+BlackoutPeriod.start_at < day_end_utc
+BlackoutPeriod.end_at > day_start_utc
+```
 
-Crea il file con:
-- `revision = '20260421_0003'`
-- `down_revision = '20260417_0002'`
-- `upgrade()`: crea indice `ix_bookings_overlap_status` su `bookings(start_at, end_at, status)` e `ix_blackout_periods_active_overlap` su `blackout_periods(is_active, start_at, end_at)`
-- `downgrade()`: drop degli stessi indici
+Nel loop usa check in-memory per conflitti booking e blackout.
 
-### 5.3 — `frontend/src/components/AdminTimeSlotPicker.tsx`
+Non modificare assert_slot_available: resta usata da altri flussi.
 
-1. Aggiungi early-return nel `useEffect` quando `bookingDate` è vuoto:
-   ```tsx
-   if (!bookingDate) {
-     setSlots([]);
-     setError('');
-     return;
-   }
-   ```
+### 5.2 - Nuova migration indici availability
 
-2. Aggiungi `AbortController` per cancellare le richieste in-flight al cambio data:
-   ```tsx
-   const controller = new AbortController();
-   // passa controller.signal a getAvailability(bookingDate, durationMinutes, controller.signal)
-   // nella cleanup: controller.abort()
-   ```
+Non creare 20260421_0003.
 
-3. Nel `catch`, silenzia gli errori di abort (non mostrare il banner "Non riesco a caricare"):
-   ```tsx
-   if (
-     err instanceof Error && err.name === 'AbortError' ||
-     axios.isCancel(err) ||
-     (err instanceof Error && (err as { code?: string }).code === 'ERR_CANCELED')
-   ) {
-     return;
-   }
-   ```
-   Aggiungi `import axios from 'axios'` in cima.
+Crea una nuova migration con revision unica successiva alla chain attuale, ad esempio:
 
-### 5.4 — `frontend/src/services/publicApi.ts`
+- file: backend/alembic/versions/20260422_0005_availability_indexes.py
+- revision = '20260422_0005'
+- down_revision = '20260422_0004'
 
-Aggiungi parametro `signal` opzionale a `getAvailability()`:
+Gli indici devono essere coerenti con le query tenant-scoped. Non usare indici che ignorano club_id.
+
+Target minimo consigliato:
+
+- bookings(club_id, status, start_at, end_at)
+- blackout_periods(club_id, is_active, start_at, end_at)
+
+### 5.3 - frontend/src/components/AdminTimeSlotPicker.tsx
+
+1. Aggiungi early return quando bookingDate e vuoto.
+2. Usa AbortController per annullare richieste in-flight.
+3. Non mostrare error banner sugli abort.
+4. Non rompere la compatibilita tenant-aware delle chiamate sottostanti.
+
+### 5.4 - frontend/src/services/publicApi.ts
+
+Estendi getAvailability mantenendo tenantSlug e aggiungendo signal come parametro finale.
+
+Firma attesa:
 
 ```typescript
-export async function getAvailability(date: string, durationMinutes: number, signal?: AbortSignal) {
+export async function getAvailability(
+  date: string,
+  durationMinutes: number,
+  tenantSlug?: string | null,
+  signal?: AbortSignal,
+) {
   const response = await api.get<AvailabilityResponse>('/public/availability', {
-    params: { date, duration_minutes: durationMinutes },
+    params: { date, duration_minutes: durationMinutes, ...withTenantParams(tenantSlug) },
     signal,
   });
   return response.data;
 }
 ```
 
+Non sostituire tenantSlug con signal.
+
 ---
 
-## Parte 6 — Performance: bulk query per serie ricorrenti
+## Parte 6 - Performance: bulk query per serie ricorrenti
 
 ### Problema
-`preview_recurring_occurrences()` chiamava `assert_slot_available()` (2 query DB) per ciascuna delle N occorrenze della serie. Per 26 settimane: **52 query DB** solo in preview.
-`create_recurring_series()` e `update_recurring_series()` chiamavano `db.flush()` dopo ogni singolo booking inserito (N round-trip su PostgreSQL remoto).
 
-### 6.1 — `backend/app/services/booking_service.py` — `preview_recurring_occurrences()`
+preview_recurring_occurrences e create/update recurring fanno troppe query e troppi flush.
 
-Prima del loop sulle date, calcola la finestra complessiva ed esegui 2 bulk query:
+### 6.1 - backend/app/services/booking_service.py - preview_recurring_occurrences()
 
-```python
-first_local_start = datetime.combine(dates[0], parsed_time).replace(tzinfo=ROME_TZ)
-last_local_start = datetime.combine(dates[-1], parsed_time).replace(tzinfo=ROME_TZ)
-range_start_utc = first_local_start.astimezone(UTC)
-range_end_utc = last_local_start.astimezone(UTC) + timedelta(minutes=duration_minutes)
+Prima del loop sulle date:
 
-booking_overlap_filters = [
-    Booking.start_at < range_end_utc,
-    Booking.end_at > range_start_utc,
-    Booking.status.in_(BLOCKING_STATUSES),
-]
-if exclude_recurring_series_id:
-    booking_overlap_filters.append(
-        or_(Booking.recurring_series_id.is_(None), Booking.recurring_series_id != exclude_recurring_series_id)
-    )
-blocking_bookings = db.scalars(select(Booking).where(and_(*booking_overlap_filters))).all()
+1. calcola range_start_utc e range_end_utc
+2. esegui 2 query bulk tenant-scoped
+3. mantieni exclude_recurring_series_id dove necessario
 
-active_blackouts = db.scalars(
-    select(BlackoutPeriod).where(
-        BlackoutPeriod.is_active.is_(True),
-        BlackoutPeriod.start_at < range_end_utc,
-        BlackoutPeriod.end_at > range_start_utc,
-    )
-).all()
-```
+Le query devono restare nel tenant scope. In particolare il filtro bookings deve includere Booking.club_id == resolved_club_id e quello blackout BlackoutPeriod.club_id == resolved_club_id.
 
-Nel loop per occorrenza, sostituisci `assert_slot_available(...)` con check in-memoria:
+Nel loop usa conflitti in-memory, non assert_slot_available ad ogni occorrenza.
 
-```python
-conflicting = next(
-    (b for b in blocking_bookings if b.start_at < end_at and b.end_at > start_at),
-    None,
-)
-if conflicting:
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Lo slot non è più disponibile')
-blackout = next(
-    (bp for bp in active_blackouts if bp.start_at < end_at and bp.end_at > start_at),
-    None,
-)
-if blackout:
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Fascia bloccata dall'admin")
-```
+### 6.2 - backend/app/services/booking_service.py - create_recurring_series() e update_recurring_series()
 
-**Non modificare `assert_slot_available()`** — continua ad essere usata da altri flussi.
+Sostituisci il pattern add + flush per ogni booking con:
 
-### 6.2 — `backend/app/services/booking_service.py` — `create_recurring_series()` e `update_recurring_series()`
+1. raccolta in bookings_to_create
+2. db.add_all(bookings_to_create)
+3. un solo db.flush()
+4. log_event successivo per ogni booking creato
 
-In entrambe le funzioni, sostituisci il pattern `db.add(booking)` + `db.flush()` per singola occorrenza con:
+Mantieni db.commit nei router, non nei service.
 
-```python
-bookings_to_create: list[Booking] = []
-bookings_meta: list[tuple[Booking, dict]] = []  # (booking, occurrence)
+### 6.3 - frontend/src/services/adminApi.ts
 
-for occurrence in occurrences:
-    if not occurrence['available']:
-        # ... log_event skipped come prima ...
-        continue
-    # ... costruisci booking come prima ...
-    bookings_to_create.append(booking)
-    bookings_meta.append((booking, occurrence))
+Alza timeout solo per createRecurring e updateRecurringSeries a 120000 ms.
 
-# Un solo flush per ottenere tutti gli id generati dal DB
-db.add_all(bookings_to_create)
-db.flush()
+### 6.4 - frontend/src/pages/AdminDashboardPage.tsx
 
-for booking, occurrence in bookings_meta:
-    log_event(
-        db, booking, 'RECURRING_OCCURRENCE_CREATED', '...',
-        actor=actor,
-        payload={
-            'series_id': series.id,
-            'label': label,
-            'booking_date': occurrence['booking_date'].isoformat(),  # usa occurrence, non booking_date locale
-            'start_time': occurrence['start_time'],
-            'end_time': occurrence['end_time'],
-        },
-    )
-    created.append(booking)
-```
-
-Il `db.commit()` resta nel **router** (`admin_ops.py`), non nel service.
-
-### 6.3 — `frontend/src/services/adminApi.ts`
-
-Aumenta il timeout per `createRecurring()` e `updateRecurringSeries()` a 120 secondi (override del default 15s dell'istanza axios):
-
-```typescript
-export async function createRecurring(payload: RecurringSeriesPayload) {
-  const response = await api.post<RecurringCreateResponse>('/admin/recurring', payload, {
-    timeout: 120000,
-  });
-  return response.data;
-}
-
-export async function updateRecurringSeries(seriesId: string, payload: RecurringSeriesPayload) {
-  const response = await api.put<RecurringCreateResponse>(`/admin/recurring/${seriesId}`, payload, {
-    timeout: 120000,
-  });
-  return response.data;
-}
-```
-
-### 6.4 — `frontend/src/pages/AdminDashboardPage.tsx`
-
-1. Aggiungi helper per riconoscere timeout/cancellazione:
-   ```typescript
-   function isCanceledOrTimedOut(error: any) {
-     const code = error?.code;
-     const name = error?.name;
-     const message = String(error?.message || '').toLowerCase();
-     return (
-       code === 'ECONNABORTED' ||
-       code === 'ERR_CANCELED' ||
-       name === 'AbortError' ||
-       message.includes('timeout') ||
-       message.includes('canceled') ||
-       message.includes('cancelled') ||
-       message.includes('network error')
-     );
-   }
-   ```
-
-2. Aggiungi state:
-   ```tsx
-   const [creatingRecurring, setCreatingRecurring] = useState(false);
-   ```
-
-3. In `createRecurringSeries()`:
-   - Prima del try: `setCreatingRecurring(true)`
-   - Nel catch, se `isCanceledOrTimedOut(error)`: mostra feedback con `tone: 'success'` e messaggio di guida ("La creazione della serie ha richiesto più tempo del previsto. Verifica in Prenotazioni attuali o in Elenco prenotazioni: la serie potrebbe essere già stata salvata.") e ritorna
-   - In `finally`: `setCreatingRecurring(false)`
-
-4. Il pulsante "Crea serie":
-   ```tsx
-   <button
-     className='btn-primary'
-     type='button'
-     disabled={creatingRecurring}
-     onClick={() => void createRecurringSeries()}
-   >
-     {creatingRecurring ? 'Creazione in corso…' : 'Crea serie'}
-   </button>
-   ```
+1. Aggiungi helper per riconoscere timeout e cancellazioni.
+2. Aggiungi state creatingRecurring.
+3. Mostra messaggio orientativo in caso di timeout o cancellazione lunga, non errore duro.
+4. Disabilita il pulsante Crea serie mentre la richiesta e in corso.
 
 ---
 
-## Criteri di accettazione globali
+## Validazione obbligatoria
 
-- Deploy su Railway funzionante senza errori di connessione DB
-- Migrazione iniziale idempotente (rieseguibile senza duplicare tipi ENUM)
-- `GET /public/availability`: da N query per slot a **2 query bulk** per giornata
-- `POST /api/admin/recurring`: da ~52+ query per preview a **2 query bulk**; da N flush a **1 flush**
-- Tutte le pagine admin hanno pulsante "Esci"
-- Serie ricorrenti completamente annullate eliminabili dall'elenco
-- Tariffe giocatori configurabili da admin e visibili nel booking pubblico
-- Navigazione giorno precedente/successivo nella pagina booking pubblico
-- Timeout frontend per creazione serie: 120s; su timeout mostra messaggio orientativo, non errore
-- Nessuna modifica a business logic di booking, pagamenti, annullamenti
-- Nessuna modifica alla response shape delle API esistenti
+Esegui almeno questi controlli dopo le patch:
+
+1. Backend mirato su recurring, booking e availability.
+2. Backend mirato sui nuovi endpoint o sui nuovi campi settings/public config.
+3. Suite backend completa se tocchi migration, booking_service o dependency condivise.
+4. Build frontend se tocchi types, services o pagine React.
+
+Comandi attesi, adattando il path del Python del repo:
+
+```powershell
+Set-Location D:/Padly/PadelBooking/backend
+D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_admin_and_recurring.py tests/test_booking_api.py -q -x --tb=short
+D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/ -q -x --tb=short
+
+Set-Location D:/Padly/PadelBooking/frontend
+npm run build
+```
+
+---
+
+## Criteri di accettazione globali aggiornati
+
+- Deploy Railway funzionante con DATABASE_URL normalizzata per psycopg v3
+- Nessuna migration con revision duplicate; nuova migration availability allineata a 20260422_0004
+- Enum PostgreSQL e boolean default compatibili con Postgres nelle migration toccate
+- GET /public/availability passa da query per slot a query bulk, ma resta scoped per club_id
+- preview e create/update recurring usano query bulk e un solo flush dove possibile
+- Nessuna regressione tenant-aware nel frontend: tenantSlug resta compatibile nelle API condivise
+- La nuova route di delete recurring usa get_current_admin_enforced
+- informative_player_rates e configurabile da admin e visibile nel booking pubblico
+- I tipi frontend sono allineati ai nuovi campi backend
+- Nessuna regressione della policy commerciale FASE 5
+- Nessuna modifica non richiesta a booking payments legacy, annullamenti pubblici o flussi di billing SaaS

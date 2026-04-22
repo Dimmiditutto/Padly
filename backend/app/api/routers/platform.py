@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -19,12 +21,21 @@ from app.services.billing_service import (
 )
 
 router = APIRouter(prefix='/platform', tags=['Platform'])
+logger = logging.getLogger(__name__)
 
 
-def _require_platform_key(x_platform_key: str | None = Header(default=None)) -> None:
+def _require_platform_key(request: Request, x_platform_key: str | None = Header(default=None)) -> None:
     """Verifica la platform API key. Solo per uso interno / CI."""
     expected = settings.platform_api_key
     if not expected or not x_platform_key or x_platform_key != expected:
+        logger.warning(
+            'Tentativo di accesso platform con chiave non valida',
+            extra={
+                'event': 'platform_auth_rejected',
+                'client_ip': request.client.host if request.client else 'unknown',
+                'path': request.url.path,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Platform API key mancante o non valida.',
