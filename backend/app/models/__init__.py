@@ -291,6 +291,18 @@ class PaymentWebhookEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class RateLimitCounter(Base):
+    __tablename__ = 'rate_limit_counters'
+    __table_args__ = (UniqueConstraint('scope_key', 'window_started_at', name='uq_rate_limit_counters_scope_window'),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    scope_key: Mapped[str] = mapped_column(String(512), index=True)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    hits: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
 # ---------------------------------------------------------------------------
 # Billing SaaS layer (FASE 5)
 # ---------------------------------------------------------------------------

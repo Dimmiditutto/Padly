@@ -171,7 +171,17 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `POST /api/payments/paypal/webhook`
 - `GET /api/health`
 
-L'endpoint `GET /api/health` restituisce segnali operativi minimi per go-live: stato applicativo, esito controllo database e stato scheduler.
+### Control plane interno
+
+- `GET /api/platform/tenants`
+- `POST /api/platform/tenants`
+- `POST /api/platform/tenants/{club_id}/suspend`
+- `POST /api/platform/tenants/{club_id}/reactivate`
+- `GET /api/platform/ops/status`
+
+L'endpoint `GET /api/health` restituisce segnali operativi minimi per go-live: stato applicativo, esito controllo database, stato scheduler e backend rate limit attivo.
+
+L'endpoint protetto `GET /api/platform/ops/status` richiede `X-Platform-Key` ed espone uno snapshot operativo minimo per supporto e control plane: scheduler, modalita rate limit attiva e failure recenti affidabili su email e billing.
 
 ## Environment e URL operative
 
@@ -188,6 +198,7 @@ L'endpoint `GET /api/health` restituisce segnali operativi minimi per go-live: s
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `DATABASE_URL` opzionale se vuoi tenere il default SQLite
+- `RATE_LIMIT_BACKEND=local` per mantenere il backend locale in-memory, raccomandato in single-instance
 - credenziali Stripe e/o PayPal solo se vuoi provare i provider reali invece del comportamento mock ammesso in development/test
 - i placeholder presenti in `.env.example` sono ammessi solo come base locale; non sono valori sicuri per produzione
 
@@ -202,6 +213,8 @@ L'endpoint `GET /api/health` restituisce segnali operativi minimi per go-live: s
 - `ADMIN_SESSION_COOKIE_DOMAIN=.tuo-dominio` se vuoi condividere il cookie admin tra sottodomini tenant-aware
 - `DATABASE_URL=<connection string PostgreSQL Railway>`
 - `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
+- `RATE_LIMIT_BACKEND=local|shared` in base al numero di istanze attive: `local` per 1 istanza, `shared` quando devi condividere i contatori tra piu istanze
+- `OPERATIONAL_SIGNAL_WINDOW_HOURS=24` o altro valore coerente con la finestra di osservazione che vuoi usare per email e billing failure recenti
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_SSL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` se usi Stripe
 - `STRIPE_BILLING_WEBHOOK_SECRET` se usi il webhook billing SaaS `/api/billing/webhook/stripe`
@@ -214,6 +227,11 @@ Nota operativa su admin bootstrap: `ADMIN_EMAIL` e `ADMIN_PASSWORD` vengono appl
 In produzione il bootstrap fallisce esplicitamente se `SECRET_KEY`, `ADMIN_EMAIL` o `ADMIN_PASSWORD` restano mancanti, vuoti o uguali ai placeholder di `.env.example`.
 
 Per il layer SaaS l'avvio in produzione fallisce anche se mancano `STRIPE_BILLING_WEBHOOK_SECRET` o `PLATFORM_API_KEY`.
+
+Regola operativa sul rate limit:
+
+- `RATE_LIMIT_BACKEND=local` resta la scelta raccomandata per ambienti iniziali a 1 sola istanza
+- passa a `RATE_LIMIT_BACKEND=shared` solo quando il deploy e davvero multi-instance o hai bisogno di condividere i contatori tra piu processi attivi
 
 ### URL webhook e redirect derivati da `APP_URL`
 
@@ -253,6 +271,7 @@ npm run dev
 ### 3. Check locale rapido
 
 - API health: `http://127.0.0.1:8000/api/health`
+- snapshot operativo protetto: `http://127.0.0.1:8000/api/platform/ops/status` con header `X-Platform-Key`
 - SPA servita dal backend: `http://127.0.0.1:8000/`
 - frontend Vite in sviluppo: `http://127.0.0.1:5173/`
 

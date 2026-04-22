@@ -87,6 +87,19 @@ Quando serve scalare orizzontalmente, usare:
 - 1 istanza: il rate limit attuale va bene per partire
 - 2 o piu istanze: serve un contatore condiviso
 
+## Traduzione pratica nel repository
+
+Nel repository questa regola oggi si traduce cosi:
+
+- se il backend gira con 1 sola istanza, usare `RATE_LIMIT_BACKEND=local`
+- se il backend gira con 2 o piu istanze attive, usare `RATE_LIMIT_BACKEND=shared`
+
+Nota importante:
+
+- `shared` non va acceso per principio o troppo presto
+- `shared` va attivato quando il deploy e davvero multi-instance o quando i contatori devono essere condivisi tra processi o istanze attive
+- per i dettagli operativi del rollout e delle verifiche, vedere `docs/operations/RUNBOOKS.md`
+
 ## Cosa fare adesso
 
 Adesso la scelta piu economica e:
@@ -100,5 +113,5 @@ Adesso la scelta piu economica e:
 Quando il progetto verra deployato davvero o iniziera a scalare:
 
 1. verificare se il backend gira con una sola istanza o con piu istanze
-2. se resta una sola istanza, mantenere la soluzione attuale
-3. se passa a piu istanze, introdurre uno store condiviso per il rate limit
+2. se resta una sola istanza, mantenere la soluzione attuale con `RATE_LIMIT_BACKEND=local`
+3. se passa a piu istanze, usare una modalita condivisa per il rate limit, oggi `RATE_LIMIT_BACKEND=shared`

@@ -18,6 +18,7 @@ os.environ['SMTP_FROM'] = 'noreply@example.com'
 
 import app.core.db as db_module  # noqa: E402
 from app.core.db import Base, SessionLocal  # noqa: E402
+from app.core.rate_limit import reset_rate_limit_backend  # noqa: E402
 from app.main import app, request_log  # noqa: E402
 from app.services.tenant_service import ensure_default_club  # noqa: E402
 
@@ -45,7 +46,9 @@ def reset_db(tmp_path):
         ensure_default_club(db)
         db.commit()
     request_log.clear()
+    reset_rate_limit_backend()
     yield
+    reset_rate_limit_backend()
     close_all_sessions()
     request_log.clear()
     test_engine.dispose()

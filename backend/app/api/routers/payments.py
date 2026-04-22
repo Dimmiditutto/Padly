@@ -13,6 +13,7 @@ from app.core.db import get_db
 from app.core.scheduler import scheduler, scheduler_should_be_running
 from app.models import PaymentProvider
 from app.schemas.common import SimpleMessage
+from app.services.operations_service import build_public_health_snapshot
 from app.services.booking_service import acquire_single_court_lock
 from app.services.payment_service import handle_mock_payment, handle_paypal_return, handle_paypal_webhook, handle_stripe_webhook, is_mock_payments_enabled, mark_checkout_cancelled
 
@@ -31,10 +32,10 @@ def _booking_redirect_url(path: str, booking: str, cancel_token: str | None, ten
 
 @router.get('/health')
 def health(db: Session = Depends(get_db)):
-    checked_at = datetime.now(UTC).isoformat()
-    scheduler_state = 'disabled'
-    if scheduler_should_be_running():
-        scheduler_state = 'running' if scheduler.running else 'stopped'
+    snapshot = build_public_health_snapshot()
+    checked_at = snapshot['checked_at'].isoformat()
+    scheduler_state = snapshot['checks']['scheduler']
+    rate_limit_signal = snapshot['checks']['rate_limit']
 
     if scheduler_should_be_running() and not scheduler.running:
         logger.warning('Healthcheck rileva scheduler richiesto ma non running', extra={'event': 'healthcheck_scheduler_stopped'})
@@ -48,6 +49,7 @@ def health(db: Session = Depends(get_db)):
                 'checks': {
                     'database': 'ok',
                     'scheduler': scheduler_state,
+                    'rate_limit': rate_limit_signal,
                 },
             },
         )
@@ -65,6 +67,7 @@ def health(db: Session = Depends(get_db)):
                 'checks': {
                     'database': 'error',
                     'scheduler': scheduler_state,
+                    'rate_limit': rate_limit_signal,
                 },
             },
         )
@@ -77,6 +80,7 @@ def health(db: Session = Depends(get_db)):
         'checks': {
             'database': 'ok',
             'scheduler': scheduler_state,
+            'rate_limit': rate_limit_signal,
         },
     }
 

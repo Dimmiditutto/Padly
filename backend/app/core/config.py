@@ -54,7 +54,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices('PAYPAL_API_BASE', 'PAYPAL_BASE_URL'),
     )
     paypal_webhook_id: str | None = None
+    rate_limit_backend: str = 'local'
     rate_limit_per_minute: int = 60
+    operational_signal_window_hours: int = 24
     platform_api_key: str | None = None
 
     @staticmethod
@@ -104,6 +106,21 @@ class Settings(BaseSettings):
     def normalize_paypal_base_url(cls, value: str) -> str:
         normalized = value.rstrip('/')
         return normalized or value
+
+    @field_validator('rate_limit_backend')
+    @classmethod
+    def normalize_rate_limit_backend(cls, value: str) -> str:
+        normalized = (value or 'local').strip().lower()
+        if normalized not in {'local', 'shared'}:
+            raise ValueError('RATE_LIMIT_BACKEND deve essere "local" oppure "shared"')
+        return normalized
+
+    @field_validator('operational_signal_window_hours')
+    @classmethod
+    def validate_operational_signal_window_hours(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError('OPERATIONAL_SIGNAL_WINDOW_HOURS deve essere maggiore di zero')
+        return value
 
     @model_validator(mode='after')
     def apply_paypal_environment_defaults(self) -> 'Settings':
@@ -170,6 +187,10 @@ class Settings(BaseSettings):
             if normalized and normalized not in deduplicated:
                 deduplicated.append(normalized)
         return deduplicated
+
+    @property
+    def is_shared_rate_limit_enabled(self) -> bool:
+        return self.rate_limit_backend == 'shared'
 
 
 @lru_cache

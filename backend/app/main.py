@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import UTC, datetime
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -20,13 +18,13 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.errors import register_exception_handlers
 from app.core.observability import bind_observability_context, clear_observability_context, configure_logging
+from app.core.rate_limit import LOCAL_REQUEST_LOG, RATE_WINDOW_SECONDS, get_rate_limit_backend
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.core.security import hash_password, verify_password
 from app.models import Admin
 from app.services.tenant_service import ensure_default_club, resolve_tenant_context
 
-RATE_WINDOW_SECONDS = 60
-request_log: dict[str, deque[float]] = defaultdict(deque)
+request_log = LOCAL_REQUEST_LOG
 SECURITY_HEADERS = {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -168,14 +166,14 @@ async def rate_limit_middleware(request: Request, call_next):
                 club_id=getattr(request.state, 'club_id', None),
             )
             key = f'{client_ip}:{tenant_scope}:{normalize_rate_limit_path(path)}'
-            now = time.time()
-            bucket = request_log[key]
-            while bucket and bucket[0] < now - RATE_WINDOW_SECONDS:
-                bucket.popleft()
-            if len(bucket) >= settings.rate_limit_per_minute:
+            decision = get_rate_limit_backend().allow_request(
+                key,
+                limit=settings.rate_limit_per_minute,
+                window_seconds=RATE_WINDOW_SECONDS,
+            )
+            if not decision.allowed:
                 response = JSONResponse(status_code=429, content={'detail': 'Troppe richieste. Riprova tra poco.'})
             else:
-                bucket.append(now)
                 response = await call_next(request)
         else:
             response = await call_next(request)

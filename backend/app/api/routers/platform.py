@@ -13,12 +13,14 @@ from app.schemas.billing import (
     TenantPlatformSummary,
 )
 from app.schemas.common import SimpleMessage
+from app.schemas.operations import OperationalStatusResponse
 from app.services.billing_service import (
     list_tenant_summaries,
     provision_tenant,
     reactivate_club,
     suspend_club,
 )
+from app.services.operations_service import build_operational_status_snapshot
 
 router = APIRouter(prefix='/platform', tags=['Platform'])
 logger = logging.getLogger(__name__)
@@ -46,6 +48,11 @@ def _require_platform_key(request: Request, x_platform_key: str | None = Header(
 def list_tenants(db: Session = Depends(get_db)) -> list[TenantPlatformSummary]:
     """Elenca tutti i tenant con segnali operativi minimi."""
     return list_tenant_summaries(db)
+
+
+@router.get('/ops/status', response_model=OperationalStatusResponse, dependencies=[Depends(_require_platform_key)])
+def get_operational_status(db: Session = Depends(get_db)) -> OperationalStatusResponse:
+    return OperationalStatusResponse(**build_operational_status_snapshot(db))
 
 
 @router.post('/tenants', response_model=TenantPlatformSummary, status_code=status.HTTP_201_CREATED, dependencies=[Depends(_require_platform_key)])

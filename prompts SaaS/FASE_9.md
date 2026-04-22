@@ -1,6 +1,6 @@
 # FASE 9 — TIMEZONE TENANT-AWARE END-TO-END
 
-Includi: prompt_master.md + STATO_FASE_1.MD + STATO_FASE_2.MD + STATO_FASE_3.MD + STATO_FASE_4.MD + STATO_FASE_5.MD + STATO_FASE_6.MD + STATO_FASE_7.MD se esiste + STATO_FASE_8.MD se esiste
+Includi: prompt_master.md + STATO_FASE_1.MD + STATO_FASE_2.MD + STATO_FASE_3.MD + STATO_FASE_4.MD + STATO_FASE_5.MD + STATO_FASE_6.MD + STATO_FASE_7.MD se esiste + STATO_FASE_8.MD se esiste + istanze.md
 
 ## Obiettivo
 

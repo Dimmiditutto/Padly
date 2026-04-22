@@ -6,15 +6,18 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import app.api.routers.payments as payments_router
 import app.core.scheduler as scheduler_module
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.rate_limit import SharedDatabaseRateLimitBackend, reset_rate_limit_backend
 from app.core.security import hash_password
 from app.main import app, request_log
-from app.models import Admin, Booking, BookingSource, BookingStatus, Club, ClubDomain, Customer, DEFAULT_CLUB_SLUG, PaymentProvider, PaymentStatus
+from app.models import Admin, BillingWebhookEvent, Booking, BookingSource, BookingStatus, Club, ClubDomain, Customer, DEFAULT_CLUB_ID, DEFAULT_CLUB_SLUG, EmailNotificationLog, PaymentProvider, PaymentStatus, RateLimitCounter
 from app.services.billing_service import get_or_create_trial_subscription
 from app.core.scheduler import reminder_job
 from app.services.email_service import email_service
@@ -115,6 +118,7 @@ def test_health_endpoint_exposes_operational_signals_and_security_headers(client
     assert payload['environment'] == 'test'
     assert payload['checks']['database'] == 'ok'
     assert payload['checks']['scheduler'] == 'disabled'
+    assert payload['checks']['rate_limit'] == {'backend': 'local'}
     assert response.headers['X-Request-ID']
     assert response.headers['X-Frame-Options'] == 'DENY'
     assert response.headers['X-Content-Type-Options'] == 'nosniff'
@@ -281,6 +285,24 @@ def test_health_endpoint_is_degraded_when_scheduler_should_run_but_is_stopped(mo
     assert payload['status'] == 'degraded'
     assert payload['checks']['database'] == 'ok'
     assert payload['checks']['scheduler'] == 'stopped'
+    assert payload['checks']['rate_limit'] == {'backend': 'local'}
+
+
+def test_health_endpoint_is_fail_soft_when_database_check_fails_without_snapshot_queries():
+    class FakeDB:
+        def scalar(self, *_args, **_kwargs):
+            raise AssertionError('scalar should not be called by public health')
+
+        def execute(self, *_args, **_kwargs):
+            raise RuntimeError('db down')
+
+    response = payments_router.health(FakeDB())
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+    assert response.body
+    assert b'"database":"error"' in response.body
+    assert b'"backend":"local"' in response.body
 
 
 def test_scheduler_logs_include_tenant_context_on_reminder_failures(monkeypatch, caplog):
@@ -306,3 +328,91 @@ def test_scheduler_logs_include_tenant_context_on_reminder_failures(monkeypatch,
     reminder_logs = [record for record in caplog.records if 'Reminder fallito per booking' in record.getMessage()]
     assert reminder_logs
     assert any(record.tenant_slug == tenant['slug'] and record.club_id == tenant['id'] for record in reminder_logs)
+
+
+def test_shared_rate_limit_backend_persists_counters_across_backend_instances(monkeypatch):
+    monkeypatch.setattr(settings, 'rate_limit_backend', 'shared')
+    reset_rate_limit_backend()
+
+    first_backend = SharedDatabaseRateLimitBackend()
+    second_backend = SharedDatabaseRateLimitBackend()
+
+    first = first_backend.allow_request('ip:club:path', limit=1, window_seconds=60)
+    second = second_backend.allow_request('ip:club:path', limit=1, window_seconds=60)
+
+    assert first.allowed is True
+    assert second.allowed is False
+
+    with SessionLocal() as db:
+        persisted = db.scalars(select(RateLimitCounter).where(RateLimitCounter.scope_key == 'ip:club:path')).all()
+    assert len(persisted) == 1
+
+
+def test_shared_rate_limit_backend_cleans_expired_counters_globally(monkeypatch):
+    monkeypatch.setattr(settings, 'rate_limit_backend', 'shared')
+    reset_rate_limit_backend()
+
+    expired_window_started_at = datetime.now(UTC) - timedelta(minutes=5)
+    with SessionLocal() as db:
+        db.add(
+            RateLimitCounter(
+                scope_key='stale:tenant:path',
+                window_started_at=expired_window_started_at,
+                hits=3,
+            )
+        )
+        db.commit()
+
+    backend = SharedDatabaseRateLimitBackend()
+    decision = backend.allow_request('fresh:tenant:path', limit=10, window_seconds=60)
+
+    assert decision.allowed is True
+    with SessionLocal() as db:
+        stale_counter = db.scalar(select(RateLimitCounter).where(RateLimitCounter.scope_key == 'stale:tenant:path'))
+        fresh_counter = db.scalar(select(RateLimitCounter).where(RateLimitCounter.scope_key == 'fresh:tenant:path'))
+
+    assert stale_counter is None
+    assert fresh_counter is not None
+
+
+def test_operational_status_endpoint_exposes_rate_limit_mode_and_recent_failures(client, monkeypatch):
+    monkeypatch.setattr(settings, 'platform_api_key', 'ops-secret')
+    monkeypatch.setattr(settings, 'rate_limit_backend', 'shared')
+    reset_rate_limit_backend()
+
+    with SessionLocal() as db:
+        db.add(
+            EmailNotificationLog(
+                club_id=DEFAULT_CLUB_ID,
+                recipient='ops@example.com',
+                template='ops_test',
+                status='FAILED',
+                error='smtp down',
+            )
+        )
+        db.add(
+            BillingWebhookEvent(
+                provider='stripe',
+                event_id=f'invoice.payment_failed:{uuid4()}',
+                event_type='invoice.payment_failed',
+                payload={'test': True},
+                processed_at=datetime.now(UTC),
+            )
+        )
+        db.commit()
+
+    response = client.get('/api/platform/ops/status', headers={'x-platform-key': 'ops-secret'})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['rate_limit']['backend'] == 'shared'
+    assert payload['rate_limit']['is_shared'] is True
+    assert payload['rate_limit']['per_minute'] == settings.rate_limit_per_minute
+    assert payload['recent_failures']['email_failed_count'] == 1
+    assert payload['recent_failures']['billing_payment_failed_count'] == 1
+
+
+def test_operational_status_endpoint_requires_platform_key(client):
+    response = client.get('/api/platform/ops/status')
+
+    assert response.status_code == 401

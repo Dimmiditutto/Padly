@@ -15,6 +15,8 @@
 - verificare `STRIPE_BILLING_WEBHOOK_SECRET` e `PLATFORM_API_KEY`
 - verificare `APP_URL`, `CORS_ALLOWED_ORIGINS` e `ADMIN_SESSION_COOKIE_DOMAIN` se usati sottodomini tenant-aware
 - verificare che una sola istanza abbia `SCHEDULER_ENABLED=true`
+- verificare `RATE_LIMIT_BACKEND=local` se il deploy resta a 1 sola istanza
+- verificare `RATE_LIMIT_BACKEND=shared` se il deploy gira con piu istanze attive e deve condividere i contatori
 
 ### Esecuzione migrazioni
 
@@ -27,6 +29,8 @@ D:/Padly/PadelBooking/.venv/Scripts/python.exe -m alembic upgrade head
 ### Verifica post-migrazione
 
 - chiamare `GET /api/health` e verificare `checks.database == ok`
+- verificare `checks.rate_limit.backend` coerente con il deployment reale (`local` per 1 istanza, `shared` per piu istanze)
+- chiamare `GET /api/platform/ops/status` con `X-Platform-Key` e verificare scheduler, rate limit e failure recenti minime
 - verificare login admin del tenant legacy di default
 - verificare `GET /api/admin/billing/status` su tenant default
 - verificare una richiesta `GET /api/public/config` sul default tenant e su almeno un tenant secondario
@@ -104,6 +108,7 @@ Audit disponibile:
 
 - eventi minimi in `billing_webhook_events` con `provider='platform'`
 - log applicativi strutturati con `request_id` e contesto tenant quando risolto
+- snapshot operativo minimo via `GET /api/platform/ops/status`
 
 ## 5. Supporto operativo
 
@@ -118,6 +123,7 @@ Audit disponibile:
 - controllare configurazione SMTP
 - verificare `email_notifications_log` filtrando per `club_id`
 - cercare log applicativi con `event` coerente e `request_id`
+- controllare in `GET /api/platform/ops/status` il contatore `recent_failures.email_failed_count`
 
 ### Troubleshooting billing SaaS
 
@@ -125,6 +131,7 @@ Audit disponibile:
 - controllare `billing_webhook_events` per idempotenza e payload
 - verificare `GET /api/admin/billing/status` dal tenant coinvolto
 - se il tenant e bloccato, verificare `status`, `trial_ends_at`, `current_period_end` e `suspension_reason`
+- controllare in `GET /api/platform/ops/status` il contatore `recent_failures.billing_payment_failed_count`
 
 ### Troubleshooting accessi cross-tenant
 
@@ -146,6 +153,7 @@ Audit disponibile:
 - verificare ritorni 429 sui path pubblici o auth admin
 - controllare se il traffico e concentrato su uno stesso tenant, host o IP
 - aumentare temporaneamente `RATE_LIMIT_PER_MINUTE` solo se il carico e legittimo e monitorato
+- se il deploy passa da 1 istanza a piu istanze attive, verificare che `RATE_LIMIT_BACKEND` sia impostato a `shared`
 
 ### Compromissione account admin
 
