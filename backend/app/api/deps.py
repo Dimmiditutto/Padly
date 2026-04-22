@@ -17,6 +17,18 @@ def get_current_club(tenant_context: TenantContext = Depends(get_tenant_context)
     return tenant_context.club
 
 
+def get_current_club_enforced(
+    tenant_context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+) -> Club:
+    """Restituisce il club corrente dopo aver verificato lo stato subscription.
+    Usa questa dep sulle route pubbliche critiche (booking, checkout).
+    """
+    from app.services.billing_service import enforce_subscription
+    enforce_subscription(db, tenant_context.club)
+    return tenant_context.club
+
+
 def get_current_admin(
     tenant_context: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
@@ -43,4 +55,14 @@ def get_current_admin(
     )
     if not admin or payload.get('pwd') != password_hash_fingerprint(admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Admin non autorizzato')
+    return admin
+
+
+def get_current_admin_enforced(
+    admin: Admin = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> Admin:
+    """Restituisce l'admin corrente dopo aver verificato lo stato commerciale del tenant."""
+    from app.services.billing_service import enforce_subscription
+    enforce_subscription(db, admin.club)
     return admin

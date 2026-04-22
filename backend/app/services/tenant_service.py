@@ -21,6 +21,9 @@ class TenantContext:
 def ensure_default_club(db: Session) -> Club:
     club = db.scalar(select(Club).where(Club.id == DEFAULT_CLUB_ID))
     if club:
+        # Garantisce trial subscription sul club di default se non ancora presente
+        from app.services.billing_service import get_or_create_trial_subscription
+        get_or_create_trial_subscription(db, club)
         return club
 
     club = Club(
@@ -47,6 +50,9 @@ def ensure_default_club(db: Session) -> Club:
         )
     )
     db.flush()
+
+    from app.services.billing_service import get_or_create_trial_subscription
+    get_or_create_trial_subscription(db, club)
     return club
 
 

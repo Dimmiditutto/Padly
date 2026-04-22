@@ -19,6 +19,7 @@ import type {
   RecurringPreviewResponse,
   RecurringSeriesPayload,
   ReportResponse,
+  SubscriptionStatusBanner,
 } from '../types';
 
 function withTenantParams(tenantSlug?: string | null) {
@@ -138,5 +139,10 @@ export async function getAdminSettings() {
 
 export async function updateAdminSettings(payload: AdminSettingsUpdatePayload) {
   const response = await api.put<AdminSettings>('/admin/settings', payload);
+  return response.data;
+}
+
+export async function getSubscriptionStatus(tenantSlug?: string | null) {
+  const response = await api.get<SubscriptionStatusBanner>('/admin/billing/status', { params: withTenantParams(tenantSlug) });
   return response.data;
 }

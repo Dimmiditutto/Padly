@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin_enforced
 from app.core.db import get_db
 from app.models import Admin
 from app.schemas.admin import AdminSettingsResponse, AdminSettingsUpdateRequest
@@ -12,7 +12,7 @@ router = APIRouter(prefix='/admin/settings', tags=['Admin Settings'])
 
 
 @router.get('', response_model=AdminSettingsResponse)
-def get_settings_payload(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> AdminSettingsResponse:
+def get_settings_payload(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> AdminSettingsResponse:
     payload = get_tenant_settings(db, club=admin.club)
     return AdminSettingsResponse(
         stripe_enabled=is_stripe_checkout_available(),
@@ -25,7 +25,7 @@ def get_settings_payload(db: Session = Depends(get_db), admin: Admin = Depends(g
 def update_settings_payload(
     payload: AdminSettingsUpdateRequest,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(get_current_admin_enforced),
 ) -> AdminSettingsResponse:
     settings_payload = update_tenant_settings(
         db,

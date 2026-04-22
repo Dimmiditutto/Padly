@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_club
+from app.api.deps import get_current_club, get_current_club_enforced
 from app.core.db import get_db
 from app.models import Booking, BookingStatus, Club, PaymentProvider, PaymentStatus
 from app.schemas.common import SimpleMessage
@@ -95,7 +95,7 @@ def get_public_config(current_club: Club = Depends(get_current_club), db: Sessio
 def get_availability(
     booking_date: date = Query(alias='date'),
     duration_minutes: int = Query(default=90),
-    current_club: Club = Depends(get_current_club),
+    current_club: Club = Depends(get_current_club_enforced),
     db: Session = Depends(get_db),
 ) -> AvailabilityResponse:
     return AvailabilityResponse(
@@ -109,7 +109,7 @@ def get_availability(
 @router.post('/bookings', response_model=PublicBookingCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_booking(
     payload: PublicBookingCreateRequest,
-    current_club: Club = Depends(get_current_club),
+    current_club: Club = Depends(get_current_club_enforced),
     db: Session = Depends(get_db),
 ) -> PublicBookingCreateResponse:
     with acquire_single_court_lock(db):
@@ -134,7 +134,7 @@ def create_booking(
 
 
 @router.post('/bookings/{booking_id}/checkout', response_model=PaymentInitResponse)
-def create_checkout(booking_id: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PaymentInitResponse:
+def create_checkout(booking_id: str, current_club: Club = Depends(get_current_club_enforced), db: Session = Depends(get_db)) -> PaymentInitResponse:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == current_club.id))
         if not booking:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin_enforced
 from app.core.config import settings
 from app.core.db import get_db
 from app.models import Admin, BlackoutPeriod, BookingEventLog
@@ -43,7 +43,7 @@ def _parse_datetime(value: str) -> datetime:
 
 
 @router.get('/blackouts')
-def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> list[dict]:
+def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> list[dict]:
     items = db.scalars(select(BlackoutPeriod).where(BlackoutPeriod.club_id == admin.club_id).order_by(BlackoutPeriod.start_at.desc())).all()
     return [
         {
@@ -59,7 +59,7 @@ def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_cur
 
 
 @router.post('/blackouts')
-def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> dict:
+def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> dict:
     with acquire_single_court_lock(db):
         blackout = create_blackout(db, title=payload.title, reason=payload.reason, start_at=_parse_datetime(payload.start_at), end_at=_parse_datetime(payload.end_at), actor=admin.email, club_id=admin.club_id)
         db.commit()
@@ -68,7 +68,7 @@ def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), 
 
 
 @router.post('/recurring/preview', response_model=RecurringPreviewResponse)
-def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringPreviewResponse:
+def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> RecurringPreviewResponse:
     return RecurringPreviewResponse(
         occurrences=preview_recurring_occurrences(
             db,
@@ -85,7 +85,7 @@ def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depe
 
 
 @router.post('/recurring', response_model=RecurringCreateResponse)
-def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCreateResponse:
+def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> RecurringCreateResponse:
     with acquire_single_court_lock(db):
         series, created, skipped = create_recurring_series(
             db,
@@ -104,7 +104,7 @@ def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depen
 
 
 @router.put('/recurring/{series_id}', response_model=RecurringCreateResponse)
-def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCreateResponse:
+def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> RecurringCreateResponse:
     with acquire_single_court_lock(db):
         series, created, skipped = update_recurring_series(
             db,
@@ -124,7 +124,7 @@ def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db:
 
 
 @router.post('/recurring/cancel-occurrences', response_model=RecurringCancelResponse)
-def cancel_recurring_selected_occurrences(payload: RecurringCancelOccurrencesRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCancelResponse:
+def cancel_recurring_selected_occurrences(payload: RecurringCancelOccurrencesRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> RecurringCancelResponse:
     with acquire_single_court_lock(db):
         cancelled, skipped = cancel_recurring_occurrences(db, booking_ids=payload.booking_ids, actor=admin.email, club_id=admin.club_id)
         db.commit()
@@ -138,7 +138,7 @@ def cancel_recurring_selected_occurrences(payload: RecurringCancelOccurrencesReq
 
 
 @router.post('/recurring/{series_id}/cancel', response_model=RecurringCancelResponse)
-def cancel_recurring_series(series_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> RecurringCancelResponse:
+def cancel_recurring_series(series_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> RecurringCancelResponse:
     with acquire_single_court_lock(db):
         series, cancelled, skipped = cancel_recurring_series_future_occurrences(db, series_id=series_id, actor=admin.email, club_id=admin.club_id)
         db.commit()
@@ -153,12 +153,12 @@ def cancel_recurring_series(series_id: str, db: Session = Depends(get_db), admin
 
 
 @router.get('/reports/summary', response_model=ReportResponse)
-def report_summary(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> ReportResponse:
+def report_summary(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> ReportResponse:
     return ReportResponse(**get_dashboard_report(db, club_id=admin.club_id))
 
 
 @router.get('/events')
-def recent_events(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> list[dict]:
+def recent_events(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> list[dict]:
     items = db.scalars(select(BookingEventLog).where(BookingEventLog.club_id == admin.club_id).order_by(BookingEventLog.created_at.desc()).limit(100)).all()
     return [
         {

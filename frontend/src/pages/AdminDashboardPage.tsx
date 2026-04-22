@@ -16,12 +16,13 @@ import {
   getAdminReport,
   getAdminSession,
   getAdminSettings,
+  getSubscriptionStatus,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
   updateAdminSettings,
 } from '../services/adminApi';
-import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse } from '../types';
+import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse, SubscriptionStatusBanner } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDateTime, formatRomeWeekdayLabel, toDateInputValue } from '../utils/format';
 
@@ -67,6 +68,7 @@ export function AdminDashboardPage() {
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [blackouts, setBlackouts] = useState<BlackoutItem[]>([]);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionStatusBanner | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'error' | 'success'; message: string } | null>(null);
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
@@ -123,7 +125,7 @@ export function AdminDashboardPage() {
     }
 
     try {
-      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadSettings()]);
+      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadSettings(), loadSubscription()]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
         redirectToLogin();
@@ -152,6 +154,15 @@ export function AdminDashboardPage() {
   async function loadSettings() {
     const response = await getAdminSettings();
     setSettings(response);
+  }
+
+  async function loadSubscription() {
+    try {
+      const response = await getSubscriptionStatus(tenantSlug);
+      setSubscription(response);
+    } catch {
+      // Subscription non critica: non blocca la dashboard
+    }
   }
 
   async function refreshDashboard() {
@@ -286,6 +297,8 @@ export function AdminDashboardPage() {
         </div>
 
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+
+        {subscription ? <SubscriptionBanner subscription={subscription} /> : null}
 
         {loading ? <LoadingBlock label='Sto sincronizzando dashboard, blackout e regole operative…' /> : null}
 
@@ -598,4 +611,25 @@ function StatCard({ title, value }: { title: string; value: string }) {
       ) : null}
     </section>
   );
+}
+
+function SubscriptionBanner({ subscription }: { subscription: SubscriptionStatusBanner }) {
+  const { status, plan_name, trial_ends_at, is_access_blocked } = subscription;
+
+  const tone = is_access_blocked ? 'error' : status === 'PAST_DUE' ? 'error' : status === 'TRIALING' ? 'warning' : null;
+  if (!tone) return null;
+
+  let message = '';
+  if (status === 'TRIALING' && trial_ends_at) {
+    const ends = new Date(trial_ends_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' });
+    message = `Piano: ${plan_name} — periodo di prova attivo fino al ${ends}.`;
+  } else if (status === 'PAST_DUE') {
+    message = `Piano: ${plan_name} — pagamento in sospeso. Aggiorna il metodo di pagamento per evitare la sospensione.`;
+  } else if (is_access_blocked) {
+    message = `Account sospeso o abbonamento scaduto (piano: ${plan_name}). Contatta il supporto.`;
+  }
+
+  if (!message) return null;
+
+  return <AlertBanner tone={tone === 'warning' ? 'error' : tone}>{message}</AlertBanner>;
 }

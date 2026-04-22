@@ -287,3 +287,14 @@ export interface AdminDashboardData {
   report: ReportResponse;
   events: AdminEvent[];
 }
+
+export type SubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED';
+
+export interface SubscriptionStatusBanner {
+  status: SubscriptionStatus;
+  plan_code: string;
+  plan_name: string;
+  trial_ends_at?: string | null;
+  current_period_end?: string | null;
+  is_access_blocked: boolean;
+}

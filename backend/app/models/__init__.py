@@ -77,6 +77,7 @@ class Club(Base):
     blackouts: Mapped[list['BlackoutPeriod']] = relationship(back_populates='club')
     settings: Mapped[list['AppSetting']] = relationship(back_populates='club', cascade='all, delete-orphan')
     email_notifications: Mapped[list['EmailNotificationLog']] = relationship(back_populates='club')
+    subscription: Mapped['ClubSubscription | None'] = relationship(back_populates='club', uselist=False)
 
 
 class ClubDomain(Base):
@@ -285,6 +286,74 @@ class PaymentWebhookEvent(Base):
     provider: Mapped[str] = mapped_column(String(40), index=True)
     event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     event_type: Mapped[str] = mapped_column(String(120), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+# ---------------------------------------------------------------------------
+# Billing SaaS layer (FASE 5)
+# ---------------------------------------------------------------------------
+
+
+class BillingInterval(str, enum.Enum):
+    MONTHLY = 'MONTHLY'
+    YEARLY = 'YEARLY'
+
+
+class SubscriptionStatus(str, enum.Enum):
+    TRIALING = 'TRIALING'
+    ACTIVE = 'ACTIVE'
+    PAST_DUE = 'PAST_DUE'
+    SUSPENDED = 'SUSPENDED'
+    CANCELLED = 'CANCELLED'
+
+
+class Plan(Base):
+    __tablename__ = 'plans'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(140))
+    price_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal('0.00'))
+    billing_interval: Mapped[BillingInterval] = mapped_column(Enum(BillingInterval), default=BillingInterval.MONTHLY)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    feature_flags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    subscriptions: Mapped[list['ClubSubscription']] = relationship(back_populates='plan')
+
+
+class ClubSubscription(Base):
+    __tablename__ = 'club_subscriptions'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), unique=True, index=True)
+    plan_id: Mapped[str] = mapped_column(ForeignKey('plans.id'), index=True)
+    provider: Mapped[str] = mapped_column(String(40), default='none')
+    provider_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    status: Mapped[SubscriptionStatus] = mapped_column(Enum(SubscriptionStatus), default=SubscriptionStatus.TRIALING, index=True)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='subscription')
+    plan: Mapped['Plan'] = relationship(back_populates='subscriptions')
+
+
+class BillingWebhookEvent(Base):
+    __tablename__ = 'billing_webhook_events'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    provider: Mapped[str] = mapped_column(String(40), index=True)
+    event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(120), index=True)
+    club_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     payload: Mapped[dict] = mapped_column(JSON)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

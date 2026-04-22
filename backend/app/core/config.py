@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     smtp_from: str = 'noreply@example.com'
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    stripe_billing_webhook_secret: str | None = None
     paypal_env: str = Field(default='sandbox', validation_alias='PAYPAL_ENV')
     paypal_client_id: str | None = None
     paypal_client_secret: str | None = None
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     )
     paypal_webhook_id: str | None = None
     rate_limit_per_minute: int = 60
+    platform_api_key: str | None = None
 
     @staticmethod
     def _is_blank(value: str | None) -> bool:
@@ -107,6 +109,10 @@ class Settings(BaseSettings):
             issues.append('ADMIN_EMAIL mancante o placeholder')
         if self._is_blank(admin_password) or admin_password in INSECURE_ADMIN_PASSWORDS:
             issues.append('ADMIN_PASSWORD mancante o placeholder')
+        if self._is_blank(self.stripe_billing_webhook_secret):
+            issues.append('STRIPE_BILLING_WEBHOOK_SECRET mancante')
+        if self._is_blank(self.platform_api_key):
+            issues.append('PLATFORM_API_KEY mancante')
 
         return issues
 

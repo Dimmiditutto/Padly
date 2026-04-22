@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin_enforced
 from app.core.db import get_db
 from app.models import Admin, Booking, BookingStatus
 from app.schemas.admin import AdminBookingCreateRequest, AdminBookingStatusUpdate, AdminBookingUpdateRequest, BookingListResponse
@@ -24,7 +24,7 @@ def get_bookings(
     customer_query: str | None = Query(default=None, alias='customer'),
     text_query: str | None = Query(default=None, alias='query'),
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(get_current_admin_enforced),
 ) -> BookingListResponse:
     def parse_date_filter(value: str | None, detail: str):
         if not value:
@@ -55,7 +55,7 @@ def get_bookings(
 
 
 @router.get('/{booking_id}', response_model=BookingDetail)
-def get_booking_detail(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingDetail:
+def get_booking_detail(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> BookingDetail:
     booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
     if not booking:
         raise HTTPException(status_code=404, detail='Prenotazione non trovata')
@@ -63,7 +63,7 @@ def get_booking_detail(booking_id: str, db: Session = Depends(get_db), admin: Ad
 
 
 @router.post('', response_model=BookingSummary)
-def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingSummary:
+def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> BookingSummary:
     with acquire_single_court_lock(db):
         booking = create_admin_booking(
             db,
@@ -86,7 +86,7 @@ def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depe
 
 
 @router.post('/{booking_id}/cancel', response_model=SimpleMessage)
-def cancel_admin_booking(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> SimpleMessage:
+def cancel_admin_booking(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> SimpleMessage:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
@@ -97,7 +97,7 @@ def cancel_admin_booking(booking_id: str, db: Session = Depends(get_db), admin: 
 
 
 @router.put('/{booking_id}', response_model=BookingDetail)
-def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingDetail:
+def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> BookingDetail:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
@@ -119,7 +119,7 @@ def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Sess
 
 
 @router.post('/{booking_id}/status', response_model=BookingSummary)
-def update_status(booking_id: str, payload: AdminBookingStatusUpdate, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingSummary:
+def update_status(booking_id: str, payload: AdminBookingStatusUpdate, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> BookingSummary:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:
@@ -132,7 +132,7 @@ def update_status(booking_id: str, payload: AdminBookingStatusUpdate, db: Sessio
 
 
 @router.post('/{booking_id}/balance-paid', response_model=BookingSummary)
-def mark_balance_paid(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)) -> BookingSummary:
+def mark_balance_paid(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> BookingSummary:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == admin.club_id))
         if not booking:

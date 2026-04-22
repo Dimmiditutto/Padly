@@ -1,122 +1,90 @@
 ## 1. Esito sintetico generale
 
-PASS CON RISERVE
+PASS
 
-Il perimetro modificato piu di recente e coerente e non introduce blocker di rilascio sul pass FASE 4 frontend tenant-aware. Le modifiche reali di prodotto riguardano solo il frontend pubblico e admin tenant-aware, mentre [prompts SaaS/FASE_5.md](prompts%20SaaS/FASE_5.md) e [prompts SaaS/FASE_6.md](prompts%20SaaS/FASE_6.md) hanno ricevuto un allineamento documentale coerente con [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md).
+Il perimetro FASE 5 e ora coerente con la policy commerciale dichiarata sul backend. I fix emersi dalla verifica precedente sono stati applicati con patch locali, i test di enforcement sono stati resi assertivi e la suite backend completa e tornata verde.
 
-In sintesi:
+Sintesi netta:
 
-- il booking pubblico tenant-aware in [frontend/src/pages/PublicBookingPage.tsx](frontend/src/pages/PublicBookingPage.tsx) e coerente con [frontend/src/services/publicApi.ts](frontend/src/services/publicApi.ts), [frontend/src/services/api.ts](frontend/src/services/api.ts) e [frontend/src/types.ts](frontend/src/types.ts)
-- il workspace admin tenant-aware in [frontend/src/components/AdminNav.tsx](frontend/src/components/AdminNav.tsx), [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx), [frontend/src/pages/AdminBookingsPage.tsx](frontend/src/pages/AdminBookingsPage.tsx), [frontend/src/pages/AdminCurrentBookingsPage.tsx](frontend/src/pages/AdminCurrentBookingsPage.tsx), [frontend/src/pages/AdminLogsPage.tsx](frontend/src/pages/AdminLogsPage.tsx) e [frontend/src/pages/AdminBookingDetailPage.tsx](frontend/src/pages/AdminBookingDetailPage.tsx) e coerente con i contratti gia esposti dal backend
-- non risultano modifiche backend recenti nel worktree corrente; la verifica di impatto backend resta quindi legata ai contratti gia consolidati e alla suite backend verde gia disponibile nel contesto corrente del workspace
+- PASS su enforcement commerciale delle superfici operative public e admin
+- PASS sulla coerenza della policy `PAST_DUE`, ora bloccata come stato non attivo
+- PASS su hardening del webhook billing in produzione
+- PASS su audit operativo minimo per suspend e reactivate del control plane
+- PASS sulle regressioni backend mirate e sulla suite backend completa
 
-Validazioni reali disponibili e confermate:
+Validazioni reali eseguite:
 
-- PASS: test frontend sul perimetro toccato, 6 file / 36 test verdi su [frontend/src/pages/PublicBookingPage.test.tsx](frontend/src/pages/PublicBookingPage.test.tsx), [frontend/src/pages/AdminDashboardPage.test.tsx](frontend/src/pages/AdminDashboardPage.test.tsx), [frontend/src/pages/AdminBookingsPage.test.tsx](frontend/src/pages/AdminBookingsPage.test.tsx), [frontend/src/pages/AdminCurrentBookingsPage.test.tsx](frontend/src/pages/AdminCurrentBookingsPage.test.tsx), [frontend/src/pages/AdminLogsPage.test.tsx](frontend/src/pages/AdminLogsPage.test.tsx), [frontend/src/pages/AdminBookingDetailPage.test.tsx](frontend/src/pages/AdminBookingDetailPage.test.tsx)
-- PASS: build frontend completa da [frontend/package.json](frontend/package.json)
-- PASS: suite backend completa gia verde nel contesto corrente del workspace, eseguita con [.venv/Scripts/python.exe](.venv/Scripts/python.exe)
+- PASS: [backend/tests/test_billing_saas.py](backend/tests/test_billing_saas.py), `20 passed`
+- PASS: [backend/tests/test_booking_api.py](backend/tests/test_booking_api.py) + [backend/tests/test_admin_and_recurring.py](backend/tests/test_admin_and_recurring.py), `45 passed`
+- PASS: suite backend completa, `112 passed`
+- NOTA: la build frontend era gia verde nel pass iniziale FASE 5; non e stata rilanciata nel pass finale perche non sono stati toccati file UI
 
-Riserve reali rimaste aperte:
+Perimetro verificato e stato finale dei fix:
 
-- il supporto timezone per-tenant end-to-end resta fuori scope e non e ancora chiuso in [backend/app/services/booking_service.py](backend/app/services/booking_service.py)
-- due superfici toccate, [frontend/src/pages/AdminLogsPage.tsx](frontend/src/pages/AdminLogsPage.tsx) e [frontend/src/pages/AdminBookingDetailPage.tsx](frontend/src/pages/AdminBookingDetailPage.tsx), non hanno ancora una regressione tenant-specifica diretta nei rispettivi test
-- [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) fa riferimento a prompt e stato fase senza percorso esplicito, mentre i file reali sono sotto [prompts SaaS](prompts%20SaaS)
+- [backend/app/api/deps.py](backend/app/api/deps.py) espone sia `get_current_club_enforced` sia `get_current_admin_enforced`
+- [backend/app/api/routers/public.py](backend/app/api/routers/public.py) applica l'enforcement alle route operative, mantenendo leggibili solo le superfici read-only coerenti con la policy
+- [backend/app/api/routers/admin_bookings.py](backend/app/api/routers/admin_bookings.py), [backend/app/api/routers/admin_ops.py](backend/app/api/routers/admin_ops.py) e [backend/app/api/routers/admin_settings.py](backend/app/api/routers/admin_settings.py) usano l'admin enforced sulle superfici operative
+- [backend/app/services/billing_service.py](backend/app/services/billing_service.py) include `PAST_DUE` negli stati bloccati e registra audit minimi per azioni platform sensibili
+- [backend/app/api/routers/billing.py](backend/app/api/routers/billing.py) fallisce chiuso in produzione se manca `STRIPE_BILLING_WEBHOOK_SECRET`
+- [backend/app/core/config.py](backend/app/core/config.py) include `STRIPE_BILLING_WEBHOOK_SECRET` e `PLATFORM_API_KEY` tra i requisiti minimi di produzione
+- [backend/tests/test_billing_saas.py](backend/tests/test_billing_saas.py) copre blocchi public/admin per `SUSPENDED`, `PAST_DUE`, trial scaduto, audit platform e hardening del webhook
 
 ## 2. Verifica per area
 
 ### Coerenza complessiva del codice
 
 - Esito: PASS
-- Problemi trovati: nessun conflitto architetturale o di contratto sul perimetro modificato
+- Problemi trovati: nessun blocker attivo nel perimetro backend verificato
 - Gravita del problema: bassa
-- Impatto reale: il frontend tenant-aware resta allineato al modello shared-database gia introdotto nelle fasi backend precedenti
-
-Modifiche e integrazioni verificate:
-
-- [frontend/src/pages/PublicBookingPage.tsx](frontend/src/pages/PublicBookingPage.tsx) legge il tenant dalla query, mostra branding e contatti tenant-aware e propaga il tenant verso config, availability, booking e checkout
-- [frontend/src/components/AdminNav.tsx](frontend/src/components/AdminNav.tsx) centralizza tenant attivo, slug e notification email e preserva la query tenant nella navigazione admin
-- [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx) riusa la superficie settings esistente per gestire il profilo tenant senza creare nuove route
-- [frontend/src/pages/AdminBookingsPage.tsx](frontend/src/pages/AdminBookingsPage.tsx), [frontend/src/pages/AdminCurrentBookingsPage.tsx](frontend/src/pages/AdminCurrentBookingsPage.tsx), [frontend/src/pages/AdminLogsPage.tsx](frontend/src/pages/AdminLogsPage.tsx) e [frontend/src/pages/AdminBookingDetailPage.tsx](frontend/src/pages/AdminBookingDetailPage.tsx) mantengono il tenant nelle validazioni sessione, nei logout, nei redirect 401 e nei link operativi principali
+- Impatto reale: il layer commerciale ora non si limita al solo dominio dati ma governa davvero le superfici operative previste dalla fase
 
 ### Coerenza tra file modificati
 
 - Esito: PASS
-- Problemi trovati: nessun mismatch rilevato tra utility tenant, tipi, service API e pagine toccate
+- Problemi trovati: nessun mismatch attivo tra dependency, enforcement, router e test
 - Gravita del problema: bassa
-- Impatto reale: i file modificati usano convenzioni coerenti e si appoggiano a una sola utility condivisa per la gestione del tenant, [frontend/src/utils/tenantContext.ts](frontend/src/utils/tenantContext.ts)
-
-Evidenze concrete:
-
-- [frontend/src/types.ts](frontend/src/types.ts) allinea PublicConfig, AdminSession e AdminSettings ai payload usati dalle pagine modificate
-- [frontend/src/services/api.ts](frontend/src/services/api.ts) mantiene la propagazione tenant via query e header in modo coerente con [frontend/src/services/publicApi.ts](frontend/src/services/publicApi.ts) e con l'uso locale di withTenantPath
-- [prompts SaaS/STATO_FASE_4.MD](prompts%20SaaS/STATO_FASE_4.MD) e coerente con i file toccati realmente nel frontend e con le validazioni eseguite
-- [prompts SaaS/FASE_5.md](prompts%20SaaS/FASE_5.md) e [prompts SaaS/FASE_6.md](prompts%20SaaS/FASE_6.md) risultano coerenti con l'inclusione del master prompt nella stessa cartella
+- Impatto reale: i punti di enforcement introdotti sono ora collegati ai flussi che li richiedono davvero
 
 ### Conflitti o blocchi introdotti dai file modificati
 
 - Esito: PASS
-- Problemi trovati: nessun blocco funzionale, di build o di test sul perimetro toccato
+- Problemi trovati: nessuna regressione backend emersa nelle validazioni mirate o nella suite completa
 - Gravita del problema: bassa
-- Impatto reale: nessuna regressione riproducibile sui flussi pubblici e admin toccati
-
-Evidenze concrete:
-
-- il pass tenant-aware di [frontend/src/pages/PublicBookingPage.tsx](frontend/src/pages/PublicBookingPage.tsx) non rompe il flusso di prenotazione gia esistente
-- i pass tenant-aware su dashboard, elenco, calendario, log e dettaglio admin non hanno introdotto failure nei test esistenti del perimetro toccato
-- la build frontend completa conferma assenza di mismatch TypeScript o import/export sui file coinvolti
+- Impatto reale: il pass non ha introdotto rotture sui flussi di booking o sulle superfici admin verificate
 
 ### Criticita del progetto nel suo insieme
 
 - Esito: PASS CON RISERVE
 - Problemi trovati:
-  - supporto timezone per-tenant ancora non end-to-end nel motore slot backend
-  - copertura di regressione tenant-specifica non ancora diretta su due superfici admin toccate
-  - ambiguita documentale nei riferimenti del prompt root di verifica
-- Gravita del problema: media per il multi-timezone, bassa per gli altri due punti
-- Impatto reale:
-  - il tema timezone non blocca il rollout nel fuso operativo attuale, ma blocca un rollout multi-tenant realmente multi-timezone se non viene affrontato
-  - il gap di test non segnala un difetto corrente, ma aumenta il rischio di regressione futura su link e redirect tenant-aware
-  - l'ambiguita documentale non impatta il runtime, ma puo far perdere tempo o portare un agente a leggere file sbagliati
+  - la base commerciale backend e coerente, ma il self-service Stripe Billing end-to-end resta fuori dallo scope di questo fix pass
+  - il banner frontend admin resta migliorabile sul piano UX, ma non blocca il rilascio backend della fase
+- Gravita del problema: media sui miglioramenti futuri, non bloccante sullo stato attuale
+- Impatto reale: il layer commerciale backend e pronto, mentre il percorso subscription self-service puo essere sviluppato in un pass successivo
 
 ### Rispetto della logica di business
 
 - Esito: PASS
-- Problemi trovati: nessuna violazione della logica di business sul perimetro verificato
+- Problemi trovati: nessuna incoerenza residua confermata tra policy dichiarata e enforcement backend nel perimetro toccato
 - Gravita del problema: bassa
-- Impatto reale: booking pubblico, settings tenant, navigazione admin e flussi di sessione restano coerenti con l'obiettivo SaaS shared-database gia definito
+- Impatto reale: tenant `PAST_DUE`, `SUSPENDED`, `CANCELLED` e trial scaduto sono ora governati in modo coerente sulle superfici operative previste
 
-Evidenze concrete:
+## 3. Elenco criticita residue
 
-- il booking pubblico continua a partire da / senza introdurre nuove route o logica client-side critica
-- l'admin vede il tenant attivo e modifica campi tenant-scoped dalla superficie piu coerente con il repository reale, [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx)
-- le route admin gia esistenti continuano a funzionare e a preservare il tenant quando il contesto e query-based
+### 3.1 Self-service subscription non ancora end-to-end
 
-## 3. Elenco criticita
-
-### 3.1 Timezone tenant non ancora supportata end-to-end
-
-- Titolo breve del problema: timezone per-tenant non chiusa nel motore slot
-- Descrizione tecnica: [backend/app/services/booking_service.py](backend/app/services/booking_service.py) mantiene ancora una base operativa non pienamente per-tenant nel motore availability e slot, mentre il frontend ora espone la timezone del tenant in UI
-- Perche e un problema reale: il branding e i dati tenant-aware possono suggerire un supporto completo multi-timezone che il motore slot non garantisce ancora in modo end-to-end
-- Dove si manifesta: [backend/app/services/booking_service.py](backend/app/services/booking_service.py), con impatto riflesso su [frontend/src/pages/PublicBookingPage.tsx](frontend/src/pages/PublicBookingPage.tsx)
+- Titolo breve del problema: manca ancora il checkout subscription completo lato provider
+- Descrizione tecnica: il webhook billing e il control plane sono pronti, ma il flusso completo di checkout subscription e customer portal Stripe non rientrava nel perimetro di questo pass
+- Perche e un problema reale: limita l'autonomia operativa del tenant nella gestione del proprio abbonamento
+- Dove si manifesta: integrazione provider billing lato self-service
 - Gravita: media
-- Blocca il rilascio oppure no: non blocca il rilascio attuale nello stesso fuso operativo; blocca un rollout multi-timezone reale
+- Blocca il rilascio oppure no: no, non blocca la chiusura tecnica della FASE 5 backend
 
-### 3.2 Copertura tenant-specifica indiretta su due superfici admin toccate
+### 3.2 Rifinitura UX del banner admin
 
-- Titolo breve del problema: copertura test incompleta su log e dettaglio admin
-- Descrizione tecnica: [frontend/src/pages/AdminLogsPage.tsx](frontend/src/pages/AdminLogsPage.tsx) e [frontend/src/pages/AdminBookingDetailPage.tsx](frontend/src/pages/AdminBookingDetailPage.tsx) sono stati resi tenant-aware, ma [frontend/src/pages/AdminLogsPage.test.tsx](frontend/src/pages/AdminLogsPage.test.tsx) e [frontend/src/pages/AdminBookingDetailPage.test.tsx](frontend/src/pages/AdminBookingDetailPage.test.tsx) non verificano ancora in modo diretto la preservazione della query tenant su redirect, logout o link di ritorno
-- Perche e un problema reale: i comportamenti sono critici per non perdere contesto tenant e oggi sono coperti solo indirettamente dal riuso della stessa utility e da test su altre pagine admin
-- Dove si manifesta: [frontend/src/pages/AdminLogsPage.test.tsx](frontend/src/pages/AdminLogsPage.test.tsx), [frontend/src/pages/AdminBookingDetailPage.test.tsx](frontend/src/pages/AdminBookingDetailPage.test.tsx)
-- Gravita: bassa
-- Blocca il rilascio oppure no: no
-
-### 3.3 Riferimenti documentali root non univoci
-
-- Titolo breve del problema: percorso dei prompt non esplicito nel file di verifica root
-- Descrizione tecnica: [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) chiede di leggere prompt_master.md e STATO_FASE_1.MD senza indicare che i file reali stanno in [prompts SaaS](prompts%20SaaS)
-- Perche e un problema reale: puo produrre esecuzioni incoerenti o fallimenti di lettura per agenti che partono dal path root letterale
-- Dove si manifesta: [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md)
+- Titolo breve del problema: margine di miglioramento nella distinzione warning vs blocco
+- Descrizione tecnica: [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx) mostra lo stato subscription correttamente, ma il tono visuale puo essere raffinato in un pass UI dedicato
+- Perche e un problema reale: incide sulla chiarezza percepita dall'admin, non sulla correttezza del backend
+- Dove si manifesta: dashboard admin
 - Gravita: bassa
 - Blocca il rilascio oppure no: no
 
@@ -124,28 +92,34 @@ Evidenze concrete:
 
 ### Da correggere prima del rilascio
 
-- Nessun blocker nuovo emerso sul perimetro FASE 4 verificato
+- nessun blocker backend aperto nel perimetro FASE 5 verificato
 
 ### Da correggere prima della beta pubblica
 
-- aggiungere regressioni tenant-specifiche dirette in [frontend/src/pages/AdminLogsPage.test.tsx](frontend/src/pages/AdminLogsPage.test.tsx) e [frontend/src/pages/AdminBookingDetailPage.test.tsx](frontend/src/pages/AdminBookingDetailPage.test.tsx)
-- affrontare il tema timezone per-tenant solo se il rollout target include tenant con fusi orari realmente diversi
+- completare il self-service Stripe Billing se il rollout richiede onboarding e upgrade autonomi dei tenant
 
 ### Miglioramenti differibili
 
-- allineare i riferimenti di [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) ai path reali sotto [prompts SaaS](prompts%20SaaS)
+- affinare la UX del banner piano in [frontend/src/pages/AdminDashboardPage.tsx](frontend/src/pages/AdminDashboardPage.tsx)
+- introdurre eventuali piani a pagamento seed o CRUD interno per i piani commerciali oltre al `trial`
 
 ## 5. Verdetto finale
 
-Il codice e quasi pronto e risulta rilasciabile per il perimetro FASE 4 gia implementato, con fix mirati non bloccanti raccomandati prima di allargare ulteriormente il perimetro SaaS o di affidarsi a una copertura test piu ampia.
+Il layer commerciale FASE 5 e chiuso sul backend e risulta coerente con la policy dichiarata nel repository.
 
-Non emergono difetti di codice attivi o regressioni riproducibili sui flussi modificati di booking pubblico e workspace admin tenant-aware. Le riserve rimaste sono di hardening, copertura e documentazione, non di correttezza immediata del pass appena completato.
+La base strutturale introdotta nel pass iniziale e stata resa operativa dai fix successivi: l'enforcement e applicato davvero, `PAST_DUE` non e piu uno stato solo nominale, il webhook billing e protetto in produzione e le azioni platform sensibili lasciano una traccia minima verificabile.
 
-## 6. Prompt operativo per i fix
+Verdetto netto: PASS sul perimetro backend FASE 5, con follow-up facoltativi su self-service billing e rifinitura UX.
 
-Esegui solo i fix realmente emersi in questa verifica. Non fare refactor, non riaprire il lavoro gia verde della FASE 4 e applica patch minime.
+## 6. Chiusura operativa
 
-1. Aggiungi test mirati in [frontend/src/pages/AdminLogsPage.test.tsx](frontend/src/pages/AdminLogsPage.test.tsx) per verificare che, con un URL del tipo /admin/log?tenant=roma-club, il redirect 401 e l'eventuale uscita admin preservino la query tenant.
-2. Aggiungi test mirati in [frontend/src/pages/AdminBookingDetailPage.test.tsx](frontend/src/pages/AdminBookingDetailPage.test.tsx) per verificare che, con un URL del tipo /admin/bookings/:bookingId?tenant=roma-club, il redirect a login e il link Torna alle prenotazioni preservino la query tenant.
-3. Allinea i riferimenti in [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) ai path reali di [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md) e dei file STATO_FASE_N.MD, senza riscrivere la struttura generale del prompt.
-4. Non toccare il backend per il tema timezone in questo pass. Se il prodotto deve supportare tenant in fusi diversi, apri un pass separato e circoscritto su [backend/app/services/booking_service.py](backend/app/services/booking_service.py), [backend/app/services/settings_service.py](backend/app/services/settings_service.py), [backend/app/api/routers/public.py](backend/app/api/routers/public.py) e sui test backend di availability e recurring; altrimenti documenta esplicitamente il vincolo temporaneo di fuso operativo unico.
+Fix eseguiti e validati:
+
+1. enforcement collegato alle superfici public operative
+2. enforcement collegato alle superfici admin operative
+3. policy `PAST_DUE` resa coerente e testata
+4. webhook billing reso fail-closed in produzione
+5. test di enforcement resi assertivi
+6. audit minimo platform aggiunto per suspend e reactivate
+
+Nessun ulteriore fix obbligatorio emerge dal perimetro gia verificato.
