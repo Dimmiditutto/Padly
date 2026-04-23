@@ -11,9 +11,6 @@ import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantCo
 import { formatDateTime } from '../utils/format';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-const HERO_ACTION_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
-const HERO_ACTIONS_WRAPPER_CLASS = 'sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0';
-
 function getRequestStatus(error: any) {
   return error?.response?.status;
 }
@@ -63,16 +60,16 @@ export function AdminLogsPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
-        <div className='space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
+        <div className='admin-hero-panel space-y-4'>
           <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
             <div>
               <p className='text-2xl font-semibold text-cyan-100'>Log admin</p>
               <h1 className='text-3xl font-bold'>Traccia operativa recente</h1>
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>Qui trovi gli eventi business recenti di prenotazioni, pagamenti e operazioni amministrative.</p>
             </div>
-            <div className={HERO_ACTIONS_WRAPPER_CLASS}>
-              <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void bootstrap()}>Aggiorna dashboard</button>
-              <button className={HERO_ACTION_BUTTON_CLASS} type='button' onClick={() => void logout()}>Esci</button>
+            <div className='admin-hero-actions'>
+              <button className='admin-hero-button-primary' type='button' onClick={() => void bootstrap()}>Aggiorna dashboard</button>
+              <button className='admin-hero-button-secondary' type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>
           <AdminNav session={session} />

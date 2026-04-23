@@ -50,8 +50,44 @@ h4 {
     @apply rounded-[28px] border border-white/60 bg-white/90 p-5 shadow-soft backdrop-blur;
   }
 
+  .surface-card-compact {
+    @apply rounded-[24px] border border-white/60 bg-white/90 p-4 shadow-soft backdrop-blur;
+  }
+
   .surface-muted {
     @apply rounded-[24px] border border-slate-200/70 bg-slate-50/90 p-4;
+  }
+
+  .admin-hero-panel {
+    @apply rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft;
+  }
+
+  .admin-hero-actions {
+    @apply sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0;
+  }
+
+  .admin-hero-button-primary {
+    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto;
+  }
+
+  .admin-hero-button-secondary {
+    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:border-cyan-300/60 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto;
+  }
+
+  .admin-nav {
+    @apply flex flex-wrap gap-2 rounded-[24px] border border-white/10 bg-white/5 p-1.5;
+  }
+
+  .admin-nav-tab {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200;
+  }
+
+  .admin-nav-tab-active {
+    @apply bg-brand-700 text-white shadow-sm hover:bg-brand-600;
+  }
+
+  .admin-nav-context {
+    @apply flex flex-wrap items-center gap-3 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200;
   }
 
   .btn-primary {
@@ -63,7 +99,23 @@ h4 {
   }
 
   .btn-ghost {
-    @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-200;
+    @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-200 hover:text-slate-950 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-pill-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-soft-success {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-soft-warning {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-soft-danger {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 transition hover:border-rose-300 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .text-input {
@@ -88,6 +140,18 @@ h4 {
 
   .helper-text {
     @apply text-sm leading-6 text-slate-600;
+  }
+
+  .section-card-header {
+    @apply flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between;
+  }
+
+  .section-card-actions {
+    @apply flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end;
+  }
+
+  .section-card-content {
+    @apply mt-6;
   }
 
   .status-pill {

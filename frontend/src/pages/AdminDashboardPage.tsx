@@ -28,7 +28,6 @@ import { formatCurrency, formatDateTime, formatWeekdayLabel, toDateInputValue } 
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
-const HERO_ACTION_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 const SUBTLE_LINK_CLASS = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-100';
 
 function getRequestStatus(error: any) {
@@ -281,7 +280,7 @@ export function AdminDashboardPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
-        <div className='relative space-y-4 rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft'>
+        <div className='admin-hero-panel relative space-y-4'>
           <div className='lg:pr-72'>
             <div>
               <AppBrand light label='Padly' />
@@ -290,9 +289,9 @@ export function AdminDashboardPage() {
               <p className='mt-2 max-w-2xl text-sm text-slate-300'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative. Prenotazioni e log hanno ora pagine dedicate.</p>
             </div>
           </div>
-          <div className='sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0 lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
-            <button onClick={() => void refreshDashboard()} className={HERO_ACTION_BUTTON_CLASS}>Aggiorna dashboard</button>
-            <button onClick={logout} className={HERO_ACTION_BUTTON_CLASS}>Esci</button>
+          <div className='admin-hero-actions lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
+            <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna dashboard</button>
+            <button onClick={logout} className='admin-hero-button-secondary'>Esci</button>
           </div>
           <AdminNav session={session} notificationEmail={settings?.notification_email || null} />
         </div>

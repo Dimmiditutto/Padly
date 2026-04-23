@@ -420,11 +420,11 @@ export function AdminBookingDetailPage() {
                       <WalletCards size={16} /> Segna saldo al campo
                     </button>
                   ) : null}
-                  <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBookingCompleted(booking.status, booking.end_at)} onClick={() => void updateStatus('COMPLETED')}>Segna completed</button>
-                  <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canMarkBookingNoShow(booking.status, booking.start_at)} onClick={() => void updateStatus('NO_SHOW')}>Segna no-show</button>
-                  <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={!canCancelBooking(booking.status)} onClick={() => void updateStatus('CANCELLED')}>Annulla prenotazione</button>
+                  <button className='btn-soft-success w-full' type='button' disabled={!canMarkBookingCompleted(booking.status, booking.end_at)} onClick={() => void updateStatus('COMPLETED')}>Segna completed</button>
+                  <button className='btn-soft-warning w-full' type='button' disabled={!canMarkBookingNoShow(booking.status, booking.start_at)} onClick={() => void updateStatus('NO_SHOW')}>Segna no-show</button>
+                  <button className='btn-soft-danger w-full' type='button' disabled={!canCancelBooking(booking.status)} onClick={() => void updateStatus('CANCELLED')}>Annulla prenotazione</button>
                   {isRecurring && booking.recurring_series_id ? (
-                    <button className='btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-50' type='button' disabled={savingSeries} onClick={() => void cancelSeries()}>
+                    <button className='btn-soft-danger w-full' type='button' disabled={savingSeries} onClick={() => void cancelSeries()}>
                       {savingSeries ? 'Aggiornamento serie in corso…' : 'Annulla intera serie'}
                     </button>
                   ) : null}

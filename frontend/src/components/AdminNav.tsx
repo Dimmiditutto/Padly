@@ -15,7 +15,7 @@ export function AdminNav({ session, notificationEmail }: { session?: AdminSessio
 
   return (
     <div className='space-y-3'>
-      <nav className='flex flex-wrap gap-2'>
+      <nav className='admin-nav'>
         {navItems.map((item) => {
           const isActive = location.pathname === item.to;
 
@@ -23,7 +23,7 @@ export function AdminNav({ session, notificationEmail }: { session?: AdminSessio
             <Link
               key={item.to}
               to={withTenantPath(item.to, tenantSlug)}
-              className={isActive ? 'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-brand-700 bg-brand-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-cyan-200' : 'btn-secondary'}
+              className={isActive ? 'admin-nav-tab admin-nav-tab-active' : 'admin-nav-tab'}
             >
               {item.label}
             </Link>
@@ -31,7 +31,7 @@ export function AdminNav({ session, notificationEmail }: { session?: AdminSessio
         })}
       </nav>
       {session ? (
-        <div className='flex flex-wrap items-center gap-3 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200'>
+        <div className='admin-nav-context'>
           <span className='font-semibold text-white'>Tenant attivo: {session.club_public_name}</span>
           <span className='text-slate-300'>Slug: {session.club_slug}</span>
           {notificationEmail ? <span className='text-slate-300'>Notifiche: {notificationEmail}</span> : null}

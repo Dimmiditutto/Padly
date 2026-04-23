@@ -9,7 +9,9 @@ export function LoadingBlock({
 }) {
   return (
     <div className='surface-muted flex items-center gap-3'>
-      <LoaderCircle className='animate-spin text-cyan-600' size={18} />
+      <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-cyan-600 shadow-sm'>
+        <LoaderCircle className='animate-spin' size={18} />
+      </div>
       <p className={`${labelClassName} font-medium text-slate-700`}>{label}</p>
     </div>
   );

@@ -24,7 +24,7 @@ export function AdminBookingCard({
   const canMarkBalance = !isRecurring && canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at);
 
   return (
-    <article className='rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm'>
+    <article className='surface-card-compact shadow-sm'>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
         <div className='space-y-2'>
           <div className='flex flex-wrap items-center gap-2'>
@@ -41,11 +41,11 @@ export function AdminBookingCard({
         </div>
         <Link to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)} className='btn-ghost'>Dettaglio <ArrowRight size={16} /></Link>
       </div>
-      <div className='mt-4 flex flex-wrap gap-2'>
-        {!isRecurring ? <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalance} onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button> : null}
-        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canComplete} onClick={() => void onUpdateStatus(booking.id, 'COMPLETED')}>Completed</button>
-        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canNoShow} onClick={() => void onUpdateStatus(booking.id, 'NO_SHOW')}>No-show</button>
-        <button className='btn-secondary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canCancel} onClick={() => void onUpdateStatus(booking.id, 'CANCELLED')}>Annulla</button>
+      <div className='mt-5 flex flex-wrap gap-2.5'>
+        {!isRecurring ? <button className='btn-primary disabled:cursor-not-allowed disabled:opacity-50' disabled={!canMarkBalance} onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button> : null}
+        <button className='btn-soft-success' disabled={!canComplete} onClick={() => void onUpdateStatus(booking.id, 'COMPLETED')}>Completed</button>
+        <button className='btn-soft-warning' disabled={!canNoShow} onClick={() => void onUpdateStatus(booking.id, 'NO_SHOW')}>No-show</button>
+        <button className='btn-soft-danger' disabled={!canCancel} onClick={() => void onUpdateStatus(booking.id, 'CANCELLED')}>Annulla</button>
         {canRestore ? <button className='btn-secondary' onClick={() => void onUpdateStatus(booking.id, 'CONFIRMED')}>Ripristina confermata</button> : null}
       </div>
     </article>
