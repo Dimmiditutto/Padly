@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     rate_limit_backend: str = 'local'
     rate_limit_per_minute: int = 60
     operational_signal_window_hours: int = 24
+    email_log_retention_days: int = 90
+    payment_webhook_retention_days: int = 180
+    billing_webhook_retention_days: int = 180
     platform_api_key: str | None = None
 
     @staticmethod
@@ -120,6 +123,13 @@ class Settings(BaseSettings):
     def validate_operational_signal_window_hours(cls, value: int) -> int:
         if value <= 0:
             raise ValueError('OPERATIONAL_SIGNAL_WINDOW_HOURS deve essere maggiore di zero')
+        return value
+
+    @field_validator('email_log_retention_days', 'payment_webhook_retention_days', 'billing_webhook_retention_days')
+    @classmethod
+    def validate_retention_days(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError('I giorni di retention devono essere maggiori di zero')
         return value
 
     @model_validator(mode='after')

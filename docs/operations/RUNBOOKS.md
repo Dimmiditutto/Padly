@@ -112,6 +112,71 @@ Audit disponibile:
 
 ## 5. Supporto operativo
 
+### Export dati essenziali
+
+- export tenant-scoped: `GET /api/platform/tenants/<club_id>/data-export`
+- export customer-scoped: `GET /api/platform/tenants/<club_id>/data-export?scope=customer&customer_id=<customer_id>`
+- usare sempre `X-Platform-Key`
+- l'export e JSON guidato e filtrato, non un dump completo del database
+
+### Anonimizzazione customer
+
+```powershell
+curl -X POST https://tuo-dominio/api/platform/tenants/<club_id>/customers/<customer_id>/anonymize ^
+  -H "Content-Type: application/json" ^
+  -H "X-Platform-Key: <PLATFORM_API_KEY>" ^
+  -d "{\"reason\":\"richiesta privacy\",\"actor\":\"support\"}"
+```
+
+Vincoli operativi:
+
+- il workflow preserva booking e pagamenti storici
+- il workflow rifiuta customer con prenotazioni future attive
+- la cancellazione tenant-wide resta manuale
+
+### Purge retention tecnica
+
+Preview:
+
+```powershell
+curl -X POST "https://tuo-dominio/api/platform/data-retention/purge?dry_run=true" ^
+  -H "X-Platform-Key: <PLATFORM_API_KEY>"
+```
+
+Esecuzione:
+
+```powershell
+curl -X POST https://tuo-dominio/api/platform/data-retention/purge ^
+  -H "X-Platform-Key: <PLATFORM_API_KEY>"
+```
+
+Note:
+
+- il job scheduler esegue anche un purge giornaliero automatico dei dati tecnici purge-safe
+- vengono rimossi solo `email_notifications_log`, `payment_webhook_events` processati e `billing_webhook_events` processati oltre retention
+
+### Audit storico dati liberi
+
+Preview consigliata:
+
+```powershell
+curl -X POST "https://tuo-dominio/api/platform/data-governance/historical-audit?dry_run=true&window_days=365" ^
+  -H "X-Platform-Key: <PLATFORM_API_KEY>"
+```
+
+Redazione selettiva della prima iterazione:
+
+```powershell
+curl -X POST "https://tuo-dominio/api/platform/data-governance/historical-audit?dry_run=false&window_days=365" ^
+  -H "X-Platform-Key: <PLATFORM_API_KEY>"
+```
+
+Vincoli operativi:
+
+- la redazione reale della prima iterazione tocca solo `booking_events_log` classificati `safe_to_redact`
+- `payment_webhook_events` e `billing_webhook_events` restano audit-only o `needs_manual_review`
+- usare sempre prima il `dry_run` per misurare l'impatto prima di mutare i dati storici
+
 ### Reset password admin
 
 - usare `POST /api/admin/auth/password-reset/request` sul tenant corretto

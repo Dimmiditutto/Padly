@@ -1,114 +1,143 @@
+# VERIFICA DATA GOVERNANCE E CONTROL PLANE INTERNO
+
+## 1. Esito sintetico generale
+
+`PASS CON RISERVE`
+
+Il codice attuale risulta coerente sul piano architetturale e operativo. Il control plane interno esteso in [backend/app/api/routers/platform.py](backend/app/api/routers/platform.py), i contratti in [backend/app/schemas/data_governance.py](backend/app/schemas/data_governance.py), i workflow in [backend/app/services/data_governance_service.py](backend/app/services/data_governance_service.py) e [backend/app/services/historical_governance_service.py](backend/app/services/historical_governance_service.py) e la copertura in [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py) sono allineati tra loro. Non emergono errori statici sui file toccati e la baseline verificata resta verde: suite governance a 10 test passati e suite backend completa a 137 test passati.
+
+La review corrente non ha trovato criticita bloccanti nel codice eseguibile. Resta pero un disallineamento operativo non bloccante: [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD) riporta ancora la fotografia intermedia a 5 test e 131 passed e non riflette completamente le estensioni post-fase gia implementate e verificate. Questo non rompe runtime o test, ma puo fuorviare i prossimi prompt operativi basati sullo stato fase.
+
+## 2. Verifica per area
+
+### Coerenza complessiva del codice
+
+- Esito: `PASS`
+- Problemi trovati:
+  - nessun conflitto architetturale rilevato tra router, servizi, schemi, scheduler e documentazione operativa principale
+  - il control plane governance resta coerente con i vincoli dichiarati: export minimizzato, anonimizzazione customer, retention tecnica e audit storico prudente
+  - la review projection dei webhook e integrata in modo coerente tra [backend/app/schemas/data_governance.py](backend/app/schemas/data_governance.py#L169), [backend/app/services/historical_governance_service.py](backend/app/services/historical_governance_service.py#L186), [backend/app/services/historical_governance_service.py](backend/app/services/historical_governance_service.py#L370) e [backend/app/services/historical_governance_service.py](backend/app/services/historical_governance_service.py#L421)
+- Gravita: `bassa`
+- Impatto reale: nessun blocco runtime, build o regressione evidente
+
+### Coerenza tra file modificati
+
+- Esito: `PASS CON RISERVE`
+- Problemi trovati:
+  - i file di codice recenti sono coerenti tra loro: [backend/app/services/data_governance_service.py](backend/app/services/data_governance_service.py#L224) non riespone piu `email_notifications.error`, [backend/app/schemas/data_governance.py](backend/app/schemas/data_governance.py#L187) espone ora `review_projection`, e [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py#L158), [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py#L212) e [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py#L735) coprono i casi principali
+  - [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD#L14) e [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD#L15) riportano ancora 5 test mirati e 131 passed, quindi non sono piu allineati alla fotografia corrente
+- Gravita: `media`
+- Impatto reale: il codice resta coerente, ma il documento di stato puo indurre assunzioni sbagliate nei prossimi workflow prompt-driven
+
+### Conflitti o blocchi introdotti dai file modificati
+
+- Esito: `PASS`
+- Problemi trovati:
+  - nessun conflitto logico o strutturale nuovo rilevato nei file recenti
+  - nessun import rotto o mismatch di schema rilevato dal controllo statico sui file governance toccati
+  - i webhook restano review-only e immutati a database, come previsto dai vincoli di business e audit
+- Gravita: `bassa`
+- Impatto reale: nessun blocco al rilascio tecnico sulla base del codice corrente
+
+### Criticita del progetto nel suo insieme
+
+- Esito: `PASS CON RISERVE`
+- Problemi trovati:
+  - non emergono nuove criticita di codice bloccanti nel progetto nel suo insieme
+  - resta un rischio operativo-documentale: lo stato fase non riflette ancora la fotografia finale di export tenant minimizzato e review projection dei webhook
+- Gravita: `media`
+- Impatto reale: il prodotto resta stabile, ma l'automazione guidata da prompt puo partire da una baseline obsoleta
+
+### Rispetto della logica di business
+
+- Esito: `PASS`
+- Problemi trovati:
+  - nessuna violazione della logica di business rilevata nei fix recenti
+  - la review projection migliora la leggibilita operativa senza mutare i payload raw webhook, senza alterare idempotenza e senza cambiare i workflow di booking o billing
+- Gravita: `bassa`
+- Impatto reale: i comportamenti critici restano coerenti con i vincoli dichiarati dal progetto
+
+## 3. Elenco criticita
+
+### 1. Stato fase non allineato alla fotografia corrente del codice
+
+- Descrizione tecnica:
+  - [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD#L14) riporta ancora la suite mirata a 5 test
+  - [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD#L15) riporta ancora la suite backend completa a 131 passed
+  - nel frattempo il codice e stato esteso e verificato oltre quel punto: [backend/app/services/data_governance_service.py](backend/app/services/data_governance_service.py#L224) minimizza ormai anche il tenant export sui log email, [backend/app/schemas/data_governance.py](backend/app/schemas/data_governance.py#L169) e [backend/app/schemas/data_governance.py](backend/app/schemas/data_governance.py#L187) introducono la review projection webhook, e [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py#L735) copre il fallback senza preview provider-specifica
+- Perche e un problema reale:
+  - i prossimi prompt che leggono lo stato fase possono partire da numeri di test e contratti ormai superati
+  - il rischio non e runtime ma operativo: review future, prompt di fix o stato roadmap possono essere basati su una fotografia incompleta
+- Dove si manifesta:
+  - [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD#L14)
+  - [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD#L15)
+  - confronto con [backend/app/services/data_governance_service.py](backend/app/services/data_governance_service.py#L224)
+  - confronto con [backend/app/services/historical_governance_service.py](backend/app/services/historical_governance_service.py#L186)
+  - confronto con [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py#L735)
+- Gravita: `media`
+- Blocca il rilascio: `no`
+
+## 4. Prioritizzazione finale
+
+### Da correggere prima del rilascio
+
+- nessuna criticita di codice bloccante rilevata
+
+### Da correggere prima della beta pubblica
+
+- nessuna criticita tecnica aggiuntiva rilevata oltre ai limiti intenzionali gia dichiarati sui webhook review-only
+
+### Miglioramenti differibili
+
+- allineare [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD) alla fotografia corrente: 10 test governance verdi, 137 passed sulla suite completa, tenant export minimizzato e review projection webhook gia implementata
+
+## 5. Verdetto finale
+
+Il codice e pronto dal punto di vista tecnico per il perimetro attualmente implementato. Non emergono fix di codice necessari sulla base della review corrente. Serve solo riallineare il documento di stato fase, cosi i prossimi prompt operativi partono da una baseline corretta e aggiornata.
+
+## 6. Prompt operativo per i fix
+
 Agisci come un Senior Software Engineer, Senior Code Reviewer e QA tecnico.
 
 Leggi prima:
 
-- prompts SaaS/prompt_master.md
-- prompts SaaS/STATO_FASE_7.MD
-- istanze.md
+- [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md)
+- [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD)
+- [README.md](README.md)
+- [docs/operations/DATA_GOVERNANCE.md](docs/operations/DATA_GOVERNANCE.md)
+- [backend/app/services/data_governance_service.py](backend/app/services/data_governance_service.py)
+- [backend/app/services/historical_governance_service.py](backend/app/services/historical_governance_service.py)
+- [backend/tests/test_data_governance.py](backend/tests/test_data_governance.py)
 
-Contesto reale gia verificato:
+## Contesto reale gia verificato
 
-- FASE 7 ha introdotto un backend rate limit configurabile `local|shared`, uno snapshot operativo interno e un healthcheck arricchito.
-- La suite backend completa e verde, ma la verifica tecnica ha trovato criticita reali ancora aperte sul perimetro FASE 7.
-- Devi correggere solo le criticita qui sotto, senza refactor ampi e senza toccare parti non necessarie.
+- il codice governance e gia verde e coerente
+- la suite mirata governance e arrivata a 10 test passati
+- la suite backend completa e stata verificata verde con 137 passed
+- il tenant export non riespone piu `email_notifications.error`
+- l'audit storico webhook include ora una review projection minimizzata
 
 ## Obiettivo
 
-Applicare patch minime e mirate per correggere esclusivamente queste criticita confermate.
+Applicare una patch minima solo documentale su [prompts SaaS/STATO_FASE_8.MD](prompts%20SaaS/STATO_FASE_8.MD) per riallinearlo alla fotografia corrente del repository.
 
-### 1. Il healthcheck puo esplodere in 500 proprio nel path di errore database
+## Correzioni richieste
 
-Problema confermato:
-
-- [backend/app/api/routers/payments.py](backend/app/api/routers/payments.py) chiama `build_operational_status_snapshot(db)` prima del `try/except` che dovrebbe convertire i problemi DB in risposta degraded/503.
-- [backend/app/services/operations_service.py](backend/app/services/operations_service.py) esegue query reali su `email_notifications_log` e `billing_webhook_events` dentro `build_operational_status_snapshot()`.
-- Risultato: se il database o la sessione falliscono in quelle query preliminari, l'eccezione esce prima del `db.execute('SELECT 1')` protetto e il healthcheck puo restituire 500 invece di un segnale operativo coerente.
-- Verifica eseguibile gia osservata: chiamando `health(fake_db)` con un fake DB il cui `scalar()` lancia `RuntimeError('db down')`, la funzione propaga `RuntimeError`.
-
-Correzione richiesta:
-
-- il healthcheck deve restare fail-soft sul database e tornare un segnale coerente degraded/503, non 500 non gestito
-- evita di far dipendere il percorso base di readiness da query opzionali prima del controllo DB protetto
-- se necessario, separa il ping DB minimo dallo snapshot operativo dettagliato o rendi quest'ultimo resiliente ai failure DB
-- mantieni piccolo il cambiamento e non riscrivere il router payments
-
-File probabili:
-
-- backend/app/api/routers/payments.py
-- backend/app/services/operations_service.py
-- backend/tests/test_hardening_ops.py oppure test backend mirati equivalenti
-
-### 2. Il backend shared del rate limit non pulisce davvero i contatori scaduti a cardinalita alta
-
-Problema confermato:
-
-- [backend/app/core/rate_limit.py](backend/app/core/rate_limit.py) elimina i record scaduti solo per `scope_key == key` corrente.
-- Questo significa che IP/path/tenant visti una sola volta o raramente non vengono piu ripuliti, quindi `rate_limit_counters` puo crescere senza limite nel tempo in presenza di traffico reale o abuso distribuito.
-- Il rischio e coerente col design attuale: la chiave include IP + tenant + path, quindi la cardinalita potenziale e alta e il problema e operativo, non solo teorico.
-
-Correzione richiesta:
-
-- aggiungi una strategia minima e prudente di cleanup dei contatori scaduti che non dipenda solo dalla stessa chiave corrente
-- non introdurre scheduler nuovi o componenti esterni solo per questo fix
-- mantieni la compatibilita con `RATE_LIMIT_BACKEND=local` e con la regola di [istanze.md](istanze.md)
-- aggiungi un test mirato che dimostri la semantica di cleanup minima oppure l'assenza di accumulo indefinito nel caso coperto dalla patch
-
-File probabili:
-
-- backend/app/core/rate_limit.py
-- backend/tests/test_hardening_ops.py oppure test backend mirati equivalenti
-
-### 3. Il public health espone dettagli di rate limit piu adatti allo snapshot interno
-
-Problema confermato:
-
-- [backend/app/api/routers/payments.py](backend/app/api/routers/payments.py) include in `GET /api/health` l'intero oggetto `rate_limit`.
-- [backend/app/services/operations_service.py](backend/app/services/operations_service.py) include anche `per_minute`, oltre a backend e storage.
-- Esiste gia [backend/app/api/routers/platform.py](backend/app/api/routers/platform.py) con `GET /api/platform/ops/status`, che e il posto giusto per dettagli operativi interni protetti da `X-Platform-Key`.
-- Risultato: il public health espone configurazione difensiva e dettagli operativi non necessari a un endpoint di readiness pubblico.
-
-Correzione richiesta:
-
-- riduci `GET /api/health` a un segnale minimo coerente per readiness/liveness pubblica
-- sposta o mantieni i dettagli operativi piu sensibili solo su `GET /api/platform/ops/status`
-- non rompere il control plane interno e non cambiare inutilmente il contratto dello snapshot protetto
-
-File probabili:
-
-- backend/app/api/routers/payments.py
-- backend/app/services/operations_service.py
-- backend/tests/test_hardening_ops.py oppure test backend mirati equivalenti
-- README.md e docs/operations/RUNBOOKS.md solo se serve riallineare la documentazione al contratto finale
+1. aggiornare i numeri di verifica reale e di suite mirata ai valori correnti
+2. esplicitare che il tenant export governance non riespone piu `email_notifications.error`
+3. esplicitare che l'audit storico webhook restituisce anche una review projection minimizzata, lasciando i raw payload invariati
+4. non modificare codice applicativo, test o documentazione gia allineata fuori da questo file se non emerge una necessita diretta
 
 ## Regole di lavoro
 
-- non fare refactor ampi
-- non toccare frontend se non emerge una necessita reale da questi fix
-- non cambiare la logica tenant-aware gia corretta del rate limit
-- non introdurre Redis, metriche esterne o nuovi servizi
-- preferisci patch locali e test mirati
-- non correggere problemi non emersi da questa verifica
-
-## Test obbligatori
-
-Devi aggiungere o aggiornare test che dimostrino almeno:
-
-1. il healthcheck non propaga 500 non gestiti quando il database fallisce nel percorso di snapshot operativo
-2. il public health espone solo il livello di dettaglio coerente con il contratto scelto dopo il fix
-3. il backend shared del rate limit mantiene una strategia minima di cleanup dei record scaduti
-4. `GET /api/platform/ops/status` continua a funzionare come endpoint operativo protetto
-5. il tenant legacy default continua a funzionare
-
-Poi esegui verifiche reali:
-
-- test backend mirati sui file toccati
-- suite backend completa se le patch toccano middleware, healthcheck o segnali operativi globali
-- build frontend solo se tocchi il frontend, altrimenti dichiaralo esplicitamente non necessario
+- non toccare codice backend o frontend
+- non fare refactor
+- non rilanciare test se modifichi solo documentazione e stato fase
+- usa patch minima e mantieni il file coerente con il suo ruolo di stato compatto
 
 ## Output obbligatorio
 
 - file toccati
-- bug corretti
-- test aggiunti o aggiornati
-- PASS/FAIL reale dei comandi eseguiti
-- rischi residui, solo se restano davvero
+- allineamenti documentali applicati
+- conferma esplicita che non sono stati necessari fix di codice
+- indicazione che i test gia verificati restano: 10 passed su governance, 137 passed sulla suite backend completa

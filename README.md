@@ -178,10 +178,22 @@ oltre i 90 minuti: 20€ + 10€ × numero blocchi extra da 30 minuti
 - `POST /api/platform/tenants/{club_id}/suspend`
 - `POST /api/platform/tenants/{club_id}/reactivate`
 - `GET /api/platform/ops/status`
+- `GET /api/platform/tenants/{club_id}/data-export`
+- `POST /api/platform/tenants/{club_id}/customers/{customer_id}/anonymize`
+- `POST /api/platform/data-retention/purge`
+- `POST /api/platform/data-governance/historical-audit`
 
 L'endpoint `GET /api/health` restituisce segnali operativi minimi per go-live: stato applicativo, esito controllo database, stato scheduler e backend rate limit attivo.
 
 L'endpoint protetto `GET /api/platform/ops/status` richiede `X-Platform-Key` ed espone uno snapshot operativo minimo per supporto e control plane: scheduler, modalita rate limit attiva e failure recenti affidabili su email e billing.
+
+Per la governance dati il control plane espone workflow minimi e guidati, non una compliance suite completa:
+
+- `GET /api/platform/tenants/{club_id}/data-export` restituisce un export JSON essenziale e filtrato per tenant o per singolo customer, separando metadati tenant e dati cliente finale
+- `POST /api/platform/tenants/{club_id}/customers/{customer_id}/anonymize` anonimizza il customer in-place, preservando booking e pagamenti storici ma bloccando il caso con prenotazioni future attive
+- `POST /api/platform/data-retention/purge` supporta `dry_run=true` e applica la retention minima ai dati tecnici purge-safe
+- `POST /api/platform/data-governance/historical-audit` esegue un audit storico `dry_run` per classificare record `safe_to_redact`, `needs_manual_review` e `keep_for_audit`; per i webhook restituisce anche una review projection minimizzata con provider, event type, path sensibili e preview sicura solo dove difendibile, mentre la redazione reale resta limitata ai `booking_events_log` nella prima iterazione
+- la cancellazione tenant-wide resta manuale e guidata, perche il database e shared-database e il restore tenant-only non e nativo
 
 ## Environment e URL operative
 
@@ -215,6 +227,7 @@ L'endpoint protetto `GET /api/platform/ops/status` richiede `X-Platform-Key` ed 
 - `SCHEDULER_ENABLED=true` solo sull'istanza designata a eseguire reminder e scadenze
 - `RATE_LIMIT_BACKEND=local|shared` in base al numero di istanze attive: `local` per 1 istanza, `shared` quando devi condividere i contatori tra piu istanze
 - `OPERATIONAL_SIGNAL_WINDOW_HOURS=24` o altro valore coerente con la finestra di osservazione che vuoi usare per email e billing failure recenti
+- `EMAIL_LOG_RETENTION_DAYS=90`, `PAYMENT_WEBHOOK_RETENTION_DAYS=180`, `BILLING_WEBHOOK_RETENTION_DAYS=180` per la retention minima dei dati tecnici purge-safe
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_SSL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` se usi Stripe
 - `STRIPE_BILLING_WEBHOOK_SECRET` se usi il webhook billing SaaS `/api/billing/webhook/stripe`

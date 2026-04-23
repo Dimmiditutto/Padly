@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.observability import scoped_observability_context
 from app.services.booking_service import acquire_single_court_lock, expire_pending_bookings, log_event, upcoming_reminders
+from app.services.data_governance_service import purge_technical_retention_data
 from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
 from app.services.tenant_service import list_active_clubs
@@ -67,6 +68,22 @@ def reminder_job() -> None:
         logger.exception('Job reminder prenotazioni fallito')
 
 
+def technical_retention_job() -> None:
+    try:
+        with SessionLocal() as db:
+            result = purge_technical_retention_data(db)
+            db.commit()
+            logger.info(
+                'Purge retention tecnica completata',
+                extra={
+                    'event': 'technical_retention_purged',
+                    'deleted_counts': result['deleted_counts'],
+                },
+            )
+    except Exception:  # pragma: no cover
+        logger.exception('Job retention tecnica fallito')
+
+
 def scheduler_should_be_running() -> bool:
     return settings.app_env != 'test' and settings.scheduler_enabled
 
@@ -76,6 +93,7 @@ def start_scheduler() -> None:
         return
     scheduler.add_job(expire_pending_job, 'interval', minutes=1, id='expire_pending_bookings', replace_existing=True)
     scheduler.add_job(reminder_job, 'interval', minutes=15, id='send_booking_reminders', replace_existing=True)
+    scheduler.add_job(technical_retention_job, 'cron', hour=3, id='purge_technical_retention', replace_existing=True)
     try:
         scheduler.start()
     except RuntimeError:
