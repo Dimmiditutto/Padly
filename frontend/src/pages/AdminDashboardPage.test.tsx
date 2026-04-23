@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminDashboardPage } from './AdminDashboardPage';
 
 vi.mock('../services/adminApi', () => ({
+  createAdminCourt: vi.fn(),
   createAdminBooking: vi.fn(),
   createBlackout: vi.fn(),
   createRecurring: vi.fn(),
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
+  listAdminCourts: vi.fn(),
   listBlackouts: vi.fn(),
   logoutAdmin: vi.fn(),
   previewRecurring: vi.fn(),
@@ -20,11 +22,13 @@ vi.mock('../services/publicApi', () => ({
 }));
 
 import {
+  createAdminCourt,
   createAdminBooking,
   createBlackout,
   createRecurring,
   getAdminSession,
   getAdminSettings,
+  listAdminCourts,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
@@ -87,8 +91,10 @@ describe('AdminDashboardPage', () => {
     vi.clearAllMocks();
     mockBootstrapSuccess();
     vi.mocked(createAdminBooking).mockResolvedValue({} as never);
+    vi.mocked(createAdminCourt).mockResolvedValue({ id: 'court-2', name: 'Campo 2', sort_order: 2, is_active: true } as never);
     vi.mocked(createBlackout).mockResolvedValue({ id: 'blackout-1', message: 'ok' });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
+    vi.mocked(listAdminCourts).mockResolvedValue({ items: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(previewRecurring).mockResolvedValue({ occurrences: [] });
     vi.mocked(updateAdminSettings).mockResolvedValue({ ...adminSettings });
@@ -270,6 +276,34 @@ describe('AdminDashboardPage', () => {
       end_at: '2026-10-25T03:15',
     })));
     expect(screen.getByText('Data/ora ambigua per il cambio ora legale. Scegli un orario non ambiguo o specifica un offset esplicito.')).toBeInTheDocument();
+  });
+
+  it('creates a new court without submitting the settings form', async () => {
+    vi.mocked(listAdminCourts)
+      .mockResolvedValueOnce({ items: [{ id: 'court-1', name: 'Campo 1', sort_order: 1, is_active: true }] })
+      .mockResolvedValueOnce({
+        items: [
+          { id: 'court-1', name: 'Campo 1', sort_order: 1, is_active: true },
+          { id: 'court-2', name: 'Campo 2', sort_order: 2, is_active: true },
+        ],
+      });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+
+    await waitFor(() => expect(within(settingsSection as HTMLElement).getByDisplayValue('Campo 1')).toBeInTheDocument());
+
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Crea campo' }));
+
+    await waitFor(() => expect(createAdminCourt).toHaveBeenCalledWith('Campo 2'));
+    expect(updateAdminSettings).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(settingsSection as HTMLElement).getByText('Campo creato correttamente.')).toBeInTheDocument());
+    expect(within(settingsSection as HTMLElement).getByDisplayValue('Campo 2')).toBeInTheDocument();
   });
 
   it('saves tenant profile fields and preserves tenant query in admin links', async () => {

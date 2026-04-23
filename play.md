@@ -78,6 +78,8 @@ Se l’utente è riconosciuto:
 - `CreateMatchForm`
 - `MyMatches`
 - `JoinConfirmModal`
+- `InviteAcceptPage`
+- `SharedMatchPage`
 
 ---
 
@@ -90,7 +92,7 @@ Abbiamo deciso che il dominio corretto è:
 - `Player` = utente leggero
 - `MatchPlayer` = partecipazione utente-partita
 - `Club` = contenitore/configurazione club
-- più tabelle accessorie per token, inviti, messaggi, notifiche, profilo utente
+- più tabelle accessorie per token, inviti, notifiche, profilo utente
 
 ### Regole fisse
 - una partita dura **90 minuti**
@@ -108,7 +110,42 @@ Questa parte è **tutta backend deterministica**, nessuna AI.
 
 ---
 
-## 4. Identità utente
+## 4. Lock al quarto giocatore
+
+Questo è il punto più critico dell’intero sistema.
+
+### Scelta corretta
+Usare:
+- **transazione DB**
+- **`SELECT ... FOR UPDATE` sulla riga `matches`**
+- **vincolo unico su `match_players(match_id, player_id)`**
+- **ricontrollo `player_count < 4` dentro la stessa transazione**
+- **creazione booking finale nella stessa transazione**
+- opzionale: **advisory lock PostgreSQL** se il booking system esistente lo usa già per proteggere slot/campo
+
+### Flusso corretto
+1. begin transaction
+2. lock del match con `FOR UPDATE`
+3. verifica `status = OPEN`
+4. verifica che il player non sia già dentro
+5. conta i player attuali
+6. se già 4 -> errore
+7. inserisce il nuovo `MatchPlayer`
+8. riconta
+9. se ora sono 4:
+   - lock / verifica disponibilità slot
+   - crea booking
+   - `match.status = FULL`
+   - collega `booking_id`
+10. commit
+
+### Decisione finale
+- `FOR UPDATE` per coerenza sul match
+- advisory lock esistente per proteggere la booking finale, se già presente nel sistema
+
+---
+
+## 5. Identità utente
 
 Abbiamo deciso di **non usare login classico con password**.
 
@@ -123,7 +160,6 @@ Il backend:
 - crea o recupera il `Player`
 - genera un **player access token**
 - salva **solo l’hash** del token
-- il client mantiene il token per i successivi accessi
 
 ### Accessi successivi
 Quando l’utente torna su `/play`:
@@ -146,7 +182,7 @@ Questa parte è importante per casi come:
 
 ---
 
-## 5. Token: struttura corretta
+## 6. Token: struttura corretta
 
 Abbiamo deciso di usare **due tipi distinti di token**, non uno solo.
 
@@ -174,15 +210,29 @@ Caratteristiche:
 - persistente
 - usato da `/api/play/me`
 - il backend salva solo l’hash
-- il client lo conserva per accessi futuri
+
+### Dove salvare il player access token
+Decisione esplicita:
+- **cookie `httpOnly`, `secure`, `SameSite=Lax`** come default
+- **non** `localStorage` come soluzione principale
+
+### Motivazione
+Il cookie httpOnly è:
+- più robusto
+- più sicuro
+- più pulito architetturalmente
+
+Il cross-device non si risolve col token:
+- si risolve con nuovo onboarding
+- oppure con recovery futuro
 
 Quindi:
-- il **token invito** serve per entrare
-- il **token player** serve per restare riconosciuto
+- **invite token** nel link
+- **player access token** in cookie httpOnly
 
 ---
 
-## 6. Invito community via WhatsApp dal club
+## 7. Invito community via WhatsApp dal club
 
 Questo è uno dei punti principali decisi.
 
@@ -221,7 +271,7 @@ Niente automazioni intelligenti.
 
 ---
 
-## 7. Inviti o condivisione tra utenti via WhatsApp
+## 8. Condivisione tra utenti via WhatsApp
 
 Abbiamo deciso che anche gli utenti devono poter condividere una partita.
 
@@ -238,16 +288,38 @@ Un utente della community condivide il link:
 - nel proprio gruppo WhatsApp
 - a uno o più amici
 
-Chi riceve il link:
-- se è già riconosciuto nella community, entra e può unirsi
-- se non è riconosciuto, entra nel flusso community e poi può unirsi
+### Decisione chiave
+La condivisione deve **abilitare viralità**, quindi **non** richiede sempre un invito preventivo del club.
 
-### Decisione
-La condivisione via WhatsApp tra utenti è una feature da fare **subito**, perché ha valore reale e nessuna complessità inutile.
+### Se chi apre il link è già riconosciuto
+- entra
+- vede la partita
+- può unirsi
+
+### Se chi apre il link NON è riconosciuto
+segue un **self-service onboarding controllato**:
+1. il backend valida `public_share_token`
+2. mostra la partita
+3. chiede:
+   - nome
+   - telefono
+   - bottone `Entra nella community e unisciti`
+4. il backend:
+   - crea o recupera il `Player`
+   - genera `player access token`
+   - inserisce l’utente nella community del club
+   - completa il join al match
+
+### Decisione finale
+Esistono quindi **due flussi di onboarding**:
+- **invito del club via WhatsApp**
+- **self-service onboarding da share match**
+
+Questa è la scelta corretta per non bloccare la condivisione organica.
 
 ---
 
-## 8. Chat interna
+## 9. Chat interna
 
 Qui abbiamo deciso una cosa precisa:
 
@@ -272,7 +344,7 @@ Questa è eventuale fase successiva, ma non è il centro del prodotto.
 
 ---
 
-## 9. Notifiche
+## 10. Notifiche
 
 Abbiamo chiarito che senza notifiche il sistema perde moltissimo valore.
 
@@ -296,9 +368,9 @@ Per utenti coinvolti:
 - partita modificata
 - partita annullata
 
-Per opportunità community, più avanti:
+Per opportunità community:
 - nuova partita compatibile
-- slot quasi completo compatibile con le tue abitudini
+- match quasi completo
 
 ### Regola
 Le notifiche devono essere:
@@ -309,7 +381,7 @@ Le notifiche devono essere:
 
 ---
 
-## 10. Memoria / profilo utente
+## 11. Memoria / profilo utente
 
 Abbiamo deciso che il sistema deve imparare **quando** l’utente gioca più probabilmente, ma in modo **molto leggero**.
 
@@ -337,7 +409,37 @@ Tutto questo deve essere **deterministico**, senza AI, senza ML vero.
 
 ---
 
-## 11. Come gestire la memoria senza gonfiare il database
+## 12. Profilazione: da fare subito
+
+Qui la decisione aggiornata è precisa.
+
+### Scelta
+Il **profilo probabilistico va implementato subito**, non dopo.
+
+### Perché
+Se non salvi da subito i dati:
+- non costruisci memoria
+- non avrai base utile per attivare notifiche mirate più avanti
+
+### Strategia corretta
+V1:
+- **profilazione attiva da subito**
+- ma usata inizialmente solo per **raccogliere memoria**
+
+Quindi in v1 fai entrambe le cose:
+- **memoria/profilazione attiva**
+- **notifiche iniziali semplici e deterministiche**
+
+### Quando attivare notifiche mirate
+Non solo dopo N giorni, ma con doppia soglia:
+
+Attiva notifiche mirate quando c’è almeno una di queste condizioni:
+- almeno **14–21 giorni** di dati
+- oppure almeno **5–8 eventi utili** per utente
+
+---
+
+## 13. Come gestire la memoria senza gonfiare il database
 
 Questo era un punto chiave.
 
@@ -360,6 +462,9 @@ Tabella essenziale con eventi utili, ad esempio:
 - completamento match
 - click su notifica
 - apertura app da notifica
+- livello scelto
+- giorno settimana
+- fascia oraria
 
 Retention:
 - 60 o 90 giorni massimo
@@ -390,7 +495,41 @@ Quindi memoria **compatta, aggregata e con scadenza**.
 
 ---
 
-## 12. Con 4 campi e 400/500 utenti
+## 14. Notifiche v1 e v2
+
+### V1: notifiche semplici e deterministiche
+Da subito:
+- notifiche ai partecipanti della partita
+- notifiche alla community opt-in
+- filtro almeno per **livello**
+- cap **max 3 notifiche al giorno per utente**
+- distribuite su fasce diverse:
+  - mattino
+  - pranzo / primo pomeriggio
+  - sera
+
+### Priorità corretta delle notifiche
+1. **3/4** = priorità alta
+2. **2/4** = priorità media
+3. **1/4** = priorità bassa, solo se match nuovo o slot interessante
+
+### Regola importante
+Non notificare indiscriminatamente tutti i match 1/4, 2/4, 3/4.
+
+La logica corretta è:
+- **3/4** sempre priorità massima
+- **2/4** sì
+- **1/4** solo con criterio, non in massa
+
+### V2: notifiche mirate
+Dopo soglia minima di dati:
+- il sistema usa il profilo probabilistico
+- notifica solo gli utenti con alta compatibilità
+- sempre con frequency cap e rate limit
+
+---
+
+## 15. Con 4 campi e 400/500 utenti
 
 Abbiamo chiarito che il problema non è il volume puro.
 
@@ -411,13 +550,12 @@ A patto di usare:
 
 ---
 
-## 13. API / endpoint essenziali decisi
+## 16. API / endpoint essenziali decisi
 
 ### Identità e onboarding
 - `GET /api/play/me`
 - `POST /api/play/identify`
 - `POST /api/play/invite/{token}/accept` oppure equivalente
-- opzionale più avanti: magic link recovery
 
 ### Pagina play
 - `GET /api/play/matches`
@@ -438,7 +576,7 @@ A patto di usare:
 
 ---
 
-## 14. Decisione finale di prodotto
+## 17. Decisione finale di prodotto
 
 La direzione consolidata è questa:
 
@@ -451,17 +589,19 @@ La direzione consolidata è questa:
 - **invite token**
 - **accettazione community**
 - **creazione player**
-- **player token persistente**
+- **player token persistente in cookie httpOnly**
 
 ### Crescita organica delle partite
 - **link condivisibili via WhatsApp tra utenti**
 - pagina match condivisibile
 - join rapido
+- self-service onboarding da share se necessario
 
 ### Retention e attivazione
 - **web push**
-- notifiche mirate
-- profilo probabilistico deterministico
+- notifiche iniziali semplici
+- profilo probabilistico attivo da subito
+- notifiche mirate in seconda fase
 
 ### Da NON mettere al centro adesso
 - chat AI
@@ -471,19 +611,23 @@ La direzione consolidata è questa:
 
 ---
 
-## 15. Sintesi secca finale
+## 18. Sintesi secca finale
 
 Abbiamo deciso di costruire un sistema così:
 
 - una **pagina `/play` deterministica** dove gli utenti vedono partite aperte, si uniscono e ne creano di nuove
 - il club fa entrare gli utenti nella community tramite **link WhatsApp con invite token**
-- quando l’utente accetta, il backend crea o recupera il `Player` e genera un **player access token persistente**
+- quando l’utente accetta, il backend crea o recupera il `Player` e genera un **player access token persistente in cookie httpOnly**
 - ogni partita può essere condivisa dagli utenti via **WhatsApp** con link pubblico controllato
+- chi apre il link e non è riconosciuto può fare **self-service onboarding** ed entrare nella community
 - il sistema usa una **memoria leggera e aggregata** per capire quando l’utente gioca più spesso
-- sulla base di quel profilo invia **notifiche push mirate**
+- la **profilazione parte subito**, così la memoria si costruisce da v1
+- in v1 le notifiche sono **semplici e deterministiche**
+- in v2 le notifiche diventano **mirate**
+- il completamento della partita al quarto giocatore è protetto con **transazione + `SELECT FOR UPDATE` + lock booking**
 - tutto questo è **100% deterministico**, senza LLM
 
-## 16. Schema operativo minimo da implementare
+## 19. Schema operativo minimo da implementare
 
 ### Database / modelli
 - `Club`
@@ -521,9 +665,10 @@ Abbiamo deciso di costruire un sistema così:
 ### Priorità di implementazione
 1. `/play` deterministica
 2. invito community via WhatsApp
-3. token player persistente
-4. join / create / complete match
+3. token player persistente in cookie httpOnly
+4. join / create / complete match con lock corretto
 5. share match via WhatsApp
-6. web push
-7. profilo probabilistico utente
-8. opzionale futuro: thread per partita
+6. web push v1
+7. profilazione attiva da subito
+8. notifiche mirate dopo soglia minima dati
+9. opzionale futuro: thread per partita

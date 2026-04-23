@@ -1,4 +1,4 @@
-import { Building2, Calendar, CheckCircle2, Clock3, CreditCard, LogIn, Mail, Phone, ShieldCheck } from 'lucide-react';
+import { Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LogIn, Mail, Phone, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
@@ -11,6 +11,7 @@ import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantCo
 import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
+const COLLAPSED_COURT_SLOT_COUNT = 8;
 const today = toDateInputValue(new Date());
 const logoUrl = '/Logo_BG.png';
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
@@ -27,6 +28,7 @@ export function PublicBookingPage() {
   const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
   const [selectedCourtId, setSelectedCourtId] = useState('');
   const [selectedSlotId, setSelectedSlotId] = useState('');
+  const [expandedCourtIds, setExpandedCourtIds] = useState<Record<string, boolean>>({});
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -96,6 +98,7 @@ export function PublicBookingPage() {
     setFeedback(null);
     setSelectedSlotId('');
     setSelectedCourtId('');
+    setExpandedCourtIds({});
     try {
       const response = await getAvailability(bookingDate, duration, tenantSlug);
       setCourtGroups(normalizeCourtGroups(response));
@@ -295,10 +298,32 @@ export function PublicBookingPage() {
                             <p className='text-sm font-semibold text-slate-900'>{group.court_name}</p>
                             <p className='text-xs text-slate-500'>Slot disponibili aggiornati in tempo reale per questo campo.</p>
                           </div>
-                          <span className='rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600'>Campo</span>
+                          <div className='flex items-center gap-2'>
+                            <span className='rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600'>Campo</span>
+                            {group.slots.length > COLLAPSED_COURT_SLOT_COUNT ? (
+                              <button
+                                type='button'
+                                aria-expanded={expandedCourtIds[group.court_id] ? 'true' : 'false'}
+                                aria-label={`${expandedCourtIds[group.court_id] ? 'Comprimi' : 'Espandi'} orari di ${group.court_name}`}
+                                className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900'
+                                onClick={() => setExpandedCourtIds((prev) => ({ ...prev, [group.court_id]: !prev[group.court_id] }))}
+                              >
+                                {expandedCourtIds[group.court_id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                <span>{expandedCourtIds[group.court_id] ? 'Mostra meno' : `Prime ${COLLAPSED_COURT_SLOT_COUNT}`}</span>
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
+                        {!expandedCourtIds[group.court_id] && group.slots.length > COLLAPSED_COURT_SLOT_COUNT ? (
+                          <p className='mb-3 text-xs font-medium text-slate-500'>Scheda compressa: mostro i primi {COLLAPSED_COURT_SLOT_COUNT} orari.</p>
+                        ) : null}
                         <SlotGrid
-                          slots={group.slots}
+                          slots={getDisplayedCourtSlots({
+                            slots: group.slots,
+                            expanded: Boolean(expandedCourtIds[group.court_id]),
+                            selectedSlotId: selectedCourtId === group.court_id ? selectedSlotId : '',
+                            highlightedSlotIds: selectedCourtId === group.court_id ? highlightedSlotIds : [],
+                          })}
                           selectedSlotId={selectedCourtId === group.court_id ? selectedSlotId : ''}
                           highlightedSlotIds={selectedCourtId === group.court_id ? highlightedSlotIds : []}
                           onSelect={(slotId) => {
@@ -468,6 +493,36 @@ function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability
 
 function flattenCourtSlots(groups: CourtAvailability[]) {
   return groups.flatMap((group) => group.slots);
+}
+
+function getDisplayedCourtSlots({
+  slots,
+  expanded,
+  selectedSlotId,
+  highlightedSlotIds,
+}: {
+  slots: TimeSlot[];
+  expanded: boolean;
+  selectedSlotId: string;
+  highlightedSlotIds: string[];
+}) {
+  if (expanded || slots.length <= COLLAPSED_COURT_SLOT_COUNT) {
+    return slots;
+  }
+
+  const initialSlots = slots.slice(0, COLLAPSED_COURT_SLOT_COUNT);
+  const initialSlotIds = new Set(initialSlots.map((slot) => slot.slot_id));
+  const pinnedSlotIds = new Set<string>();
+
+  if (selectedSlotId) {
+    pinnedSlotIds.add(selectedSlotId);
+  }
+  for (const slotId of highlightedSlotIds) {
+    pinnedSlotIds.add(slotId);
+  }
+
+  const pinnedSlots = slots.filter((slot) => pinnedSlotIds.has(slot.slot_id) && !initialSlotIds.has(slot.slot_id));
+  return [...initialSlots, ...pinnedSlots];
 }
 
 function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, durationMinutes: number) {

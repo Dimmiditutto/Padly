@@ -71,6 +71,29 @@ function renderPage(path = '/') {
   );
 }
 
+function buildHalfHourSlots(count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const startTotalMinutes = (7 * 60) + (index * 30);
+    const endTotalMinutes = startTotalMinutes + 60;
+    const startHours = String(Math.floor(startTotalMinutes / 60)).padStart(2, '0');
+    const startMinutes = String(startTotalMinutes % 60).padStart(2, '0');
+    const endHours = String(Math.floor(endTotalMinutes / 60)).padStart(2, '0');
+    const endMinutes = String(endTotalMinutes % 60).padStart(2, '0');
+    const displayStart = `${startHours}:${startMinutes}`;
+    const displayEnd = `${endHours}:${endMinutes}`;
+
+    return {
+      slot_id: `2026-05-10T${displayStart}:00+00:00`,
+      start_time: displayStart,
+      end_time: displayEnd,
+      display_start_time: displayStart,
+      display_end_time: displayEnd,
+      available: true,
+      reason: null,
+    };
+  });
+}
+
 async function fillBookingForm() {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText('Nome'), 'Luca');
@@ -252,6 +275,38 @@ describe('PublicBookingPage', () => {
     expect(secondSlot).toHaveClass('bg-cyan-100');
     expect(thirdSlot).toHaveClass('bg-cyan-100');
     expect(fourthSlot).not.toHaveClass('bg-cyan-100');
+  });
+
+  it('starts each court card collapsed with 8 slots and expands it with the arrow control', async () => {
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: '2026-05-10',
+      duration_minutes: 60,
+      deposit_amount: 20,
+      slots: [],
+      courts: [
+        {
+          court_id: 'court-1',
+          court_name: 'Campo 1',
+          slots: buildHalfHourSlots(10),
+        },
+      ],
+    });
+
+    renderPage();
+
+    const expandButton = await screen.findByRole('button', { name: 'Espandi orari di Campo 1' });
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Scheda compressa: mostro i primi 8 orari.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '07:00' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '10:30' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '11:00' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '11:30' })).not.toBeInTheDocument();
+
+    fireEvent.click(expandButton);
+
+    await screen.findByRole('button', { name: 'Comprimi orari di Campo 1' });
+    expect(screen.getByRole('button', { name: '11:00' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '11:30' })).toBeInTheDocument();
   });
 
   it('shows a clear validation message when the user submits without selecting a slot', async () => {

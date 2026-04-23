@@ -317,8 +317,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function createCourt(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createCourt() {
     setCourtsFeedback(null);
 
     try {
@@ -708,15 +707,21 @@ export function AdminDashboardPage() {
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>
                     <p className='mt-1 text-sm leading-6 text-slate-600'>Crea un nuovo campo o rinomina i campi gia presenti dal pannello admin.</p>
-                    <form className='mt-4 flex flex-col gap-3 sm:flex-row' onSubmit={createCourt}>
+                    <div className='mt-4 flex flex-col gap-3 sm:flex-row'>
                       <input
                         className='text-input flex-1'
                         value={newCourtName}
                         onChange={(event) => setNewCourtName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void createCourt();
+                          }
+                        }}
                         placeholder='Nome nuovo campo'
                       />
-                      <button className='btn-primary sm:w-auto' type='submit'>Crea campo</button>
-                    </form>
+                      <button className='btn-primary sm:w-auto' type='button' onClick={() => void createCourt()}>Crea campo</button>
+                    </div>
                     <div className='mt-4 space-y-3'>
                       {courts.length === 0 ? <p className='text-sm text-slate-500'>Nessun campo caricato al momento.</p> : courts.map((court) => (
                         <div key={court.id} className='flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center'>
