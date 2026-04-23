@@ -201,6 +201,7 @@ describe('AdminDashboardPage', () => {
       start_time: '18:00',
       slot_id: '2099-04-16T16:00:00Z',
     })));
+    expect(within(manualSection as HTMLElement).getByText('Prenotazione manuale creata con successo.')).toBeInTheDocument();
   });
 
   it('derives the recurring weekday from the selected start date and forwards the selected recurring slot_id', async () => {
@@ -227,6 +228,7 @@ describe('AdminDashboardPage', () => {
       start_time: '02:00',
       slot_id: '2026-10-25T01:00:00+00:00',
     })));
+    expect(within(recurringSection as HTMLElement).getByText('Serie creata. Occorrenze create: 1. Saltate: 0.')).toBeInTheDocument();
   });
 
   it('renders recurring weekday labels without hardcoded Europe/Rome formatters', async () => {
@@ -317,7 +319,9 @@ describe('AdminDashboardPage', () => {
     fireEvent.change(screen.getByLabelText('Non tesserati, tariffa oraria per giocatore'), { target: { value: '11' } });
     fireEvent.change(screen.getByLabelText('Tesserati, tariffa 90 minuti per giocatore'), { target: { value: '12' } });
     fireEvent.change(screen.getByLabelText('Non tesserati, tariffa 90 minuti per giocatore'), { target: { value: '15' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Salva impostazioni tenant' }));
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Salva impostazioni' }));
 
     await waitFor(() => expect(updateAdminSettings).toHaveBeenCalledWith({
       public_name: 'Roma Club Elite',
@@ -332,6 +336,6 @@ describe('AdminDashboardPage', () => {
       member_ninety_minute_rate: 12,
       non_member_ninety_minute_rate: 15,
     }));
-    await screen.findByText('Regole operative aggiornate.');
+    await waitFor(() => expect(within(settingsSection as HTMLElement).getByText('Regole operative aggiornate.')).toBeInTheDocument());
   });
 });

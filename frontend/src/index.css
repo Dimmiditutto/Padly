@@ -184,7 +184,7 @@ h4 {
   }
 
   .section-card-collapsed-uniform {
-    @apply min-h-[196px];
+    @apply min-h-[176px];
   }
 
   .status-pill {

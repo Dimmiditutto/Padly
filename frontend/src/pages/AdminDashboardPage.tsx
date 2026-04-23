@@ -27,6 +27,7 @@ import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateI
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
+type FeedbackState = { tone: 'error' | 'success'; message: string } | null;
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -67,7 +68,11 @@ export function AdminDashboardPage() {
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionStatusBanner | null>(null);
   const [loading, setLoading] = useState(true);
-  const [feedback, setFeedback] = useState<{ tone: 'error' | 'success'; message: string } | null>(null);
+  const [pageFeedback, setPageFeedback] = useState<FeedbackState>(null);
+  const [manualFeedback, setManualFeedback] = useState<FeedbackState>(null);
+  const [recurringFeedback, setRecurringFeedback] = useState<FeedbackState>(null);
+  const [blackoutFeedback, setBlackoutFeedback] = useState<FeedbackState>(null);
+  const [settingsFeedback, setSettingsFeedback] = useState<FeedbackState>(null);
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
     last_name: 'Rossi',
@@ -108,7 +113,7 @@ export function AdminDashboardPage() {
 
   async function bootstrap() {
     setLoading(true);
-    setFeedback(null);
+    setPageFeedback(null);
     try {
       const sessionResponse = await getAdminSession(tenantSlug);
       setSession(sessionResponse);
@@ -117,7 +122,7 @@ export function AdminDashboardPage() {
         redirectToLogin();
         return;
       }
-      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Non riesco a verificare la sessione admin in questo momento.') });
+      setPageFeedback({ tone: 'error', message: getRequestMessage(error, 'Non riesco a verificare la sessione admin in questo momento.') });
       setLoading(false);
       return;
     }
@@ -132,7 +137,7 @@ export function AdminDashboardPage() {
 
       const failures = results.filter((result) => result.status === 'rejected');
       if (failures.length > 0) {
-        setFeedback({ tone: 'error', message: 'Dashboard caricata solo parzialmente. Alcuni pannelli non sono disponibili al momento.' });
+        setPageFeedback({ tone: 'error', message: 'Dashboard caricata solo parzialmente. Alcuni pannelli non sono disponibili al momento.' });
       }
     } finally {
       setLoading(false);
@@ -164,7 +169,7 @@ export function AdminDashboardPage() {
   }
 
   async function refreshDashboard() {
-    setFeedback(null);
+    setPageFeedback(null);
     try {
       await Promise.all([loadReport(), loadBlackouts(), loadSettings()]);
     } catch (error: any) {
@@ -172,7 +177,7 @@ export function AdminDashboardPage() {
         redirectToLogin();
         return;
       }
-      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento dashboard non riuscito.') });
+      setPageFeedback({ tone: 'error', message: getRequestMessage(error, 'Aggiornamento dashboard non riuscito.') });
     }
   }
 
@@ -180,29 +185,33 @@ export function AdminDashboardPage() {
     event.preventDefault();
 
     if (!manualForm.slot_id || !manualForm.start_time) {
-      setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la prenotazione manuale.' });
+      setManualFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la prenotazione manuale.' });
       return;
     }
 
-    setFeedback(null);
+    setManualFeedback(null);
     try {
       await createAdminBooking(manualForm);
-      setFeedback({ tone: 'success', message: 'Prenotazione manuale creata con successo.' });
-      await loadReport();
+      setManualFeedback({ tone: 'success', message: 'Prenotazione manuale creata con successo.' });
+      void loadReport().catch(() => {
+        setPageFeedback({ tone: 'error', message: 'Prenotazione creata, ma il riepilogo non è stato aggiornato.' });
+      });
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione prenotazione non riuscita.' });
+      setManualFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione prenotazione non riuscita.' });
     }
   }
 
   async function submitBlackout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFeedback(null);
+    setBlackoutFeedback(null);
     try {
       await createBlackout(blackoutForm);
-      setFeedback({ tone: 'success', message: 'Blackout creato correttamente.' });
-      await loadBlackouts();
+      setBlackoutFeedback({ tone: 'success', message: 'Blackout creato correttamente.' });
+      void loadBlackouts().catch(() => {
+        setPageFeedback({ tone: 'error', message: 'Blackout creato, ma la lista non è stata aggiornata.' });
+      });
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione blackout non riuscita.' });
+      setBlackoutFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione blackout non riuscita.' });
     }
   }
 
@@ -210,49 +219,51 @@ export function AdminDashboardPage() {
     event.preventDefault();
 
     if (!recurringForm.start_time || !recurringForm.slot_id) {
-      setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
+      setRecurringFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
       return;
     }
 
     if (recurringForm.end_date < recurringForm.start_date) {
-      setFeedback({ tone: 'error', message: 'La data fine serie deve essere uguale o successiva alla data di partenza.' });
+      setRecurringFeedback({ tone: 'error', message: 'La data fine serie deve essere uguale o successiva alla data di partenza.' });
       return;
     }
 
     try {
       const response = await previewRecurring(recurringForm);
       setRecurringPreview(response.occurrences);
-      setFeedback(null);
+      setRecurringFeedback(null);
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Preview ricorrenza non disponibile.' });
+      setRecurringFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Preview ricorrenza non disponibile.' });
     }
   }
 
   async function createRecurringSeries() {
     if (!recurringForm.start_time || !recurringForm.slot_id) {
-      setFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
+      setRecurringFeedback({ tone: 'error', message: 'Seleziona un orario disponibile per la serie ricorrente.' });
       return;
     }
 
     if (recurringForm.end_date < recurringForm.start_date) {
-      setFeedback({ tone: 'error', message: 'La data fine serie deve essere uguale o successiva alla data di partenza.' });
+      setRecurringFeedback({ tone: 'error', message: 'La data fine serie deve essere uguale o successiva alla data di partenza.' });
       return;
     }
 
-    setFeedback(null);
+    setRecurringFeedback(null);
     try {
       const response = await createRecurring(recurringForm);
-      setFeedback({ tone: 'success', message: `Serie creata. Occorrenze create: ${response.created_count}. Saltate: ${response.skipped_count}.` });
-      await loadReport();
+      setRecurringFeedback({ tone: 'success', message: `Serie creata. Occorrenze create: ${response.created_count}. Saltate: ${response.skipped_count}.` });
+      void loadReport().catch(() => {
+        setPageFeedback({ tone: 'error', message: 'Serie creata, ma il riepilogo non è stato aggiornato.' });
+      });
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione serie ricorrente non riuscita.' });
+      setRecurringFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione serie ricorrente non riuscita.' });
     }
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!settings) return;
-    setFeedback(null);
+    setSettingsFeedback(null);
     try {
       const response = await updateAdminSettings({
         public_name: settings.public_name,
@@ -268,9 +279,9 @@ export function AdminDashboardPage() {
         non_member_ninety_minute_rate: settings.non_member_ninety_minute_rate,
       });
       setSettings(response);
-      setFeedback({ tone: 'success', message: 'Regole operative aggiornate.' });
+      setSettingsFeedback({ tone: 'success', message: 'Regole operative aggiornate.' });
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Aggiornamento settings non riuscito.' });
+      setSettingsFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Aggiornamento settings non riuscito.' });
     }
   }
 
@@ -300,7 +311,7 @@ export function AdminDashboardPage() {
           <AdminNav session={session} notificationEmail={settings?.notification_email || null} />
         </div>
 
-        {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+        {pageFeedback ? <AlertBanner tone={pageFeedback.tone}>{pageFeedback.message}</AlertBanner> : null}
 
         {subscription ? <SubscriptionBanner subscription={subscription} /> : null}
 
@@ -366,6 +377,7 @@ export function AdminDashboardPage() {
                 </div>
 
                 <button className='btn-primary w-full' type='submit'>Crea prenotazione</button>
+                {manualFeedback ? <AlertBanner tone={manualFeedback.tone}>{manualFeedback.message}</AlertBanner> : null}
               </form>
             </SectionCard>
 
@@ -447,6 +459,7 @@ export function AdminDashboardPage() {
                   <button className='btn-secondary' type='submit'>Preview conflitti</button>
                   <button className='btn-primary' type='button' onClick={() => void createRecurringSeries()}>Crea serie</button>
                 </div>
+                {recurringFeedback ? <AlertBanner tone={recurringFeedback.tone}>{recurringFeedback.message}</AlertBanner> : null}
               </form>
 
               {recurringPreview.length > 0 ? (
@@ -500,6 +513,7 @@ export function AdminDashboardPage() {
                 </div>
                 <p className='text-xs text-slate-500'>Il blackout usa il fuso configurato{adminTimezone ? ` (${adminTimezone})` : ''}. Durante il ritorno all&apos;ora solare gli orari ambigui vengono rifiutati con un errore esplicito.</p>
                 <button className='btn-primary w-full' type='submit'>Crea blackout</button>
+                {blackoutFeedback ? <AlertBanner tone={blackoutFeedback.tone}>{blackoutFeedback.message}</AlertBanner> : null}
               </form>
               <div className='mt-4 space-y-2'>
                 {blackouts.length === 0 ? (
@@ -579,7 +593,8 @@ export function AdminDashboardPage() {
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Provider</p>
                     <p className='mt-2 text-sm text-slate-700'>Stripe: <strong>{settings.stripe_enabled ? 'disponibile' : 'non disponibile'}</strong> • PayPal: <strong>{settings.paypal_enabled ? 'disponibile' : 'non disponibile'}</strong></p>
                   </div>
-                  <button className='btn-primary w-full' type='submit'>Salva impostazioni tenant</button>
+                  <button className='btn-primary w-full' type='submit'>Salva impostazioni</button>
+                  {settingsFeedback ? <AlertBanner tone={settingsFeedback.tone}>{settingsFeedback.message}</AlertBanner> : null}
                 </form>
               )}
             </SectionCard>
