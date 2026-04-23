@@ -152,3 +152,11 @@ def delete_booking(booking_id: str, db: Session = Depends(get_db), admin: Admin 
         delete_booking_permanently(db, booking_id=booking_id, actor=admin.email, club_id=admin.club_id)
         db.commit()
     return SimpleMessage(message='Prenotazione eliminata definitivamente.')
+
+
+@router.post('/{booking_id}/delete', response_model=SimpleMessage)
+def delete_booking_via_post(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> SimpleMessage:
+    with acquire_single_court_lock(db):
+        delete_booking_permanently(db, booking_id=booking_id, actor=admin.email, club_id=admin.club_id)
+        db.commit()
+    return SimpleMessage(message='Prenotazione eliminata definitivamente.')

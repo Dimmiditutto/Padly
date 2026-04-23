@@ -1054,7 +1054,7 @@ def test_admin_can_delete_a_cancelled_booking_and_detach_email_logs(client):
     cancelled = client.post(f'/api/admin/bookings/{booking_id}/cancel')
     assert cancelled.status_code == 200
 
-    deleted = client.delete(f'/api/admin/bookings/{booking_id}')
+    deleted = client.post(f'/api/admin/bookings/{booking_id}/delete')
     assert deleted.status_code == 200
     assert deleted.json()['message'] == 'Prenotazione eliminata definitivamente.'
 
@@ -1107,7 +1107,7 @@ def test_admin_can_delete_a_cancelled_recurring_series(client):
     cancelled = client.post(f'/api/admin/recurring/{series_id}/cancel')
     assert cancelled.status_code == 200
 
-    deleted = client.delete(f'/api/admin/recurring/{series_id}')
+    deleted = client.post(f'/api/admin/recurring/{series_id}/delete')
     assert deleted.status_code == 200
     assert deleted.json()['message'] == 'Serie ricorrente eliminata definitivamente.'
 

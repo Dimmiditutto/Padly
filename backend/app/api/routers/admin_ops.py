@@ -192,6 +192,15 @@ def delete_recurring_series(series_id: str, db: Session = Depends(get_db), admin
     return SimpleMessage(message='Serie ricorrente eliminata definitivamente.')
 
 
+@router.post('/recurring/{series_id}/delete', response_model=SimpleMessage)
+def delete_recurring_series_via_post(series_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> SimpleMessage:
+    with acquire_single_court_lock(db):
+        delete_recurring_series_permanently(db, series_id=series_id, actor=admin.email, club_id=admin.club_id)
+        db.commit()
+
+    return SimpleMessage(message='Serie ricorrente eliminata definitivamente.')
+
+
 @router.get('/reports/summary', response_model=ReportResponse)
 def report_summary(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> ReportResponse:
     return ReportResponse(**get_dashboard_report(db, club_id=admin.club_id))

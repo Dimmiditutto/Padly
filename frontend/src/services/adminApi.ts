@@ -88,7 +88,7 @@ export async function markAdminBalancePaid(bookingId: string) {
 }
 
 export async function deleteAdminBooking(bookingId: string) {
-  const response = await api.delete<ApiMessage>(`/admin/bookings/${bookingId}`);
+  const response = await api.post<ApiMessage>(`/admin/bookings/${bookingId}/delete`);
   return response.data;
 }
 
@@ -138,7 +138,7 @@ export async function cancelRecurringSeries(seriesId: string) {
 }
 
 export async function deleteRecurringSeries(seriesId: string) {
-  const response = await api.delete<ApiMessage>(`/admin/recurring/${seriesId}`);
+  const response = await api.post<ApiMessage>(`/admin/recurring/${seriesId}/delete`);
   return response.data;
 }
 
