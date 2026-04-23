@@ -41,6 +41,7 @@ const adminSession = {
   club_id: 'club-default',
   club_slug: 'default-club',
   club_public_name: 'PadelBooking',
+  timezone: 'Europe/Rome',
 } as const;
 
 const adminSettings = {
@@ -230,6 +231,44 @@ describe('AdminDashboardPage', () => {
       start_time: '02:00',
       slot_id: '2026-10-25T01:00:00+00:00',
     })));
+  });
+
+  it('renders recurring weekday labels without hardcoded Europe/Rome formatters', async () => {
+    const originalDateTimeFormat = Intl.DateTimeFormat;
+    const timezoneCalls: Array<string | undefined> = [];
+    const formatterSpy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(((locales: any, options?: Intl.DateTimeFormatOptions) => {
+      timezoneCalls.push(options?.timeZone);
+      return new originalDateTimeFormat(locales, options);
+    }) as unknown as typeof Intl.DateTimeFormat);
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Serie ricorrente' }));
+    fireEvent.change(screen.getByLabelText('Data di partenza'), { target: { value: '2026-10-25' } });
+
+    expect(screen.getAllByText(/Domenica/).length).toBeGreaterThan(0);
+    expect(timezoneCalls).not.toContain('Europe/Rome');
+
+    formatterSpy.mockRestore();
+  });
+
+  it('shows the explicit DST ambiguity error when the blackout time is ambiguous', async () => {
+    vi.mocked(createBlackout).mockRejectedValue({ response: { data: { detail: 'Data/ora ambigua per il cambio ora legale. Scegli un orario non ambiguo o specifica un offset esplicito.' } } });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Blocca fascia oraria' }));
+    fireEvent.change(screen.getByLabelText('Data e ora inizio'), { target: { value: '2026-10-25T02:15' } });
+    fireEvent.change(screen.getByLabelText('Data e ora fine'), { target: { value: '2026-10-25T03:15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Crea blackout' }));
+
+    await waitFor(() => expect(createBlackout).toHaveBeenCalledWith(expect.objectContaining({
+      start_at: '2026-10-25T02:15',
+      end_at: '2026-10-25T03:15',
+    })));
+    expect(screen.getByText('Data/ora ambigua per il cambio ora legale. Scegli un orario non ambiguo o specifica un offset esplicito.')).toBeInTheDocument();
   });
 
   it('saves tenant profile fields and preserves tenant query in admin links', async () => {

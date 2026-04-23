@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
-from app.core.scheduler import reminder_job
+from app.core.scheduler import reminder_job, scheduler
 from app.core.security import hash_password
 from app.main import app
 from app.models import (
@@ -15,6 +15,7 @@ from app.models import (
     DEFAULT_CLUB_SLUG,
     Admin,
     AppSetting,
+    BlackoutPeriod,
     Booking,
     BookingSource,
     BookingStatus,
@@ -44,6 +45,7 @@ def create_secondary_tenant(
     public_name: str = 'Roma Club',
     admin_email: str = 'admin@padelbooking.app',
     admin_password: str = 'RomaTenant123!',
+    timezone: str = 'Europe/Rome',
 ) -> dict[str, str]:
     with SessionLocal() as db:
         club = Club(
@@ -52,7 +54,7 @@ def create_secondary_tenant(
             notification_email=f'ops@{slug}.example',
             support_email=f'support@{slug}.example',
             support_phone='+39021234567',
-            timezone='Europe/Rome',
+            timezone=timezone,
             currency='EUR',
             is_active=True,
         )
@@ -75,6 +77,7 @@ def create_secondary_tenant(
             'public_name': club.public_name,
             'admin_email': admin_email,
             'admin_password': admin_password,
+            'timezone': club.timezone,
         }
 
 
@@ -181,6 +184,7 @@ def test_admin_login_and_session_are_tenant_scoped_by_host():
         assert tenant_login.status_code == 200
         assert tenant_login.json()['club_slug'] == tenant['slug']
         assert tenant_login.json()['club_public_name'] == tenant['public_name']
+        assert tenant_login.json()['timezone'] == tenant['timezone']
 
         cross_tenant_session = tenant_client.get('/api/admin/auth/me')
         assert cross_tenant_session.status_code == 401
@@ -188,6 +192,7 @@ def test_admin_login_and_session_are_tenant_scoped_by_host():
         tenant_me = tenant_client.get('/api/admin/auth/me', headers=tenant_headers(tenant['host']))
         assert tenant_me.status_code == 200
         assert tenant_me.json()['club_id'] == tenant['id']
+        assert tenant_me.json()['timezone'] == tenant['timezone']
 
 
 def test_public_availability_is_filtered_by_current_tenant(client):
@@ -206,6 +211,36 @@ def test_public_availability_is_filtered_by_current_tenant(client):
     assert tenant_availability.status_code == 200
     assert find_slot(default_availability.json(), '18:00')['available'] is True
     assert find_slot(tenant_availability.json(), '18:00')['available'] is False
+
+
+def test_public_availability_uses_tenant_timezone_for_dst_gap(client):
+    tenant = create_secondary_tenant(
+        slug='london-club',
+        host='london.example.test',
+        public_name='London Club',
+        admin_email='london-admin@example.com',
+        timezone='Europe/London',
+    )
+    selected_date = '2027-03-28'
+
+    default_availability = client.get('/api/public/availability', params={'date': selected_date, 'duration_minutes': 60})
+    tenant_availability = client.get(
+        '/api/public/availability',
+        params={'date': selected_date, 'duration_minutes': 60},
+        headers=tenant_headers(tenant['host']),
+    )
+
+    default_slots = {slot['start_time']: slot for slot in default_availability.json()['slots']}
+    tenant_slots = {slot['start_time']: slot for slot in tenant_availability.json()['slots']}
+
+    assert default_availability.status_code == 200
+    assert tenant_availability.status_code == 200
+    assert '02:00' not in default_slots
+    assert '02:30' not in default_slots
+    assert '01:00' not in tenant_slots
+    assert '01:30' not in tenant_slots
+    assert tenant_slots['00:30']['end_time'] == '02:30'
+    assert tenant_slots['00:30']['display_end_time'] == '02:30'
 
 
 def test_public_booking_creation_persists_customer_and_booking_on_current_tenant(client):
@@ -308,6 +343,76 @@ def test_admin_settings_and_public_config_are_tenant_scoped(client):
     assert tenant_public.json()['contact_email'] == 'help@roma-elite.example'
 
 
+def test_admin_blackout_parses_naive_datetimes_in_tenant_timezone(client):
+    tenant = create_secondary_tenant(
+        slug='new-york-club',
+        host='newyork.example.test',
+        public_name='New York Club',
+        admin_email='newyork-admin@example.com',
+        admin_password='NewYorkTenant123!',
+        timezone='America/New_York',
+    )
+
+    login = client.post(
+        '/api/admin/auth/login',
+        headers=tenant_headers(tenant['host']),
+        json={'email': tenant['admin_email'], 'password': tenant['admin_password']},
+    )
+    assert login.status_code == 200
+
+    response = client.post(
+        '/api/admin/blackouts',
+        headers=tenant_headers(tenant['host']),
+        json={
+            'title': 'Manutenzione',
+            'reason': 'Test timezone tenant-aware',
+            'start_at': '2026-07-01T09:00:00',
+            'end_at': '2026-07-01T10:30:00',
+        },
+    )
+
+    assert response.status_code == 200
+
+    with SessionLocal() as db:
+        blackout = db.scalar(select(BlackoutPeriod).where(BlackoutPeriod.id == response.json()['id']))
+
+    assert blackout is not None
+    assert blackout.start_at.isoformat().startswith('2026-07-01T13:00:00')
+    assert blackout.end_at.isoformat().startswith('2026-07-01T14:30:00')
+
+
+def test_admin_blackout_rejects_ambiguous_naive_datetime_during_fallback_dst(client):
+    tenant = create_secondary_tenant(
+        slug='fallback-club',
+        host='fallback.example.test',
+        public_name='Fallback Club',
+        admin_email='fallback-admin@example.com',
+        admin_password='FallbackTenant123!',
+        timezone='Europe/Rome',
+    )
+
+    login = client.post(
+        '/api/admin/auth/login',
+        headers=tenant_headers(tenant['host']),
+        json={'email': tenant['admin_email'], 'password': tenant['admin_password']},
+    )
+    assert login.status_code == 200
+
+    response = client.post(
+        '/api/admin/blackouts',
+        headers=tenant_headers(tenant['host']),
+        json={
+            'title': 'Cambio ora',
+            'reason': 'Test ambiguita fallback DST',
+            'start_at': '2026-10-25T02:15:00',
+            'end_at': '2026-10-25T03:15:00',
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Data/ora ambigua per il cambio ora legale. Scegli un orario non ambiguo o specifica un offset esplicito.'
+
+
 def test_admin_password_reset_request_is_tenant_scoped(client, monkeypatch):
     tenant = create_secondary_tenant(admin_password='TenantReset123!')
     captured: dict[str, str] = {}
@@ -331,6 +436,42 @@ def test_admin_password_reset_request_is_tenant_scoped(client, monkeypatch):
     assert captured['email'] == tenant['admin_email']
     assert urlparse(captured['reset_url']).hostname == tenant['host']
     assert f'tenant={tenant["slug"]}' in captured['reset_url']
+
+
+def test_admin_recurring_preview_uses_tenant_timezone_for_dst_gap(client):
+    tenant = create_secondary_tenant(
+        slug='london-recurring-club',
+        host='london-recurring.example.test',
+        public_name='London Recurring Club',
+        admin_email='london-recurring-admin@example.com',
+        admin_password='LondonRecurring123!',
+        timezone='Europe/London',
+    )
+
+    login = client.post(
+        '/api/admin/auth/login',
+        headers=tenant_headers(tenant['host']),
+        json={'email': tenant['admin_email'], 'password': tenant['admin_password']},
+    )
+    assert login.status_code == 200
+
+    preview = client.post(
+        '/api/admin/recurring/preview',
+        headers=tenant_headers(tenant['host']),
+        json={
+            'label': 'Corso cambio ora London',
+            'weekday': date(2027, 3, 28).weekday(),
+            'start_date': '2027-03-28',
+            'end_date': '2027-03-28',
+            'start_time': '01:00',
+            'duration_minutes': 60,
+        },
+    )
+
+    assert preview.status_code == 200
+    occurrence = preview.json()['occurrences'][0]
+    assert occurrence['available'] is False
+    assert occurrence['reason'] == 'Orario non valido per il cambio ora legale'
 
 
 def test_mock_checkout_and_success_redirect_preserve_tenant_context(client):
@@ -403,3 +544,7 @@ def test_reminder_job_uses_tenant_specific_reminder_window(monkeypatch):
         tenant_booking = db.scalar(select(Booking).where(Booking.id == tenant_booking_id))
         assert default_booking is not None and default_booking.reminder_sent_at is not None
         assert tenant_booking is not None and tenant_booking.reminder_sent_at is None
+
+
+def test_scheduler_uses_utc_as_neutral_base_timezone():
+    assert scheduler.timezone.utcoffset(datetime.now(UTC)) == timedelta(0)

@@ -254,6 +254,7 @@ export interface AdminSession {
   club_id: string;
   club_slug: string;
   club_public_name: string;
+  timezone: string;
 }
 
 export interface AdminSettings {

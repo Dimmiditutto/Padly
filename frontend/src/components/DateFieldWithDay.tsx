@@ -1,4 +1,4 @@
-import { formatRomeWeekdayLabel } from '../utils/format';
+import { formatWeekdayLabel } from '../utils/format';
 
 export function DateFieldWithDay({
   id,
@@ -26,7 +26,7 @@ export function DateFieldWithDay({
       />
       <div className='mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
         <p className='text-sm font-semibold uppercase tracking-[0.16em] text-slate-500'>Giorno</p>
-        <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(value)}</p>
+        <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(value)}</p>
       </div>
     </div>
   );

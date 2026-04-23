@@ -15,26 +15,36 @@ export function formatDate(dateValue: string) {
   });
 }
 
-export function formatDateTime(dateValue: string) {
-  return new Date(dateValue).toLocaleString('it-IT', {
+export function formatDateTime(dateValue: string, timeZone?: string | null) {
+  return new Intl.DateTimeFormat('it-IT', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(dateValue));
 }
 
-export function formatRomeWeekdayLabel(value: string) {
+export function formatTimeValue(dateValue: string, timeZone?: string | null) {
+  return new Intl.DateTimeFormat('it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(dateValue));
+}
+
+export function formatWeekdayLabel(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   if (!year || !month || !day) {
     return '';
   }
 
-  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
   const label = new Intl.DateTimeFormat('it-IT', {
     weekday: 'long',
-    timeZone: 'Europe/Rome',
+    timeZone: 'UTC',
   }).format(normalizedDate);
 
   return label.charAt(0).toUpperCase() + label.slice(1);

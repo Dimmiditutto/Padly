@@ -19,6 +19,7 @@ from app.models import (
     BookingEventLog,
     BookingSource,
     BookingStatus,
+    Club,
     Customer,
     PaymentProvider,
     PaymentStatus,
@@ -38,7 +39,6 @@ ADMIN_ALLOWED_STATUS_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.NO_SHOW: {BookingStatus.CONFIRMED},
 }
 BALANCE_ALLOWED_STATUSES = {BookingStatus.CONFIRMED, BookingStatus.COMPLETED}
-ROME_TZ = ZoneInfo(settings.timezone)
 single_court_mutex = RLock()
 
 
@@ -89,13 +89,36 @@ def parse_slot_time_value(start_time_value: str) -> time:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Orario non valido') from exc
 
 
-def local_time_candidates(booking_date: date, parsed_time: time) -> list[datetime]:
+def _resolve_slot_timezone_name(
+    *,
+    db: Session | None = None,
+    club_id: str | None = None,
+    club_timezone: str | None = None,
+) -> str:
+    if club_timezone:
+        return club_timezone
+
+    if db is not None:
+        resolved_club_id = club_id or get_default_club_id(db)
+        timezone_name = db.scalar(select(Club.timezone).where(Club.id == resolved_club_id).limit(1))
+        if timezone_name:
+            return timezone_name
+
+    return settings.timezone
+
+
+def _slot_zoneinfo(timezone_name: str | None = None) -> ZoneInfo:
+    return ZoneInfo(timezone_name or settings.timezone)
+
+
+def local_time_candidates(booking_date: date, parsed_time: time, *, timezone_name: str | None = None) -> list[datetime]:
     naive_local = datetime.combine(booking_date, parsed_time)
+    local_timezone = _slot_zoneinfo(timezone_name)
     candidates: list[datetime] = []
 
     for fold in (0, 1):
-        candidate = naive_local.replace(tzinfo=ROME_TZ, fold=fold)
-        roundtrip = candidate.astimezone(UTC).astimezone(ROME_TZ).replace(tzinfo=None)
+        candidate = naive_local.replace(tzinfo=local_timezone, fold=fold)
+        roundtrip = candidate.astimezone(UTC).astimezone(local_timezone).replace(tzinfo=None)
         candidate_utc = candidate.astimezone(UTC)
         if roundtrip == naive_local and all(existing.astimezone(UTC) != candidate_utc for existing in candidates):
             candidates.append(candidate)
@@ -103,9 +126,10 @@ def local_time_candidates(booking_date: date, parsed_time: time) -> list[datetim
     return candidates
 
 
-def slot_display_time(value: datetime) -> str:
+def slot_display_time(value: datetime, *, timezone_name: str | None = None) -> str:
+    resolved_timezone = timezone_name or getattr(value.tzinfo, 'key', None)
     naive_time = value.replace(tzinfo=None).time()
-    candidates = local_time_candidates(value.date(), naive_time)
+    candidates = local_time_candidates(value.date(), naive_time, timezone_name=resolved_timezone)
     if len(candidates) > 1:
         timezone_label = value.tzname()
         if timezone_label:
@@ -113,8 +137,14 @@ def slot_display_time(value: datetime) -> str:
     return value.strftime('%H:%M')
 
 
-def resolve_local_slot_start(booking_date: date, parsed_time: time, slot_id: str | None = None) -> datetime:
-    candidates = local_time_candidates(booking_date, parsed_time)
+def resolve_local_slot_start(
+    booking_date: date,
+    parsed_time: time,
+    slot_id: str | None = None,
+    *,
+    timezone_name: str | None = None,
+) -> datetime:
+    candidates = local_time_candidates(booking_date, parsed_time, timezone_name=timezone_name)
 
     if not candidates:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Orario non valido per il cambio ora legale')
@@ -134,34 +164,56 @@ def resolve_local_slot_start(booking_date: date, parsed_time: time, slot_id: str
     raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Slot selezionato non valido')
 
 
-def iter_local_slot_starts(booking_date: date) -> list[datetime]:
-    local_day_start = datetime.combine(booking_date, time(0, 0), tzinfo=ROME_TZ)
-    local_next_day_start = datetime.combine(booking_date + timedelta(days=1), time(0, 0), tzinfo=ROME_TZ)
+def iter_local_slot_starts(booking_date: date, *, timezone_name: str | None = None) -> list[datetime]:
+    local_timezone = _slot_zoneinfo(timezone_name)
+    local_day_start = datetime.combine(booking_date, time(0, 0), tzinfo=local_timezone)
+    local_next_day_start = datetime.combine(booking_date + timedelta(days=1), time(0, 0), tzinfo=local_timezone)
     current_utc = local_day_start.astimezone(UTC)
     end_utc = local_next_day_start.astimezone(UTC)
     starts: list[datetime] = []
 
     while current_utc < end_utc:
-        starts.append(current_utc.astimezone(ROME_TZ))
+        starts.append(current_utc.astimezone(local_timezone))
         current_utc += timedelta(minutes=30)
 
     return starts
 
 
-def resolve_slot_window(booking_date: date, start_time_value: str, duration_minutes: int, slot_id: str | None = None) -> tuple[datetime, datetime, datetime, datetime]:
+def resolve_slot_window(
+    booking_date: date,
+    start_time_value: str,
+    duration_minutes: int,
+    slot_id: str | None = None,
+    *,
+    timezone_name: str | None = None,
+) -> tuple[datetime, datetime, datetime, datetime]:
     if duration_minutes not in VALID_DURATIONS:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Durata non valida')
 
+    local_timezone = _slot_zoneinfo(timezone_name)
     parsed_time = parse_slot_time_value(start_time_value)
-    local_start = resolve_local_slot_start(booking_date, parsed_time, slot_id=slot_id)
+    local_start = resolve_local_slot_start(booking_date, parsed_time, slot_id=slot_id, timezone_name=timezone_name)
     start_at = local_start.astimezone(UTC)
     end_at = start_at + timedelta(minutes=duration_minutes)
-    local_end = end_at.astimezone(ROME_TZ)
+    local_end = end_at.astimezone(local_timezone)
     return local_start, local_end, start_at, end_at
 
 
-def parse_slot(booking_date: date, start_time_value: str, duration_minutes: int, slot_id: str | None = None) -> tuple[datetime, datetime, datetime]:
-    local_start, _, start_at, end_at = resolve_slot_window(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
+def parse_slot(
+    booking_date: date,
+    start_time_value: str,
+    duration_minutes: int,
+    slot_id: str | None = None,
+    *,
+    timezone_name: str | None = None,
+) -> tuple[datetime, datetime, datetime]:
+    local_start, _, start_at, end_at = resolve_slot_window(
+        booking_date,
+        start_time_value,
+        duration_minutes,
+        slot_id=slot_id,
+        timezone_name=timezone_name,
+    )
 
     if start_at <= datetime.now(UTC):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Puoi prenotare solo slot futuri')
@@ -263,20 +315,35 @@ def assert_slot_available(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Fascia bloccata dall\'admin')
 
 
-def build_daily_slots(db: Session, *, booking_date: date, duration_minutes: int, club_id: str | None = None) -> list[dict]:
+def build_daily_slots(
+    db: Session,
+    *,
+    booking_date: date,
+    duration_minutes: int,
+    club_id: str | None = None,
+    club_timezone: str | None = None,
+) -> list[dict]:
     slots: list[dict] = []
     now_utc = datetime.now(UTC)
     resolved_club_id = club_id or get_default_club_id(db)
+    resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
+    local_timezone = _slot_zoneinfo(resolved_timezone)
 
-    for local_start in iter_local_slot_starts(booking_date):
+    for local_start in iter_local_slot_starts(booking_date, timezone_name=resolved_timezone):
         start_at = local_start.astimezone(UTC)
         start_time_value = local_start.strftime('%H:%M')
         available = False
         reason = None
-        local_end = (start_at + timedelta(minutes=duration_minutes)).astimezone(ROME_TZ)
+        local_end = (start_at + timedelta(minutes=duration_minutes)).astimezone(local_timezone)
 
         try:
-            _, local_end_at, _, end_at = resolve_slot_window(booking_date, start_time_value, duration_minutes, slot_id=start_at.isoformat())
+            _, local_end_at, _, end_at = resolve_slot_window(
+                booking_date,
+                start_time_value,
+                duration_minutes,
+                slot_id=start_at.isoformat(),
+                timezone_name=resolved_timezone,
+            )
             local_end = local_end_at.replace(tzinfo=None)
             available = start_at > now_utc
             reason = None if available else 'Orario gia passato'
@@ -295,8 +362,8 @@ def build_daily_slots(db: Session, *, booking_date: date, duration_minutes: int,
                 'slot_id': start_at.isoformat(),
                 'start_time': start_time_value,
                 'end_time': local_end.strftime('%H:%M'),
-                'display_start_time': slot_display_time(local_start),
-                'display_end_time': slot_display_time((start_at + timedelta(minutes=duration_minutes)).astimezone(ROME_TZ)),
+                'display_start_time': slot_display_time(local_start, timezone_name=resolved_timezone),
+                'display_end_time': slot_display_time((start_at + timedelta(minutes=duration_minutes)).astimezone(local_timezone), timezone_name=resolved_timezone),
                 'available': available,
                 'reason': reason,
             }
@@ -308,6 +375,7 @@ def create_public_booking(
     db: Session,
     *,
     club_id: str | None = None,
+    club_timezone: str | None = None,
     first_name: str,
     last_name: str,
     phone: str,
@@ -321,10 +389,17 @@ def create_public_booking(
 ) -> Booking:
     with acquire_single_court_lock(db):
         resolved_club_id = club_id or get_default_club_id(db)
+        resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         if not _is_public_provider_available(payment_provider):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_public_provider_unavailable_detail(payment_provider))
 
-        local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
+        local_start, start_at, end_at = parse_slot(
+            booking_date,
+            start_time_value,
+            duration_minutes,
+            slot_id=slot_id,
+            timezone_name=resolved_timezone,
+        )
         assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
 
         customer = get_or_create_customer(db, club_id=resolved_club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
@@ -367,12 +442,20 @@ def create_admin_booking(
     payment_provider: PaymentProvider,
     actor: str,
     club_id: str | None = None,
+    club_timezone: str | None = None,
     source: BookingSource = BookingSource.ADMIN_MANUAL,
     recurring_series_id: str | None = None,
 ) -> Booking:
     with acquire_single_court_lock(db):
         resolved_club_id = club_id or get_default_club_id(db)
-        local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
+        resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
+        local_start, start_at, end_at = parse_slot(
+            booking_date,
+            start_time_value,
+            duration_minutes,
+            slot_id=slot_id,
+            timezone_name=resolved_timezone,
+        )
         assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
 
         customer = get_or_create_customer(db, club_id=resolved_club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
@@ -423,6 +506,7 @@ def update_booking_by_admin(
     duration_minutes: int,
     note: str | None,
     actor: str,
+    club_timezone: str | None = None,
 ) -> Booking:
     if booking.status not in ADMIN_EDITABLE_STATUSES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Prenotazione non modificabile in questo stato')
@@ -430,7 +514,14 @@ def update_booking_by_admin(
     if as_utc(booking.start_at) <= datetime.now(UTC):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Puoi modificare solo prenotazioni future')
 
-    local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=slot_id)
+    resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=booking.club_id, club_timezone=club_timezone)
+    local_start, start_at, end_at = parse_slot(
+        booking_date,
+        start_time_value,
+        duration_minutes,
+        slot_id=slot_id,
+        timezone_name=resolved_timezone,
+    )
     new_deposit = calculate_deposit(duration_minutes)
     current_deposit = Decimal(str(booking.deposit_amount)).quantize(Decimal('0.01'))
 
@@ -723,8 +814,11 @@ def preview_recurring_occurrences(
     duration_minutes: int,
     exclude_recurring_series_id: str | None = None,
     club_id: str | None = None,
+    club_timezone: str | None = None,
 ) -> list[dict]:
     resolved_club_id = club_id or get_default_club_id(db)
+    resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
+    local_timezone = _slot_zoneinfo(resolved_timezone)
     _validate_recurring_weekday(start_date, weekday)
     dates = _recurring_dates(start_date, end_date)
     parsed_time = parse_slot_time_value(start_time_value)
@@ -732,15 +826,21 @@ def preview_recurring_occurrences(
     for occurrence_date in dates:
         local_start = datetime.combine(occurrence_date, parsed_time)
         local_end = local_start + timedelta(minutes=duration_minutes)
-        display_start = slot_display_time(local_start.replace(tzinfo=ROME_TZ))
-        display_end = slot_display_time(local_end.replace(tzinfo=ROME_TZ))
+        display_start = slot_display_time(local_start.replace(tzinfo=local_timezone), timezone_name=resolved_timezone)
+        display_end = slot_display_time(local_end.replace(tzinfo=local_timezone), timezone_name=resolved_timezone)
         try:
             occurrence_slot_id = slot_id if occurrence_date == start_date else None
-            local_start_at, local_end_at, start_at, end_at = resolve_slot_window(occurrence_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
+            local_start_at, local_end_at, start_at, end_at = resolve_slot_window(
+                occurrence_date,
+                start_time_value,
+                duration_minutes,
+                slot_id=occurrence_slot_id,
+                timezone_name=resolved_timezone,
+            )
             local_start = local_start_at.replace(tzinfo=None)
             local_end = local_end_at.replace(tzinfo=None)
-            display_start = slot_display_time(local_start_at)
-            display_end = slot_display_time(local_end_at)
+            display_start = slot_display_time(local_start_at, timezone_name=resolved_timezone)
+            display_end = slot_display_time(local_end_at, timezone_name=resolved_timezone)
             if start_at <= datetime.now(UTC):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Puoi prenotare solo slot futuri')
             assert_slot_available(
@@ -781,9 +881,11 @@ def create_recurring_series(
     duration_minutes: int,
     actor: str,
     club_id: str | None = None,
+    club_timezone: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
     with acquire_single_court_lock(db):
         resolved_club_id = club_id or get_default_club_id(db)
+        resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         recurring_weekday = _validate_recurring_weekday(start_date, weekday)
         occurrences = preview_recurring_occurrences(
             db,
@@ -795,6 +897,7 @@ def create_recurring_series(
             slot_id=slot_id,
             duration_minutes=duration_minutes,
             club_id=resolved_club_id,
+            club_timezone=resolved_timezone,
         )
         dates = _recurring_dates(start_date, end_date)
 
@@ -837,7 +940,13 @@ def create_recurring_series(
 
             booking_date = occurrence['booking_date']
             occurrence_slot_id = slot_id if booking_date == start_date else None
-            local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
+            local_start, start_at, end_at = parse_slot(
+                booking_date,
+                start_time_value,
+                duration_minutes,
+                slot_id=occurrence_slot_id,
+                timezone_name=resolved_timezone,
+            )
             booking = Booking(
                 club_id=resolved_club_id,
                 public_reference=make_public_reference(),
@@ -897,9 +1006,11 @@ def update_recurring_series(
     duration_minutes: int,
     actor: str,
     club_id: str | None = None,
+    club_timezone: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
     with acquire_single_court_lock(db):
         resolved_club_id = club_id or get_default_club_id(db)
+        resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id, RecurringBookingSeries.club_id == resolved_club_id))
         if not series:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
@@ -917,6 +1028,7 @@ def update_recurring_series(
             duration_minutes=duration_minutes,
             exclude_recurring_series_id=series_id,
             club_id=resolved_club_id,
+            club_timezone=resolved_timezone,
         )
 
         if not any(occurrence['available'] for occurrence in occurrences):
@@ -986,7 +1098,13 @@ def update_recurring_series(
 
             booking_date = occurrence['booking_date']
             occurrence_slot_id = slot_id if booking_date == start_date else None
-            local_start, start_at, end_at = parse_slot(booking_date, start_time_value, duration_minutes, slot_id=occurrence_slot_id)
+            local_start, start_at, end_at = parse_slot(
+                booking_date,
+                start_time_value,
+                duration_minutes,
+                slot_id=occurrence_slot_id,
+                timezone_name=resolved_timezone,
+            )
             booking = Booking(
                 club_id=resolved_club_id,
                 public_reference=make_public_reference(),

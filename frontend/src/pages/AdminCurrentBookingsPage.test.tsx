@@ -21,6 +21,7 @@ const adminSession = {
   club_id: 'club-default',
   club_slug: 'default-club',
   club_public_name: 'PadelBooking',
+  timezone: 'Europe/Rome',
 } as const;
 
 const currentWeekBooking: BookingSummary = {
@@ -239,6 +240,7 @@ describe('AdminCurrentBookingsPage', () => {
       club_id: 'club-roma',
       club_slug: 'roma-club',
       club_public_name: 'Roma Club',
+      timezone: 'Europe/Rome',
     });
 
     renderPage('/admin/prenotazioni-attuali?tenant=roma-club');

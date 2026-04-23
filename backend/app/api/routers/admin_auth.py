@@ -71,6 +71,7 @@ def login(
         club_id=admin.club_id,
         club_slug=tenant_context.club.slug,
         club_public_name=tenant_context.club.public_name,
+        timezone=tenant_context.club.timezone,
     )
 
 
@@ -145,4 +146,5 @@ def me(admin: Admin = Depends(get_current_admin)) -> AdminMeResponse:
         club_id=admin.club_id,
         club_slug=admin.club.slug,
         club_public_name=admin.club.public_name,
+        timezone=admin.club.timezone,
     )

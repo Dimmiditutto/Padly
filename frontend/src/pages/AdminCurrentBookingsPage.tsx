@@ -11,7 +11,7 @@ import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin,
 import type { AdminDashboardFilters, AdminSession, BookingSummary } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking } from '../utils/adminBookingActions';
-import { toDateInputValue } from '../utils/format';
+import { formatTimeValue, toDateInputValue } from '../utils/format';
 
 const MONTH_LABELS = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 const HERO_ACTION_BUTTON_CLASS = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
@@ -72,13 +72,6 @@ function formatDayMonthLabel(value: Date) {
 function formatRangeLabel(startDate: Date) {
   const endDate = addDays(startDate, 6);
   return `${formatDayMonthLabel(startDate)} - ${formatDayMonthLabel(endDate)}`;
-}
-
-function formatBookingTime(value: string) {
-  return new Intl.DateTimeFormat('it-IT', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
 }
 
 function getMonthWeekOptions(year: number, month: number) {
@@ -433,7 +426,7 @@ export function AdminCurrentBookingsPage() {
                                 className='rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-cyan-400 hover:shadow-md'
                               >
                                 <div className='flex items-start justify-between gap-2'>
-                                  <p className='text-sm font-semibold text-slate-950'>{formatBookingTime(booking.start_at)} - {formatBookingTime(booking.end_at)}</p>
+                                  <p className='text-sm font-semibold text-slate-950'>{formatTimeValue(booking.start_at, session?.timezone)} - {formatTimeValue(booking.end_at, session?.timezone)}</p>
                                   {showStatus ? <StatusBadge status={booking.status} /> : null}
                                 </div>
                                 <p className='mt-2 text-sm text-slate-700'>{label}</p>

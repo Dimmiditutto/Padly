@@ -9,10 +9,10 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelRecurringSeries, getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
-import type { AdminBookingUpdatePayload, BookingDetail, RecurringSeriesPayload } from '../types';
+import type { AdminBookingUpdatePayload, AdminSession, BookingDetail, RecurringSeriesPayload } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
-import { formatCurrency, formatDateTime } from '../utils/format';
+import { formatCurrency, formatDateTime, formatTimeValue, formatWeekdayLabel } from '../utils/format';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 
@@ -21,6 +21,7 @@ export function AdminBookingDetailPage() {
   const { bookingId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const tenantSlug = getTenantSlugFromSearchParams(searchParams);
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
@@ -56,11 +57,12 @@ export function AdminBookingDetailPage() {
     setLoading(true);
     setError('');
     try {
-      await getAdminSession(tenantSlug);
+      const sessionResponse = await getAdminSession(tenantSlug);
+      setSession(sessionResponse);
       const detail = await getAdminBooking(bookingId);
       setBooking(detail);
-      setEditForm(buildEditForm(detail));
-      setSeriesForm(buildRecurringSeriesForm(detail));
+      setEditForm(buildEditForm(detail, sessionResponse.timezone));
+      setSeriesForm(buildRecurringSeriesForm(detail, sessionResponse.timezone));
       setEditing(false);
       setEditingSeries(false);
     } catch (requestError: any) {
@@ -81,8 +83,8 @@ export function AdminBookingDetailPage() {
     try {
       const updated = await updateAdminBookingStatus(booking.id, { status });
       setBooking(updated);
-      setEditForm(buildEditForm(updated));
-      setSeriesForm(buildRecurringSeriesForm(updated));
+      setEditForm(buildEditForm(updated, session?.timezone));
+      setSeriesForm(buildRecurringSeriesForm(updated, session?.timezone));
       setEditing(false);
       setEditingSeries(false);
       setError('');
@@ -99,8 +101,8 @@ export function AdminBookingDetailPage() {
     try {
       const updated = await markAdminBalancePaid(booking.id);
       setBooking(updated);
-      setEditForm(buildEditForm(updated));
-      setSeriesForm(buildRecurringSeriesForm(updated));
+      setEditForm(buildEditForm(updated, session?.timezone));
+      setSeriesForm(buildRecurringSeriesForm(updated, session?.timezone));
       setError('');
       setFeedback('Saldo segnato come pagato al campo.');
     } catch (requestError: any) {
@@ -120,8 +122,8 @@ export function AdminBookingDetailPage() {
     try {
       const updated = await updateAdminBooking(booking.id, editForm);
       setBooking(updated);
-      setEditForm(buildEditForm(updated));
-      setSeriesForm(buildRecurringSeriesForm(updated));
+      setEditForm(buildEditForm(updated, session?.timezone));
+      setSeriesForm(buildRecurringSeriesForm(updated, session?.timezone));
       setEditing(false);
       setFeedback('Prenotazione aggiornata con successo.');
     } catch (requestError: any) {
@@ -149,8 +151,8 @@ export function AdminBookingDetailPage() {
       const response = await cancelRecurringSeries(booking.recurring_series_id);
       const detail = await getAdminBooking(booking.id);
       setBooking(detail);
-      setEditForm(buildEditForm(detail));
-      setSeriesForm(buildRecurringSeriesForm(detail));
+      setEditForm(buildEditForm(detail, session?.timezone));
+      setSeriesForm(buildRecurringSeriesForm(detail, session?.timezone));
       setEditingSeries(false);
       setFeedback(`Serie aggiornata: ${response.cancelled_count} occorrenze future annullate, ${response.skipped_count} saltate.`);
     } catch (requestError: any) {
@@ -183,8 +185,8 @@ export function AdminBookingDetailPage() {
       const response = await updateRecurringSeries(booking.recurring_series_id, seriesForm);
       const detail = await getAdminBooking(booking.id);
       setBooking(detail);
-      setEditForm(buildEditForm(detail));
-      setSeriesForm(buildRecurringSeriesForm(detail));
+      setEditForm(buildEditForm(detail, session?.timezone));
+      setSeriesForm(buildRecurringSeriesForm(detail, session?.timezone));
       setEditingSeries(false);
       setFeedback(`Serie aggiornata. Nuove occorrenze create: ${response.created_count}. Saltate: ${response.skipped_count}.`);
     } catch (requestError: any) {
@@ -223,8 +225,8 @@ export function AdminBookingDetailPage() {
               <div className='grid gap-4 sm:grid-cols-2'>
                 <InfoItem label='Riferimento' value={booking.public_reference} />
                 <InfoItem label='Durata' value={`${booking.duration_minutes} minuti`} />
-                <InfoItem label='Inizio' value={formatDateTime(booking.start_at)} />
-                <InfoItem label='Fine' value={formatDateTime(booking.end_at)} />
+                <InfoItem label='Inizio' value={formatDateTime(booking.start_at, session?.timezone)} />
+                <InfoItem label='Fine' value={formatDateTime(booking.end_at, session?.timezone)} />
                 {booking.recurring_series_label ? <InfoItem label='Serie ricorrente' value={booking.recurring_series_label} /> : null}
                 {!isRecurring ? <InfoItem label='Caparra' value={formatCurrency(booking.deposit_amount)} /> : null}
                 {!isRecurring ? <InfoItem label='Pagamento' value={`${booking.payment_provider} • ${booking.payment_status}`} /> : null}
@@ -295,7 +297,7 @@ export function AdminBookingDetailPage() {
                       </button>
                       <button className='btn-secondary' type='button' disabled={savingEdit} onClick={() => {
                         setEditing(false);
-                        setEditForm(buildEditForm(booking));
+                        setEditForm(buildEditForm(booking, session?.timezone));
                       }}>
                         Annulla
                       </button>
@@ -304,7 +306,7 @@ export function AdminBookingDetailPage() {
                 ) : (
                   <div className='space-y-3'>
                     <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600'>
-                      <p><strong className='text-slate-900'>Slot attuale:</strong> {formatDateTime(booking.start_at)} → {formatDateTime(booking.end_at)}</p>
+                      <p><strong className='text-slate-900'>Slot attuale:</strong> {formatDateTime(booking.start_at, session?.timezone)} → {formatDateTime(booking.end_at, session?.timezone)}</p>
                       <p className='mt-2'><strong className='text-slate-900'>Nota attuale:</strong> {booking.note || 'Nessuna nota inserita.'}</p>
                       {isRecurring ? <p className='mt-2 text-xs text-slate-500'>Questa modifica aggiorna solo l&apos;occorrenza selezionata. Per modificare o annullare l&apos;intera serie usa la sezione dedicata qui sotto.</p> : null}
                     </div>
@@ -368,7 +370,7 @@ export function AdminBookingDetailPage() {
                         </div>
                         <div className='surface-muted self-end'>
                           <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno serie</p>
-                          <p className='mt-2 text-base font-medium text-slate-900'>{formatBookingWeekdayLabel(seriesForm.start_date)}</p>
+                          <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(seriesForm.start_date)}</p>
                         </div>
                       </div>
                       <div>
@@ -387,7 +389,7 @@ export function AdminBookingDetailPage() {
                         </button>
                         <button className='btn-secondary' type='button' disabled={savingSeriesEdit} onClick={() => {
                           setEditingSeries(false);
-                          setSeriesForm(buildRecurringSeriesForm(booking));
+                          setSeriesForm(buildRecurringSeriesForm(booking, session?.timezone));
                         }}>
                           Annulla
                         </button>
@@ -434,11 +436,11 @@ export function AdminBookingDetailPage() {
 
               <SectionCard title='Audit rapido' description='Timestamp principali della prenotazione.'>
                 <div className='space-y-3 text-sm text-slate-600'>
-                  <p>Creata: <strong>{formatDateTime(booking.created_at)}</strong></p>
-                  {!isRecurring ? <p>Saldo al campo: <strong>{booking.balance_paid_at ? formatDateTime(booking.balance_paid_at) : 'non segnato'}</strong></p> : null}
-                  <p>Completed: <strong>{booking.completed_at ? formatDateTime(booking.completed_at) : 'non segnato'}</strong></p>
-                  <p>No-show: <strong>{booking.no_show_at ? formatDateTime(booking.no_show_at) : 'non segnato'}</strong></p>
-                  <p>Annullata: <strong>{booking.cancelled_at ? formatDateTime(booking.cancelled_at) : 'non annullata'}</strong></p>
+                  <p>Creata: <strong>{formatDateTime(booking.created_at, session?.timezone)}</strong></p>
+                  {!isRecurring ? <p>Saldo al campo: <strong>{booking.balance_paid_at ? formatDateTime(booking.balance_paid_at, session?.timezone) : 'non segnato'}</strong></p> : null}
+                  <p>Completed: <strong>{booking.completed_at ? formatDateTime(booking.completed_at, session?.timezone) : 'non segnato'}</strong></p>
+                  <p>No-show: <strong>{booking.no_show_at ? formatDateTime(booking.no_show_at, session?.timezone) : 'non segnato'}</strong></p>
+                  <p>Annullata: <strong>{booking.cancelled_at ? formatDateTime(booking.cancelled_at, session?.timezone) : 'non annullata'}</strong></p>
                 </div>
               </SectionCard>
             </div>
@@ -449,10 +451,10 @@ export function AdminBookingDetailPage() {
   );
 }
 
-function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'start_at' | 'duration_minutes' | 'note'>): AdminBookingUpdatePayload {
+function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'start_at' | 'duration_minutes' | 'note'>, timezone?: string | null): AdminBookingUpdatePayload {
   return {
     booking_date: booking.booking_date_local,
-    start_time: toRomeTimeValue(booking.start_at),
+    start_time: formatTimeValue(booking.start_at, timezone),
     slot_id: booking.start_at,
     duration_minutes: booking.duration_minutes,
     note: booking.note || '',
@@ -461,13 +463,14 @@ function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'star
 
 function buildRecurringSeriesForm(
   booking: Pick<BookingDetail, 'booking_date_local' | 'start_at' | 'duration_minutes' | 'recurring_series_label' | 'recurring_series_end_date' | 'recurring_series_weekday'>,
+  timezone?: string | null,
 ): RecurringSeriesPayload {
   return {
     label: booking.recurring_series_label || 'Serie ricorrente',
     weekday: typeof booking.recurring_series_weekday === 'number' ? booking.recurring_series_weekday : getRecurringWeekday(booking.booking_date_local),
     start_date: booking.booking_date_local,
     end_date: booking.recurring_series_end_date || booking.booking_date_local,
-    start_time: toRomeTimeValue(booking.start_at),
+    start_time: formatTimeValue(booking.start_at, timezone),
     slot_id: booking.start_at,
     duration_minutes: booking.duration_minutes,
   };
@@ -485,29 +488,6 @@ function getRecurringWeekday(dateValue: string) {
 
   const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   return (normalizedDate.getUTCDay() + 6) % 7;
-}
-
-function formatBookingWeekdayLabel(dateValue: string) {
-  const [year, month, day] = dateValue.split('-').map(Number);
-  if (!year || !month || !day) {
-    return 'Giorno non disponibile';
-  }
-
-  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const label = new Intl.DateTimeFormat('it-IT', {
-    weekday: 'long',
-    timeZone: 'Europe/Rome',
-  }).format(normalizedDate);
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function toRomeTimeValue(value: string) {
-  return new Intl.DateTimeFormat('it-IT', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: 'Europe/Rome',
-  }).format(new Date(value));
 }
 
 function InfoItem({ label, value }: { label: string; value: string }) {

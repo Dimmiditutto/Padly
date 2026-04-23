@@ -27,6 +27,7 @@ const adminSession = {
   club_id: 'club-default',
   club_slug: 'default-club',
   club_public_name: 'PadelBooking',
+  timezone: 'Europe/Rome',
 } as const;
 
 const baseBooking = {
@@ -235,6 +236,90 @@ describe('AdminBookingDetailPage', () => {
       duration_minutes: 90,
     })));
     expect(screen.getByText('Serie aggiornata. Nuove occorrenze create: 4. Saltate: 0.')).toBeInTheDocument();
+  });
+
+  it('uses the tenant timezone when saving a booking update for a non-Rome tenant', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      ...adminSession,
+      club_id: 'club-new-york',
+      club_slug: 'new-york-club',
+      club_public_name: 'New York Club',
+      timezone: 'America/New_York',
+    });
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: baseBooking.booking_date_local,
+      duration_minutes: baseBooking.duration_minutes,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: baseBooking.start_at, start_time: '12:00', end_time: '13:30', display_start_time: '12:00', display_end_time: '13:30', available: true, reason: null },
+      ],
+    });
+
+    renderPage();
+
+    await screen.findByText('Dettaglio prenotazione');
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica data e orario' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }));
+
+    await waitFor(() => expect(updateAdminBooking).toHaveBeenCalledWith('booking-1', expect.objectContaining({
+      slot_id: '2099-04-16T16:00:00Z',
+      start_time: '12:00',
+    })));
+  });
+
+  it('uses the tenant timezone when saving the recurring series form for a non-Rome tenant', async () => {
+    vi.mocked(getAdminSession).mockResolvedValue({
+      ...adminSession,
+      club_id: 'club-new-york',
+      club_slug: 'new-york-club',
+      club_public_name: 'New York Club',
+      timezone: 'America/New_York',
+    });
+    vi.mocked(getAdminBooking)
+      .mockResolvedValueOnce({
+        ...baseBooking,
+        source: 'ADMIN_RECURRING',
+        deposit_amount: 0,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        recurring_series_id: 'series-1',
+        recurring_series_label: 'Serie fissa del mercoledi',
+        recurring_series_end_date: '2099-05-14',
+        recurring_series_weekday: 3,
+      })
+      .mockResolvedValueOnce({
+        ...baseBooking,
+        source: 'ADMIN_RECURRING',
+        deposit_amount: 0,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        recurring_series_id: 'series-1',
+        recurring_series_label: 'Serie aggiornata admin',
+        recurring_series_end_date: '2099-05-21',
+        recurring_series_weekday: 3,
+      });
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: baseBooking.booking_date_local,
+      duration_minutes: baseBooking.duration_minutes,
+      deposit_amount: 20,
+      slots: [
+        { slot_id: baseBooking.start_at, start_time: '12:00', end_time: '13:30', display_start_time: '12:00', display_end_time: '13:30', available: true, reason: null },
+      ],
+    });
+
+    renderPage();
+
+    await screen.findByRole('button', { name: 'Modifica intera serie' });
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica intera serie' }));
+    fireEvent.change(screen.getByLabelText('Nome serie ricorrente'), { target: { value: 'Serie aggiornata admin' } });
+    fireEvent.change(screen.getByLabelText('Fino al'), { target: { value: '2099-05-21' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salva serie' }));
+
+    await waitFor(() => expect(updateRecurringSeries).toHaveBeenCalledWith('series-1', expect.objectContaining({
+      start_time: '12:00',
+      slot_id: '2099-04-16T16:00:00Z',
+      end_date: '2099-05-21',
+    })));
   });
 
   it('saves an admin booking update using the current selected slot from the picker', async () => {

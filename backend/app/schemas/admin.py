@@ -29,6 +29,7 @@ class AdminMeResponse(BaseModel):
     club_id: str
     club_slug: str
     club_public_name: str
+    timezone: str
 
 
 class AdminPasswordResetRequest(BaseModel):

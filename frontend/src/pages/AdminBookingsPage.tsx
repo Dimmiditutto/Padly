@@ -382,7 +382,7 @@ export function AdminBookingsPage() {
                                     <StatusBadge status={booking.status} />
                                   </div>
                                   <div className='flex flex-wrap gap-3 text-sm text-slate-600'>
-                                    <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {formatDateTime(booking.start_at)}</span>
+                                    <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {formatDateTime(booking.start_at, session?.timezone)}</span>
                                     <span>{booking.duration_minutes} min</span>
                                   </div>
                                   <p className='text-sm text-slate-600'>{booking.note || 'Serie ricorrente senza note aggiuntive.'}</p>

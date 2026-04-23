@@ -6,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_enforced
-from app.core.config import settings
 from app.core.db import get_db
 from app.models import Admin, BlackoutPeriod, BookingEventLog
 from app.schemas.admin import (
@@ -32,13 +31,32 @@ from app.services.report_service import get_dashboard_report
 router = APIRouter(prefix='/admin', tags=['Admin Operations'])
 
 
-def _parse_datetime(value: str) -> datetime:
+def _local_datetime_candidates(value: datetime, *, timezone_name: str) -> list[datetime]:
+    local_timezone = ZoneInfo(timezone_name)
+    candidates: list[datetime] = []
+
+    for fold in (0, 1):
+        candidate = value.replace(tzinfo=local_timezone, fold=fold)
+        roundtrip = candidate.astimezone(UTC).astimezone(local_timezone).replace(tzinfo=None)
+        candidate_utc = candidate.astimezone(UTC)
+        if roundtrip == value and all(existing.astimezone(UTC) != candidate_utc for existing in candidates):
+            candidates.append(candidate)
+
+    return candidates
+
+
+def _parse_datetime(value: str, *, timezone_name: str) -> datetime:
     try:
         dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail='Data/ora non valida') from exc
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=ZoneInfo(settings.timezone))
+        candidates = _local_datetime_candidates(dt, timezone_name=timezone_name)
+        if not candidates:
+            raise HTTPException(status_code=422, detail='Data/ora non valida per il cambio ora legale')
+        if len(candidates) > 1:
+            raise HTTPException(status_code=422, detail='Data/ora ambigua per il cambio ora legale. Scegli un orario non ambiguo o specifica un offset esplicito.')
+        dt = candidates[0]
     return dt.astimezone(UTC)
 
 
@@ -61,7 +79,15 @@ def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_cur
 @router.post('/blackouts')
 def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> dict:
     with acquire_single_court_lock(db):
-        blackout = create_blackout(db, title=payload.title, reason=payload.reason, start_at=_parse_datetime(payload.start_at), end_at=_parse_datetime(payload.end_at), actor=admin.email, club_id=admin.club_id)
+        blackout = create_blackout(
+            db,
+            title=payload.title,
+            reason=payload.reason,
+            start_at=_parse_datetime(payload.start_at, timezone_name=admin.club.timezone),
+            end_at=_parse_datetime(payload.end_at, timezone_name=admin.club.timezone),
+            actor=admin.email,
+            club_id=admin.club_id,
+        )
         db.commit()
     db.refresh(blackout)
     return {'id': blackout.id, 'message': 'Blackout creato'}
@@ -80,6 +106,7 @@ def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depe
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,
             club_id=admin.club_id,
+            club_timezone=admin.club.timezone,
         )
     )
 
@@ -98,6 +125,7 @@ def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depen
             duration_minutes=payload.duration_minutes,
             actor=admin.email,
             club_id=admin.club_id,
+            club_timezone=admin.club.timezone,
         )
         db.commit()
     return RecurringCreateResponse(series_id=series.id, created_count=len(created), skipped_count=len(skipped), skipped=skipped)
@@ -118,6 +146,7 @@ def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db:
             duration_minutes=payload.duration_minutes,
             actor=admin.email,
             club_id=admin.club_id,
+            club_timezone=admin.club.timezone,
         )
         db.commit()
     return RecurringCreateResponse(series_id=series.id, created_count=len(created), skipped_count=len(skipped), skipped=skipped)

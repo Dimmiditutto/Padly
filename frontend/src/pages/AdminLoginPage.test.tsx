@@ -18,6 +18,7 @@ const adminSession = {
   club_id: 'club-default',
   club_slug: 'default-club',
   club_public_name: 'PadelBooking',
+  timezone: 'Europe/Rome',
 } as const;
 
 function renderPage(path = '/admin/login') {

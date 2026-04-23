@@ -24,7 +24,7 @@ import {
 } from '../services/adminApi';
 import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse, SubscriptionStatusBanner } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
-import { formatCurrency, formatDateTime, formatRomeWeekdayLabel, toDateInputValue } from '../utils/format';
+import { formatCurrency, formatDateTime, formatWeekdayLabel, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -99,6 +99,7 @@ export function AdminDashboardPage() {
     duration_minutes: 90,
   });
   const [recurringPreview, setRecurringPreview] = useState<RecurringOccurrence[]>([]);
+  const adminTimezone = settings?.timezone || session?.timezone || null;
 
   useEffect(() => {
     void bootstrap();
@@ -419,11 +420,11 @@ export function AdminDashboardPage() {
                 <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
                   <div className='surface-muted self-start'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Giorno serie</p>
-                    <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.start_date)}</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(recurringForm.start_date)}</p>
                   </div>
                   <div className='surface-muted self-start'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Ultima ricorrenza</p>
-                    <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.end_date)} {recurringForm.end_date}</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(recurringForm.end_date)} {recurringForm.end_date}</p>
                   </div>
                 </div>
 
@@ -443,7 +444,7 @@ export function AdminDashboardPage() {
                   </div>
                   <div className='surface-muted self-end'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Prima ricorrenza</p>
-                    <p className='mt-2 text-base font-medium text-slate-900'>{formatRomeWeekdayLabel(recurringForm.start_date)} {recurringForm.start_date}</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(recurringForm.start_date)} {recurringForm.start_date}</p>
                   </div>
                 </div>
 
@@ -498,6 +499,7 @@ export function AdminDashboardPage() {
                     <input id='admin-blackout-end' className='text-input' type='datetime-local' value={blackoutForm.end_at} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, end_at: event.target.value }))} />
                   </div>
                 </div>
+                <p className='text-xs text-slate-500'>Il blackout usa il fuso del tenant attivo{adminTimezone ? ` (${adminTimezone})` : ''}. Durante il ritorno all&apos;ora solare gli orari ambigui vengono rifiutati con un errore esplicito.</p>
                 <button className='btn-primary w-full' type='submit'>Crea blackout</button>
               </form>
               <div className='mt-4 space-y-2'>
@@ -507,7 +509,7 @@ export function AdminDashboardPage() {
                   blackouts.slice(0, 3).map((blackout) => (
                     <div key={blackout.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700'>
                       <p className='font-semibold text-slate-900'>{blackout.title}</p>
-                      <p className='mt-1'>{formatDateTime(blackout.start_at)} → {formatDateTime(blackout.end_at)}</p>
+                      <p className='mt-1'>{formatDateTime(blackout.start_at, adminTimezone)} → {formatDateTime(blackout.end_at, adminTimezone)}</p>
                     </div>
                   ))
                 )}

@@ -91,7 +91,7 @@ export function AdminLogsPage() {
                   <div key={event.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm'>
                     <div className='flex items-center justify-between gap-3'>
                       <span className='font-semibold text-slate-800'>{event.event_type}</span>
-                      <span className='text-xs text-slate-500'>{formatDateTime(event.created_at)}</span>
+                      <span className='text-xs text-slate-500'>{formatDateTime(event.created_at, session?.timezone)}</span>
                     </div>
                     <p className='mt-1 text-slate-600'>{event.message}</p>
                   </div>

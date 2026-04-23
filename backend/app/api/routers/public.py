@@ -102,7 +102,13 @@ def get_availability(
         date=booking_date,
         duration_minutes=duration_minutes,
         deposit_amount=calculate_deposit(duration_minutes),
-        slots=build_daily_slots(db, booking_date=booking_date, duration_minutes=duration_minutes, club_id=current_club.id),
+        slots=build_daily_slots(
+            db,
+            booking_date=booking_date,
+            duration_minutes=duration_minutes,
+            club_id=current_club.id,
+            club_timezone=current_club.timezone,
+        ),
     )
 
 
@@ -117,6 +123,7 @@ def create_booking(
         booking = create_public_booking(
             db,
             club_id=current_club.id,
+            club_timezone=current_club.timezone,
             first_name=payload.first_name,
             last_name=payload.last_name,
             phone=payload.phone,

@@ -79,6 +79,7 @@ def create_manual_booking(payload: AdminBookingCreateRequest, db: Session = Depe
             payment_provider=payload.payment_provider,
             actor=admin.email,
             club_id=admin.club_id,
+            club_timezone=admin.club.timezone,
         )
         db.commit()
     db.refresh(booking)
@@ -112,6 +113,7 @@ def update_booking(booking_id: str, payload: AdminBookingUpdateRequest, db: Sess
             duration_minutes=payload.duration_minutes,
             note=payload.note,
             actor=admin.email,
+            club_timezone=admin.club.timezone,
         )
         db.commit()
         db.refresh(booking)

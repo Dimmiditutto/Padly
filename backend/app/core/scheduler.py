@@ -12,7 +12,7 @@ from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
 from app.services.tenant_service import list_active_clubs
 
-scheduler = AsyncIOScheduler(timezone=settings.timezone)
+scheduler = AsyncIOScheduler(timezone=UTC)
 logger = logging.getLogger(__name__)
 
 
