@@ -24,12 +24,13 @@ export function SlotGrid({
     <>
       <div className='grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5'>
         {slots.map((slot) => {
+          const slotKey = slot.court_id ? `${slot.court_id}:${slot.slot_id}` : slot.slot_id;
           const isSelected = selectedSlotId === slot.slot_id;
           const isHighlighted = highlightedSlotIdSet.has(slot.slot_id);
 
           return (
             <button
-              key={slot.slot_id}
+              key={slotKey}
               type='button'
               onClick={() => slot.available && onSelect(slot.slot_id)}
               disabled={!slot.available}

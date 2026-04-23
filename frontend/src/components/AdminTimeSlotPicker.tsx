@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getAvailability } from '../services/publicApi';
-import type { TimeSlot } from '../types';
+import type { AvailabilityResponse, CourtAvailability, TimeSlot } from '../types';
 import { AlertBanner } from './AlertBanner';
 import { LoadingBlock } from './LoadingBlock';
 import { SlotGrid } from './SlotGrid';
@@ -11,15 +11,19 @@ const INITIAL_VISIBLE_SLOTS = 6;
 export function AdminTimeSlotPicker({
   bookingDate,
   durationMinutes,
+  courtId,
   selectedSlotId,
   onSelect,
   includeSelectedUnavailable = false,
+  tenantSlug,
 }: {
   bookingDate: string;
   durationMinutes: number;
+  courtId?: string | null;
   selectedSlotId: string;
   onSelect: (slot: TimeSlot) => void;
   includeSelectedUnavailable?: boolean;
+  tenantSlug?: string | null;
 }) {
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [loading, setLoading] = useState(false);
@@ -35,9 +39,11 @@ export function AdminTimeSlotPicker({
       setExpanded(false);
 
       try {
-        const response = await getAvailability(bookingDate, durationMinutes);
+        const response = await getAvailability(bookingDate, durationMinutes, tenantSlug);
+        const courtGroups = normalizeCourtGroups(response);
+        const activeCourt = courtId ? courtGroups.find((group) => group.court_id === courtId) : courtGroups[0];
         if (!ignore) {
-          setSlots(response.slots);
+          setSlots(activeCourt?.slots || []);
         }
       } catch {
         if (!ignore) {
@@ -56,11 +62,11 @@ export function AdminTimeSlotPicker({
     return () => {
       ignore = true;
     };
-  }, [bookingDate, durationMinutes]);
+  }, [bookingDate, courtId, durationMinutes, tenantSlug]);
 
   const selectedSlot = useMemo(
-    () => slots.find((slot) => slot.slot_id === selectedSlotId),
-    [selectedSlotId, slots]
+    () => slots.find((slot) => slot.slot_id === selectedSlotId && (!courtId || slot.court_id === courtId)),
+    [courtId, selectedSlotId, slots]
   );
 
   const candidateSlots = useMemo(() => {
@@ -144,4 +150,27 @@ function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, dura
   return slots
     .filter((slot) => coveredStartTimes.has(new Date(slot.slot_id).getTime()))
     .map((slot) => slot.slot_id);
+}
+
+function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability[] {
+  if (response.courts && response.courts.length > 0) {
+    return response.courts;
+  }
+
+  if (response.slots.length === 0) {
+    return [];
+  }
+
+  const fallbackCourtId = response.slots[0].court_id || 'default-court';
+  const fallbackCourtName = response.slots[0].court_name || 'Campo 1';
+
+  return [{
+    court_id: fallbackCourtId,
+    court_name: fallbackCourtName,
+    slots: response.slots.map((slot) => ({
+      ...slot,
+      court_id: slot.court_id || fallbackCourtId,
+      court_name: slot.court_name || fallbackCourtName,
+    })),
+  }];
 }

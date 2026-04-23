@@ -23,6 +23,9 @@ def ensure_default_club(db: Session) -> Club:
     if club:
         # Garantisce trial subscription sul club di default se non ancora presente
         from app.services.billing_service import get_or_create_trial_subscription
+        from app.services.court_service import ensure_default_court
+
+        ensure_default_court(db, club)
         get_or_create_trial_subscription(db, club)
         return club
 
@@ -50,6 +53,10 @@ def ensure_default_club(db: Session) -> Club:
         )
     )
     db.flush()
+
+    from app.services.court_service import ensure_default_court
+
+    ensure_default_court(db, club)
 
     from app.services.billing_service import get_or_create_trial_subscription
     get_or_create_trial_subscription(db, club)

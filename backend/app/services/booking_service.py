@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import string
+import hashlib
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -20,12 +21,14 @@ from app.models import (
     BookingSource,
     BookingStatus,
     Club,
+    Court,
     Customer,
     EmailNotificationLog,
     PaymentProvider,
     PaymentStatus,
     RecurringBookingSeries,
 )
+from app.services.court_service import list_courts, resolve_court
 from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
 from app.services.tenant_service import get_default_club_id
@@ -42,6 +45,8 @@ ADMIN_ALLOWED_STATUS_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
 BALANCE_ALLOWED_STATUSES = {BookingStatus.CONFIRMED, BookingStatus.COMPLETED}
 DELETABLE_BOOKING_STATUSES = {BookingStatus.CANCELLED, BookingStatus.EXPIRED}
 single_court_mutex = RLock()
+court_mutexes_guard = RLock()
+court_mutexes: dict[str, RLock] = {}
 
 
 def _public_provider_unavailable_detail(provider: PaymentProvider) -> str:
@@ -223,19 +228,42 @@ def parse_slot(
     return local_start, start_at, end_at
 
 
-def lock_single_court_if_supported(db: Session) -> None:
+def _court_lock_key(court_id: str) -> int:
+    raw = int(hashlib.sha1(court_id.encode('utf-8')).hexdigest()[:16], 16)
+    if raw >= 2**63:
+        raw -= 2**64
+    return raw
+
+
+def _get_court_mutex(court_id: str | None) -> RLock:
+    if not court_id:
+        return single_court_mutex
+
+    with court_mutexes_guard:
+        mutex = court_mutexes.get(court_id)
+        if mutex is None:
+            mutex = RLock()
+            court_mutexes[court_id] = mutex
+        return mutex
+
+
+def lock_single_court_if_supported(db: Session, court_id: str | None = None) -> None:
     if db.bind and db.bind.dialect.name == 'postgresql':
+        if court_id:
+            db.execute(text('SELECT pg_advisory_xact_lock(:lock_key)').bindparams(lock_key=_court_lock_key(court_id)))
+            return
         db.execute(text('SELECT pg_advisory_xact_lock(424242)'))
 
 
 @contextmanager
-def acquire_single_court_lock(db: Session):
-    single_court_mutex.acquire()
+def acquire_single_court_lock(db: Session, court_id: str | None = None):
+    mutex = _get_court_mutex(court_id)
+    mutex.acquire()
     try:
-        lock_single_court_if_supported(db)
+        lock_single_court_if_supported(db, court_id)
         yield
     finally:
-        single_court_mutex.release()
+        mutex.release()
 
 
 def log_event(
@@ -285,13 +313,16 @@ def assert_slot_available(
     *,
     start_at: datetime,
     end_at: datetime,
+    court_id: str | None = None,
     exclude_booking_id: str | None = None,
     exclude_recurring_series_id: str | None = None,
     club_id: str | None = None,
 ) -> None:
     resolved_club_id = club_id or get_default_club_id(db)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
     overlap_filters = [
         Booking.club_id == resolved_club_id,
+        Booking.court_id == court.id,
         Booking.start_at < end_at,
         Booking.end_at > start_at,
         Booking.status.in_(BLOCKING_STATUSES),
@@ -308,6 +339,7 @@ def assert_slot_available(
     blackout = db.scalar(
         select(BlackoutPeriod).where(
             BlackoutPeriod.club_id == resolved_club_id,
+            BlackoutPeriod.court_id == court.id,
             BlackoutPeriod.is_active.is_(True),
             BlackoutPeriod.start_at < end_at,
             BlackoutPeriod.end_at > start_at,
@@ -322,12 +354,14 @@ def build_daily_slots(
     *,
     booking_date: date,
     duration_minutes: int,
+    court_id: str | None = None,
     club_id: str | None = None,
     club_timezone: str | None = None,
 ) -> list[dict]:
     slots: list[dict] = []
     now_utc = datetime.now(UTC)
     resolved_club_id = club_id or get_default_club_id(db)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
     resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
     local_timezone = _slot_zoneinfo(resolved_timezone)
 
@@ -352,7 +386,7 @@ def build_daily_slots(
 
             if available:
                 try:
-                    assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
+                    assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id, court_id=court.id)
                 except HTTPException as exc:
                     available = False
                     reason = str(exc.detail)
@@ -366,11 +400,40 @@ def build_daily_slots(
                 'end_time': local_end.strftime('%H:%M'),
                 'display_start_time': slot_display_time(local_start, timezone_name=resolved_timezone),
                 'display_end_time': slot_display_time((start_at + timedelta(minutes=duration_minutes)).astimezone(local_timezone), timezone_name=resolved_timezone),
+                'court_id': court.id,
+                'court_name': court.name,
                 'available': available,
                 'reason': reason,
             }
         )
     return slots
+
+
+def build_daily_slots_grouped_by_court(
+    db: Session,
+    *,
+    booking_date: date,
+    duration_minutes: int,
+    club_id: str | None = None,
+    club_timezone: str | None = None,
+) -> list[dict]:
+    resolved_club_id = club_id or get_default_club_id(db)
+    courts = list_courts(db, club_id=resolved_club_id, include_inactive=False)
+    return [
+        {
+            'court_id': court.id,
+            'court_name': court.name,
+            'slots': build_daily_slots(
+                db,
+                booking_date=booking_date,
+                duration_minutes=duration_minutes,
+                court_id=court.id,
+                club_id=resolved_club_id,
+                club_timezone=club_timezone,
+            ),
+        }
+        for court in courts
+    ]
 
 
 def create_public_booking(
@@ -386,11 +449,13 @@ def create_public_booking(
     booking_date: date,
     start_time_value: str,
     slot_id: str | None,
+    court_id: str | None = None,
     duration_minutes: int,
     payment_provider: PaymentProvider,
 ) -> Booking:
-    with acquire_single_court_lock(db):
-        resolved_club_id = club_id or get_default_club_id(db)
+    resolved_club_id = club_id or get_default_club_id(db)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
+    with acquire_single_court_lock(db, court.id):
         resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         if not _is_public_provider_available(payment_provider):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_public_provider_unavailable_detail(payment_provider))
@@ -402,11 +467,12 @@ def create_public_booking(
             slot_id=slot_id,
             timezone_name=resolved_timezone,
         )
-        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
+        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id, court_id=court.id)
 
         customer = get_or_create_customer(db, club_id=resolved_club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
         booking = Booking(
             club_id=resolved_club_id,
+            court_id=court.id,
             public_reference=make_public_reference(),
             customer_id=customer.id,
             start_at=start_at,
@@ -440,6 +506,7 @@ def create_admin_booking(
     booking_date: date,
     start_time_value: str,
     slot_id: str | None = None,
+    court_id: str | None = None,
     duration_minutes: int,
     payment_provider: PaymentProvider,
     actor: str,
@@ -448,8 +515,9 @@ def create_admin_booking(
     source: BookingSource = BookingSource.ADMIN_MANUAL,
     recurring_series_id: str | None = None,
 ) -> Booking:
-    with acquire_single_court_lock(db):
-        resolved_club_id = club_id or get_default_club_id(db)
+    resolved_club_id = club_id or get_default_club_id(db)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
+    with acquire_single_court_lock(db, court.id):
         resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         local_start, start_at, end_at = parse_slot(
             booking_date,
@@ -458,11 +526,12 @@ def create_admin_booking(
             slot_id=slot_id,
             timezone_name=resolved_timezone,
         )
-        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id)
+        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id, court_id=court.id)
 
         customer = get_or_create_customer(db, club_id=resolved_club_id, first_name=first_name, last_name=last_name, phone=phone, email=email, note=note)
         booking = Booking(
             club_id=resolved_club_id,
+            court_id=court.id,
             public_reference=make_public_reference(),
             customer_id=customer.id,
             start_at=start_at,
@@ -505,6 +574,7 @@ def update_booking_by_admin(
     booking_date: date,
     start_time_value: str,
     slot_id: str | None,
+    court_id: str | None,
     duration_minutes: int,
     note: str | None,
     actor: str,
@@ -516,6 +586,7 @@ def update_booking_by_admin(
     if as_utc(booking.start_at) <= datetime.now(UTC):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Puoi modificare solo prenotazioni future')
 
+    court = resolve_court(db, club_id=booking.club_id, court_id=court_id or booking.court_id)
     resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=booking.club_id, club_timezone=club_timezone)
     local_start, start_at, end_at = parse_slot(
         booking_date,
@@ -533,9 +604,10 @@ def update_booking_by_admin(
             detail='Durata non modificabile: cambierebbe la caparra già incassata',
         )
 
-    assert_slot_available(db, start_at=start_at, end_at=end_at, exclude_booking_id=booking.id, club_id=booking.club_id)
+    assert_slot_available(db, start_at=start_at, end_at=end_at, exclude_booking_id=booking.id, club_id=booking.club_id, court_id=court.id)
 
     previous_payload = {
+        'court_id': booking.court_id,
         'booking_date': booking.booking_date_local.isoformat(),
         'start_at': as_utc(booking.start_at).isoformat(),
         'end_at': as_utc(booking.end_at).isoformat(),
@@ -545,6 +617,7 @@ def update_booking_by_admin(
 
     booking.start_at = start_at
     booking.end_at = end_at
+    booking.court_id = court.id
     booking.booking_date_local = local_start.date()
     booking.duration_minutes = duration_minutes
     booking.note = note
@@ -560,6 +633,7 @@ def update_booking_by_admin(
         payload={
             'before': previous_payload,
             'after': {
+                'court_id': booking.court_id,
                 'booking_date': booking.booking_date_local.isoformat(),
                 'start_at': as_utc(booking.start_at).isoformat(),
                 'end_at': as_utc(booking.end_at).isoformat(),
@@ -768,7 +842,7 @@ def mark_booking_paid(
             return booking
 
         try:
-            assert_slot_available(db, start_at=booking.start_at, end_at=booking.end_at, exclude_booking_id=booking.id, club_id=booking.club_id)
+            assert_slot_available(db, start_at=booking.start_at, end_at=booking.end_at, exclude_booking_id=booking.id, club_id=booking.club_id, court_id=booking.court_id)
         except HTTPException:
             if booking.status == BookingStatus.EXPIRED:
                 log_event(db, booking, 'LATE_PAYMENT_CONFLICT', 'Pagamento arrivato dopo la scadenza con slot non più disponibile', actor='payment')
@@ -856,6 +930,7 @@ def list_bookings(
     stmt = (
         select(Booking)
         .options(selectinload(Booking.customer), selectinload(Booking.recurring_series))
+        .options(selectinload(Booking.court))
         .where(Booking.club_id == resolved_club_id)
         .order_by(Booking.start_at.asc())
     )
@@ -887,14 +962,15 @@ def list_bookings(
     return items, len(items)
 
 
-def create_blackout(db: Session, *, title: str, reason: str | None, start_at: datetime, end_at: datetime, actor: str, club_id: str | None = None) -> BlackoutPeriod:
+def create_blackout(db: Session, *, title: str, reason: str | None, start_at: datetime, end_at: datetime, actor: str, court_id: str | None = None, club_id: str | None = None) -> BlackoutPeriod:
     if end_at <= start_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Intervallo blackout non valido')
 
     resolved_club_id = club_id or get_default_club_id(db)
-    blackout = BlackoutPeriod(club_id=resolved_club_id, title=title.strip(), reason=reason, start_at=start_at, end_at=end_at, created_by=actor)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
+    blackout = BlackoutPeriod(club_id=resolved_club_id, court_id=court.id, title=title.strip(), reason=reason, start_at=start_at, end_at=end_at, created_by=actor)
     db.add(blackout)
-    log_event(db, None, 'BLACKOUT_CREATED', f'Blackout creato: {title}', actor=actor, club_id=resolved_club_id)
+    log_event(db, None, 'BLACKOUT_CREATED', f'Blackout creato: {title}', actor=actor, club_id=resolved_club_id, payload={'court_id': court.id})
     return blackout
 
 
@@ -929,12 +1005,14 @@ def preview_recurring_occurrences(
     end_date: date,
     start_time_value: str,
     slot_id: str | None = None,
+    court_id: str | None = None,
     duration_minutes: int,
     exclude_recurring_series_id: str | None = None,
     club_id: str | None = None,
     club_timezone: str | None = None,
 ) -> list[dict]:
     resolved_club_id = club_id or get_default_club_id(db)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
     resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
     local_timezone = _slot_zoneinfo(resolved_timezone)
     _validate_recurring_weekday(start_date, weekday)
@@ -967,6 +1045,7 @@ def preview_recurring_occurrences(
                 end_at=end_at,
                 exclude_recurring_series_id=exclude_recurring_series_id,
                 club_id=resolved_club_id,
+                court_id=court.id,
             )
             available = True
             reason = None
@@ -996,13 +1075,15 @@ def create_recurring_series(
     end_date: date,
     start_time_value: str,
     slot_id: str | None = None,
+    court_id: str | None = None,
     duration_minutes: int,
     actor: str,
     club_id: str | None = None,
     club_timezone: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
-    with acquire_single_court_lock(db):
-        resolved_club_id = club_id or get_default_club_id(db)
+    resolved_club_id = club_id or get_default_club_id(db)
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
+    with acquire_single_court_lock(db, court.id):
         resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         recurring_weekday = _validate_recurring_weekday(start_date, weekday)
         occurrences = preview_recurring_occurrences(
@@ -1013,6 +1094,7 @@ def create_recurring_series(
             end_date=end_date,
             start_time_value=start_time_value,
             slot_id=slot_id,
+            court_id=court.id,
             duration_minutes=duration_minutes,
             club_id=resolved_club_id,
             club_timezone=resolved_timezone,
@@ -1021,6 +1103,7 @@ def create_recurring_series(
 
         series = RecurringBookingSeries(
             club_id=resolved_club_id,
+            court_id=court.id,
             label=label,
             weekday=recurring_weekday,
             start_time=time.fromisoformat(start_time_value),
@@ -1067,6 +1150,7 @@ def create_recurring_series(
             )
             booking = Booking(
                 club_id=resolved_club_id,
+                court_id=court.id,
                 public_reference=make_public_reference(),
                 start_at=start_at,
                 end_at=end_at,
@@ -1121,13 +1205,18 @@ def update_recurring_series(
     end_date: date,
     start_time_value: str,
     slot_id: str | None = None,
+    court_id: str | None = None,
     duration_minutes: int,
     actor: str,
     club_id: str | None = None,
     club_timezone: str | None = None,
 ) -> tuple[RecurringBookingSeries, list[Booking], list[dict]]:
-    with acquire_single_court_lock(db):
-        resolved_club_id = club_id or get_default_club_id(db)
+    resolved_club_id = club_id or get_default_club_id(db)
+    existing_series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id, RecurringBookingSeries.club_id == resolved_club_id))
+    if not existing_series:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
+    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id or existing_series.court_id)
+    with acquire_single_court_lock(db, court.id):
         resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
         series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id, RecurringBookingSeries.club_id == resolved_club_id))
         if not series:
@@ -1143,6 +1232,7 @@ def update_recurring_series(
             end_date=end_date,
             start_time_value=start_time_value,
             slot_id=slot_id,
+            court_id=court.id,
             duration_minutes=duration_minutes,
             exclude_recurring_series_id=series_id,
             club_id=resolved_club_id,
@@ -1183,6 +1273,7 @@ def update_recurring_series(
                 skipped_existing_count += 1
 
         series.label = label
+        series.court_id = court.id
         series.weekday = recurring_weekday
         series.start_time = time.fromisoformat(start_time_value)
         series.duration_minutes = duration_minutes
@@ -1225,6 +1316,7 @@ def update_recurring_series(
             )
             booking = Booking(
                 club_id=resolved_club_id,
+                court_id=court.id,
                 public_reference=make_public_reference(),
                 start_at=start_at,
                 end_at=end_at,

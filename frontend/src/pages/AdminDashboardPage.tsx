@@ -9,6 +9,7 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import {
+  createAdminCourt,
   createAdminBooking,
   createBlackout,
   createRecurring,
@@ -16,12 +17,14 @@ import {
   getAdminSession,
   getAdminSettings,
   getSubscriptionStatus,
+  listAdminCourts,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
+  updateAdminCourt,
   updateAdminSettings,
 } from '../services/adminApi';
-import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse, SubscriptionStatusBanner } from '../types';
+import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, CourtSummary, RecurringOccurrence, RecurringSeriesPayload, ReportResponse, SubscriptionStatusBanner } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateInputValue } from '../utils/format';
 
@@ -65,6 +68,7 @@ export function AdminDashboardPage() {
   const [session, setSession] = useState<AdminSession | null>(null);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [blackouts, setBlackouts] = useState<BlackoutItem[]>([]);
+  const [courts, setCourts] = useState<CourtSummary[]>([]);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionStatusBanner | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,6 +77,9 @@ export function AdminDashboardPage() {
   const [recurringFeedback, setRecurringFeedback] = useState<FeedbackState>(null);
   const [blackoutFeedback, setBlackoutFeedback] = useState<FeedbackState>(null);
   const [settingsFeedback, setSettingsFeedback] = useState<FeedbackState>(null);
+  const [courtsFeedback, setCourtsFeedback] = useState<FeedbackState>(null);
+  const [courtDrafts, setCourtDrafts] = useState<Record<string, string>>({});
+  const [newCourtName, setNewCourtName] = useState('Campo 2');
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
     last_name: 'Rossi',
@@ -80,12 +87,14 @@ export function AdminDashboardPage() {
     email: 'mario@example.com',
     note: '',
     booking_date: today,
+    court_id: null,
     start_time: '',
     slot_id: null,
     duration_minutes: 90,
     payment_provider: 'NONE',
   });
   const [blackoutForm, setBlackoutForm] = useState({
+    court_id: null as string | null,
     title: 'Manutenzione ordinaria',
     reason: 'Pulizia e controllo rete',
     start_at: `${today}T12:00`,
@@ -93,6 +102,7 @@ export function AdminDashboardPage() {
   });
   const [recurringForm, setRecurringForm] = useState<RecurringSeriesPayload>({
     label: 'Allenamento fisso',
+    court_id: null,
     weekday: getRecurringWeekday(today),
     start_date: today,
     end_date: addWeeksToDateInput(today, 5),
@@ -106,6 +116,17 @@ export function AdminDashboardPage() {
   useEffect(() => {
     void bootstrap();
   }, [tenantSlug]);
+
+  useEffect(() => {
+    const defaultCourtId = courts[0]?.id;
+    if (!defaultCourtId) {
+      return;
+    }
+
+    setManualForm((prev) => (prev.court_id ? prev : { ...prev, court_id: defaultCourtId }));
+    setBlackoutForm((prev) => (prev.court_id ? prev : { ...prev, court_id: defaultCourtId }));
+    setRecurringForm((prev) => (prev.court_id ? prev : { ...prev, court_id: defaultCourtId }));
+  }, [courts]);
 
   function redirectToLogin() {
     navigate(withTenantPath('/admin/login', tenantSlug));
@@ -128,7 +149,7 @@ export function AdminDashboardPage() {
     }
 
     try {
-      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadSettings(), loadSubscription()]);
+      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadCourts(), loadSettings(), loadSubscription()]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
         redirectToLogin();
@@ -152,6 +173,17 @@ export function AdminDashboardPage() {
   async function loadBlackouts() {
     const response = await listBlackouts();
     setBlackouts(response);
+  }
+
+  async function loadCourts() {
+    try {
+      const response = await listAdminCourts();
+      setCourts(response.items);
+      setCourtDrafts(Object.fromEntries(response.items.map((court) => [court.id, court.name])));
+    } catch {
+      setCourts([]);
+      setCourtDrafts({});
+    }
   }
 
   async function loadSettings() {
@@ -285,6 +317,37 @@ export function AdminDashboardPage() {
     }
   }
 
+  async function createCourt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCourtsFeedback(null);
+
+    try {
+      await createAdminCourt(newCourtName);
+      await loadCourts();
+      setNewCourtName(`Campo ${courts.length + 2}`);
+      setCourtsFeedback({ tone: 'success', message: 'Campo creato correttamente.' });
+    } catch (error: any) {
+      setCourtsFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione campo non riuscita.' });
+    }
+  }
+
+  async function renameCourt(courtId: string) {
+    const nextName = (courtDrafts[courtId] || '').trim();
+    if (!nextName) {
+      setCourtsFeedback({ tone: 'error', message: 'Inserisci un nome campo valido.' });
+      return;
+    }
+
+    setCourtsFeedback(null);
+    try {
+      await updateAdminCourt(courtId, nextName);
+      await loadCourts();
+      setCourtsFeedback({ tone: 'success', message: 'Nome campo aggiornato.' });
+    } catch (error: any) {
+      setCourtsFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Aggiornamento campo non riuscito.' });
+    }
+  }
+
   async function logout() {
     await logoutAdmin(tenantSlug);
     redirectToLogin();
@@ -341,6 +404,24 @@ export function AdminDashboardPage() {
                 </div>
 
                 <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
+                  {courts.length > 0 ? (
+                    <div>
+                      <label className='field-label' htmlFor='admin-manual-court'>Campo</label>
+                      <select
+                        id='admin-manual-court'
+                        className='text-input'
+                        value={manualForm.court_id || ''}
+                        onChange={(event) => setManualForm((prev) => ({ ...prev, court_id: event.target.value || null, start_time: '', slot_id: null }))}
+                      >
+                        {courts.map((court) => (
+                          <option key={court.id} value={court.id}>{court.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
                   <DateFieldWithDay
                     id='admin-manual-date'
                     label='Data prenotazione'
@@ -365,8 +446,10 @@ export function AdminDashboardPage() {
                   <p className='field-label'>Orario</p>
                   <AdminTimeSlotPicker
                     bookingDate={manualForm.booking_date}
+                    courtId={manualForm.court_id}
                     durationMinutes={manualForm.duration_minutes}
                     selectedSlotId={manualForm.slot_id || ''}
+                    tenantSlug={tenantSlug}
                     onSelect={(slot) => setManualForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }))}
                   />
                 </div>
@@ -389,6 +472,21 @@ export function AdminDashboardPage() {
                 </div>
 
                 <div className='grid gap-4 sm:grid-cols-2'>
+                  {courts.length > 0 ? (
+                    <div>
+                      <label className='field-label' htmlFor='admin-recurring-court'>Campo</label>
+                      <select
+                        id='admin-recurring-court'
+                        className='text-input'
+                        value={recurringForm.court_id || ''}
+                        onChange={(event) => setRecurringForm((prev) => ({ ...prev, court_id: event.target.value || null, start_time: '', slot_id: null }))}
+                      >
+                        {courts.map((court) => (
+                          <option key={court.id} value={court.id}>{court.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                   <DateFieldWithDay
                     id='admin-recurring-date'
                     label='Data di partenza'
@@ -447,8 +545,10 @@ export function AdminDashboardPage() {
                   <p className='field-label'>Orario della serie</p>
                   <AdminTimeSlotPicker
                     bookingDate={recurringForm.start_date}
+                    courtId={recurringForm.court_id}
                     durationMinutes={recurringForm.duration_minutes}
                     selectedSlotId={recurringForm.slot_id || ''}
+                    tenantSlug={tenantSlug}
                     onSelect={(slot) => {
                       setRecurringForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }));
                     }}
@@ -477,6 +577,21 @@ export function AdminDashboardPage() {
           <div className='space-y-6'>
             <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.' collapsible defaultExpanded={false} collapsedUniform>
               <form className='mt-4 space-y-3' onSubmit={submitBlackout}>
+                {courts.length > 0 ? (
+                  <div>
+                    <label className='field-label' htmlFor='admin-blackout-court'>Campo</label>
+                    <select
+                      id='admin-blackout-court'
+                      className='text-input'
+                      value={blackoutForm.court_id || ''}
+                      onChange={(event) => setBlackoutForm((prev) => ({ ...prev, court_id: event.target.value || null }))}
+                    >
+                      {courts.map((court) => (
+                        <option key={court.id} value={court.id}>{court.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <div>
                   <label className='field-label' htmlFor='admin-blackout-title'>Titolo blackout</label>
                   <input id='admin-blackout-title' className='text-input' value={blackoutForm.title} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, title: event.target.value }))} />
@@ -522,6 +637,7 @@ export function AdminDashboardPage() {
                   blackouts.slice(0, 3).map((blackout) => (
                     <div key={blackout.id} className='rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700'>
                       <p className='font-semibold text-slate-900'>{blackout.title}</p>
+                      {blackout.court_name ? <p className='mt-1 text-xs font-medium text-slate-500'>{blackout.court_name}</p> : null}
                       <p className='mt-1'>{formatDateTime(blackout.start_at, adminTimezone)} → {formatDateTime(blackout.end_at, adminTimezone)}</p>
                     </div>
                   ))
@@ -588,6 +704,34 @@ export function AdminDashboardPage() {
                         <input id='admin-settings-non-member-ninety-rate' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.non_member_ninety_minute_rate} onChange={(event) => setSettings((prev) => prev ? { ...prev, non_member_ninety_minute_rate: Number(event.target.value) } : prev)} />
                       </div>
                     </div>
+                  </div>
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Crea un nuovo campo o rinomina i campi gia presenti dal pannello admin.</p>
+                    <form className='mt-4 flex flex-col gap-3 sm:flex-row' onSubmit={createCourt}>
+                      <input
+                        className='text-input flex-1'
+                        value={newCourtName}
+                        onChange={(event) => setNewCourtName(event.target.value)}
+                        placeholder='Nome nuovo campo'
+                      />
+                      <button className='btn-primary sm:w-auto' type='submit'>Crea campo</button>
+                    </form>
+                    <div className='mt-4 space-y-3'>
+                      {courts.length === 0 ? <p className='text-sm text-slate-500'>Nessun campo caricato al momento.</p> : courts.map((court) => (
+                        <div key={court.id} className='flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center'>
+                          <input
+                            className='text-input flex-1'
+                            value={courtDrafts[court.id] ?? court.name}
+                            onChange={(event) => setCourtDrafts((prev) => ({ ...prev, [court.id]: event.target.value }))}
+                          />
+                          <button className='btn-secondary sm:w-auto' type='button' onClick={() => void renameCourt(court.id)}>
+                            Salva nome
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {courtsFeedback ? <div className='mt-4'><AlertBanner tone={courtsFeedback.tone}>{courtsFeedback.message}</AlertBanner></div> : null}
                   </div>
                   <div className='surface-muted'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Provider</p>

@@ -14,6 +14,8 @@ import type {
   BookingDetail,
   BookingListResponse,
   BookingSummary,
+  CourtListResponse,
+  CourtSummary,
   RecurringCancelResponse,
   RecurringCreateResponse,
   RecurringPreviewResponse,
@@ -139,6 +141,21 @@ export async function cancelRecurringSeries(seriesId: string) {
 
 export async function deleteRecurringSeries(seriesId: string) {
   const response = await api.post<ApiMessage>(`/admin/recurring/${seriesId}/delete`);
+  return response.data;
+}
+
+export async function listAdminCourts() {
+  const response = await api.get<CourtListResponse>('/admin/courts');
+  return response.data;
+}
+
+export async function createAdminCourt(name: string) {
+  const response = await api.post<CourtSummary>('/admin/courts', { name });
+  return response.data;
+}
+
+export async function updateAdminCourt(courtId: string, name: string) {
+  const response = await api.put<CourtSummary>(`/admin/courts/${courtId}`, { name });
   return response.data;
 }
 

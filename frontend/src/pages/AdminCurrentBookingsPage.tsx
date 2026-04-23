@@ -433,6 +433,7 @@ export function AdminCurrentBookingsPage() {
                                   </div>
                                   <p className='mt-2 text-sm text-slate-700'>{label}</p>
                                   {booking.recurring_series_label ? <p className='mt-1 text-xs font-medium text-cyan-700'>{booking.recurring_series_label}</p> : null}
+                                  {booking.court_name ? <p className='mt-1 text-xs font-medium text-slate-500'>{booking.court_name}</p> : null}
                                   {booking.recurring_series_label ? <p className='mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700'>Serie ricorrente</p> : null}
                                   <div className='mt-2 flex items-center gap-2 text-xs text-slate-500'>
                                     <CalendarDays size={12} />

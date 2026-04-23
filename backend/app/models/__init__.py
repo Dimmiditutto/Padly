@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import event, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import settings
@@ -70,6 +71,7 @@ class Club(Base):
 
     domains: Mapped[list['ClubDomain']] = relationship(back_populates='club', cascade='all, delete-orphan')
     admins: Mapped[list['Admin']] = relationship(back_populates='club')
+    courts: Mapped[list['Court']] = relationship(back_populates='club', cascade='all, delete-orphan')
     customers: Mapped[list['Customer']] = relationship(back_populates='club')
     recurring_series: Mapped[list['RecurringBookingSeries']] = relationship(back_populates='club')
     bookings: Mapped[list['Booking']] = relationship(back_populates='club')
@@ -126,11 +128,30 @@ class Customer(Base):
     bookings: Mapped[list['Booking']] = relationship(back_populates='customer')
 
 
+class Court(Base):
+    __tablename__ = 'courts'
+    __table_args__ = (UniqueConstraint('club_id', 'name', name='uq_courts_club_name'),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    name: Mapped[str] = mapped_column(String(140))
+    sort_order: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='courts')
+    bookings: Mapped[list['Booking']] = relationship(back_populates='court')
+    recurring_series: Mapped[list['RecurringBookingSeries']] = relationship(back_populates='court')
+    blackouts: Mapped[list['BlackoutPeriod']] = relationship(back_populates='court')
+
+
 class RecurringBookingSeries(Base):
     __tablename__ = 'recurring_booking_series'
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    court_id: Mapped[str] = mapped_column(ForeignKey('courts.id'), index=True)
     label: Mapped[str] = mapped_column(String(140))
     weekday: Mapped[int] = mapped_column(Integer)
     start_time: Mapped[time] = mapped_column()
@@ -142,6 +163,7 @@ class RecurringBookingSeries(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     club: Mapped['Club'] = relationship(back_populates='recurring_series')
+    court: Mapped['Court'] = relationship(back_populates='recurring_series')
     bookings: Mapped[list['Booking']] = relationship(back_populates='recurring_series')
 
 
@@ -151,6 +173,7 @@ class Booking(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    court_id: Mapped[str] = mapped_column(ForeignKey('courts.id'), index=True)
     public_reference: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
     customer_id: Mapped[str | None] = mapped_column(ForeignKey('customers.id'), nullable=True, index=True)
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -177,9 +200,11 @@ class Booking(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     club: Mapped['Club'] = relationship(back_populates='bookings')
+    court: Mapped['Court'] = relationship(back_populates='bookings')
     customer: Mapped[Customer | None] = relationship(back_populates='bookings')
     payments: Mapped[list['BookingPayment']] = relationship(back_populates='booking', cascade='all, delete-orphan')
     events: Mapped[list['BookingEventLog']] = relationship(back_populates='booking', cascade='all, delete-orphan')
+    email_notifications: Mapped[list['EmailNotificationLog']] = relationship(back_populates='booking')
     recurring_series: Mapped[RecurringBookingSeries | None] = relationship(back_populates='bookings')
 
     @property
@@ -195,6 +220,10 @@ class Booking(Base):
     @property
     def customer_phone(self) -> str | None:
         return self.customer.phone if self.customer else None
+
+    @property
+    def court_name(self) -> str | None:
+        return self.court.name if self.court else None
 
     @property
     def recurring_series_label(self) -> str | None:
@@ -257,6 +286,7 @@ class BlackoutPeriod(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True)
+    court_id: Mapped[str] = mapped_column(ForeignKey('courts.id'), index=True)
     title: Mapped[str] = mapped_column(String(140))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -266,6 +296,7 @@ class BlackoutPeriod(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     club: Mapped['Club'] = relationship(back_populates='blackouts')
+    court: Mapped['Court'] = relationship(back_populates='blackouts')
 
 
 class AppSetting(Base):
@@ -385,3 +416,63 @@ class EmailNotificationLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     club: Mapped['Club'] = relationship(back_populates='email_notifications')
+    booking: Mapped['Booking | None'] = relationship(back_populates='email_notifications')
+
+_DEFAULT_COURT_NAME = 'Campo 1'
+
+def _ensure_default_court_id(connection, club_id: str) -> str:
+    court_table = Court.__table__
+    existing_court_id = connection.execute(
+        select(court_table.c.id)
+        .where(court_table.c.club_id == club_id)
+        .order_by(court_table.c.sort_order.asc(), court_table.c.created_at.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if existing_court_id:
+        return existing_court_id
+
+    court_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    connection.execute(
+        court_table.insert().values(
+            id=court_id,
+            club_id=club_id,
+            name=_DEFAULT_COURT_NAME,
+            sort_order=1,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    return court_id
+
+
+@event.listens_for(Club, 'after_insert')
+def _seed_default_court_for_new_club(mapper, connection, target) -> None:
+    _ensure_default_court_id(connection, target.id)
+
+
+def _assign_default_court_if_missing(connection, target) -> None:
+    if getattr(target, 'court_id', None):
+        return
+
+    club_id = getattr(target, 'club_id', None) or DEFAULT_CLUB_ID
+    if not getattr(target, 'club_id', None):
+        target.club_id = club_id
+
+    target.court_id = _ensure_default_court_id(connection, club_id)
+
+
+@event.listens_for(Booking, 'before_insert')
+def _assign_booking_court_before_insert(mapper, connection, target) -> None:
+    _assign_default_court_if_missing(connection, target)
+
+
+@event.listens_for(RecurringBookingSeries, 'before_insert')
+def _assign_series_court_before_insert(mapper, connection, target) -> None:
+    _assign_default_court_if_missing(connection, target)
+
+
+@event.listens_for(BlackoutPeriod, 'before_insert')
+def _assign_blackout_court_before_insert(mapper, connection, target) -> None:
+    _assign_default_court_if_missing(connection, target)

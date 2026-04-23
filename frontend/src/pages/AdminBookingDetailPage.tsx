@@ -8,8 +8,8 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
-import { cancelRecurringSeries, getAdminBooking, getAdminSession, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
-import type { AdminBookingUpdatePayload, AdminSession, BookingDetail, RecurringSeriesPayload } from '../types';
+import { cancelRecurringSeries, getAdminBooking, getAdminSession, listAdminCourts, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
+import type { AdminBookingUpdatePayload, AdminSession, BookingDetail, CourtSummary, RecurringSeriesPayload } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { formatCurrency, formatDateTime, formatTimeValue, formatWeekdayLabel } from '../utils/format';
@@ -23,6 +23,7 @@ export function AdminBookingDetailPage() {
   const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [session, setSession] = useState<AdminSession | null>(null);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
+  const [courts, setCourts] = useState<CourtSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
@@ -33,6 +34,7 @@ export function AdminBookingDetailPage() {
   const [savingSeriesEdit, setSavingSeriesEdit] = useState(false);
   const [editForm, setEditForm] = useState<AdminBookingUpdatePayload>({
     booking_date: '',
+    court_id: null,
     start_time: '18:00',
     slot_id: null,
     duration_minutes: 90,
@@ -40,6 +42,7 @@ export function AdminBookingDetailPage() {
   });
   const [seriesForm, setSeriesForm] = useState<RecurringSeriesPayload>({
     label: '',
+    court_id: null,
     weekday: 0,
     start_date: '',
     end_date: '',
@@ -59,8 +62,12 @@ export function AdminBookingDetailPage() {
     try {
       const sessionResponse = await getAdminSession(tenantSlug);
       setSession(sessionResponse);
-      const detail = await getAdminBooking(bookingId);
+      const [detail, courtsResponse] = await Promise.all([
+        getAdminBooking(bookingId),
+        loadCourtsSafely(),
+      ]);
       setBooking(detail);
+      setCourts(courtsResponse.items);
       setEditForm(buildEditForm(detail, sessionResponse.timezone));
       setSeriesForm(buildRecurringSeriesForm(detail, sessionResponse.timezone));
       setEditing(false);
@@ -73,6 +80,14 @@ export function AdminBookingDetailPage() {
       setError(requestError?.response?.data?.detail || 'Non riesco a caricare il dettaglio prenotazione.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCourtsSafely() {
+    try {
+      return await listAdminCourts();
+    } catch {
+      return { items: [] };
     }
   }
 
@@ -225,6 +240,7 @@ export function AdminBookingDetailPage() {
               <div className='grid gap-4 sm:grid-cols-2'>
                 <InfoItem label='Riferimento' value={booking.public_reference} />
                 <InfoItem label='Durata' value={`${booking.duration_minutes} minuti`} />
+                <InfoItem label='Campo' value={booking.court_name || 'Campo non disponibile'} />
                 <InfoItem label='Inizio' value={formatDateTime(booking.start_at, session?.timezone)} />
                 <InfoItem label='Fine' value={formatDateTime(booking.end_at, session?.timezone)} />
                 {booking.recurring_series_label ? <InfoItem label='Serie ricorrente' value={booking.recurring_series_label} /> : null}
@@ -249,6 +265,21 @@ export function AdminBookingDetailPage() {
               <SectionCard title='Modifica slot' description='Aggiorna data, orario, durata e nota senza ricreare la prenotazione.'>
                 {editing ? (
                   <div className='space-y-4'>
+                    {courts.length > 0 ? (
+                      <div>
+                        <label className='field-label' htmlFor='admin-edit-court'>Campo</label>
+                        <select
+                          id='admin-edit-court'
+                          className='text-input'
+                          value={editForm.court_id || ''}
+                          onChange={(event) => setEditForm((prev) => ({ ...prev, court_id: event.target.value || null, start_time: '', slot_id: null }))}
+                        >
+                          {courts.map((court) => (
+                            <option key={court.id} value={court.id}>{court.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
                     <div className='grid gap-4 sm:grid-cols-[1fr_220px]'>
                       <DateFieldWithDay
                         id='admin-edit-date'
@@ -274,8 +305,10 @@ export function AdminBookingDetailPage() {
                       <p className='field-label'>Orario</p>
                       <AdminTimeSlotPicker
                         bookingDate={editForm.booking_date}
+                        courtId={editForm.court_id}
                         durationMinutes={editForm.duration_minutes}
                         selectedSlotId={editForm.slot_id || ''}
+                        tenantSlug={tenantSlug}
                         includeSelectedUnavailable
                         onSelect={(slot) => setEditForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }))}
                       />
@@ -323,6 +356,21 @@ export function AdminBookingDetailPage() {
                 <SectionCard title='Modifica intera serie' description='Sostituisce le occorrenze future con una nuova pianificazione ricorrente.'>
                   {editingSeries ? (
                     <div className='space-y-4'>
+                      {courts.length > 0 ? (
+                        <div>
+                          <label className='field-label' htmlFor='admin-series-court'>Campo</label>
+                          <select
+                            id='admin-series-court'
+                            className='text-input'
+                            value={seriesForm.court_id || ''}
+                            onChange={(event) => setSeriesForm((prev) => ({ ...prev, court_id: event.target.value || null, start_time: '', slot_id: null }))}
+                          >
+                            {courts.map((court) => (
+                              <option key={court.id} value={court.id}>{court.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
                       <div>
                         <label className='field-label' htmlFor='admin-series-label'>Nome serie ricorrente</label>
                         <input
@@ -377,8 +425,10 @@ export function AdminBookingDetailPage() {
                         <p className='field-label'>Orario della serie</p>
                         <AdminTimeSlotPicker
                           bookingDate={seriesForm.start_date}
+                          courtId={seriesForm.court_id}
                           durationMinutes={seriesForm.duration_minutes}
                           selectedSlotId={seriesForm.slot_id || ''}
+                          tenantSlug={tenantSlug}
                           includeSelectedUnavailable
                           onSelect={(slot) => setSeriesForm((prev) => ({ ...prev, start_time: slot.start_time, slot_id: slot.slot_id }))}
                         />
@@ -451,9 +501,10 @@ export function AdminBookingDetailPage() {
   );
 }
 
-function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'start_at' | 'duration_minutes' | 'note'>, timezone?: string | null): AdminBookingUpdatePayload {
+function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'court_id' | 'start_at' | 'duration_minutes' | 'note'>, timezone?: string | null): AdminBookingUpdatePayload {
   return {
     booking_date: booking.booking_date_local,
+    court_id: booking.court_id || null,
     start_time: formatTimeValue(booking.start_at, timezone),
     slot_id: booking.start_at,
     duration_minutes: booking.duration_minutes,
@@ -462,11 +513,12 @@ function buildEditForm(booking: Pick<BookingDetail, 'booking_date_local' | 'star
 }
 
 function buildRecurringSeriesForm(
-  booking: Pick<BookingDetail, 'booking_date_local' | 'start_at' | 'duration_minutes' | 'recurring_series_label' | 'recurring_series_end_date' | 'recurring_series_weekday'>,
+  booking: Pick<BookingDetail, 'booking_date_local' | 'court_id' | 'start_at' | 'duration_minutes' | 'recurring_series_label' | 'recurring_series_end_date' | 'recurring_series_weekday'>,
   timezone?: string | null,
 ): RecurringSeriesPayload {
   return {
     label: booking.recurring_series_label || 'Serie ricorrente',
+    court_id: booking.court_id || null,
     weekday: typeof booking.recurring_series_weekday === 'number' ? booking.recurring_series_weekday : getRecurringWeekday(booking.booking_date_local),
     start_date: booking.booking_date_local,
     end_date: booking.recurring_series_end_date || booking.booking_date_local,

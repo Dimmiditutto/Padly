@@ -18,6 +18,7 @@ from app.schemas.public import (
     PublicConfigResponse,
 )
 from app.services.booking_service import acquire_single_court_lock, as_utc, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking, expire_pending_booking_if_needed
+from app.services.booking_service import build_daily_slots_grouped_by_court
 from app.services.payment_service import (
     assert_checkout_available,
     get_booking_refund_snapshot,
@@ -103,17 +104,19 @@ def get_availability(
     current_club: Club = Depends(get_current_club_enforced),
     db: Session = Depends(get_db),
 ) -> AvailabilityResponse:
+    court_groups = build_daily_slots_grouped_by_court(
+        db,
+        booking_date=booking_date,
+        duration_minutes=duration_minutes,
+        club_id=current_club.id,
+        club_timezone=current_club.timezone,
+    )
     return AvailabilityResponse(
         date=booking_date,
         duration_minutes=duration_minutes,
         deposit_amount=calculate_deposit(duration_minutes),
-        slots=build_daily_slots(
-            db,
-            booking_date=booking_date,
-            duration_minutes=duration_minutes,
-            club_id=current_club.id,
-            club_timezone=current_club.timezone,
-        ),
+        slots=court_groups[0]['slots'] if len(court_groups) == 1 else [],
+        courts=court_groups,
     )
 
 
@@ -135,6 +138,7 @@ def create_booking(
             email=payload.email,
             note=payload.note,
             booking_date=payload.booking_date,
+            court_id=payload.court_id,
             start_time_value=payload.start_time,
             slot_id=payload.slot_id,
             duration_minutes=payload.duration_minutes,

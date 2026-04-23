@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.routers import admin_auth, admin_bookings, admin_ops, admin_settings, billing, payments, platform, public
+from app.api.routers import admin_auth, admin_bookings, admin_courts, admin_ops, admin_settings, billing, payments, platform, public
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.errors import register_exception_handlers
@@ -218,6 +218,7 @@ async def rate_limit_middleware(request: Request, call_next):
 app.include_router(public.router, prefix=settings.api_prefix)
 app.include_router(admin_auth.router, prefix=settings.api_prefix)
 app.include_router(admin_bookings.router, prefix=settings.api_prefix)
+app.include_router(admin_courts.router, prefix=settings.api_prefix)
 app.include_router(admin_ops.router, prefix=settings.api_prefix)
 app.include_router(admin_settings.router, prefix=settings.api_prefix)
 app.include_router(payments.router, prefix=settings.api_prefix)

@@ -10,6 +10,8 @@ export interface ApiMessage {
 
 export interface TimeSlot {
   slot_id: string;
+  court_id?: string | null;
+  court_name?: string | null;
   start_time: string;
   end_time: string;
   display_start_time: string;
@@ -18,9 +20,24 @@ export interface TimeSlot {
   reason?: string | null;
 }
 
+export interface CourtSummary {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface CourtAvailability {
+  court_id: string;
+  court_name: string;
+  slots: TimeSlot[];
+}
+
 export interface BookingSummary {
   id: string;
   public_reference: string;
+  court_id?: string | null;
+  court_name?: string | null;
   start_at: string;
   end_at: string;
   duration_minutes: number;
@@ -55,6 +72,8 @@ export interface BookingDetail extends BookingSummary {
 export interface PublicBookingSummary {
   id: string;
   public_reference: string;
+  court_id?: string | null;
+  court_name?: string | null;
   start_at: string;
   end_at: string;
   duration_minutes: number;
@@ -95,6 +114,7 @@ export interface AvailabilityResponse {
   duration_minutes: number;
   deposit_amount: number;
   slots: TimeSlot[];
+  courts?: CourtAvailability[];
 }
 
 export interface PublicBookingPayload {
@@ -104,6 +124,7 @@ export interface PublicBookingPayload {
   email: string;
   note: string;
   booking_date: string;
+  court_id?: string | null;
   start_time: string;
   slot_id?: string | null;
   duration_minutes: number;
@@ -177,6 +198,7 @@ export interface AdminBookingStatusPayload {
 
 export interface AdminBookingUpdatePayload {
   booking_date: string;
+  court_id?: string | null;
   start_time: string;
   slot_id?: string | null;
   duration_minutes: number;
@@ -190,6 +212,7 @@ export interface AdminManualBookingPayload {
   email: string;
   note: string;
   booking_date: string;
+  court_id?: string | null;
   start_time: string;
   slot_id?: string | null;
   duration_minutes: number;
@@ -197,6 +220,7 @@ export interface AdminManualBookingPayload {
 }
 
 export interface BlackoutPayload {
+  court_id?: string | null;
   title: string;
   reason: string;
   start_at: string;
@@ -205,6 +229,8 @@ export interface BlackoutPayload {
 
 export interface BlackoutItem {
   id: string;
+  court_id?: string | null;
+  court_name?: string | null;
   title: string;
   reason?: string | null;
   start_at: string;
@@ -224,6 +250,7 @@ export interface RecurringOccurrence {
 
 export interface RecurringSeriesPayload {
   label: string;
+  court_id?: string | null;
   weekday: number;
   start_date: string;
   end_date: string;
@@ -249,6 +276,10 @@ export interface RecurringCancelResponse {
   skipped_count: number;
   series_id?: string | null;
   booking_ids: string[];
+}
+
+export interface CourtListResponse {
+  items: CourtSummary[];
 }
 
 export interface AdminSession {

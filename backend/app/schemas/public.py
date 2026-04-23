@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import BookingStatus, PaymentProvider, PaymentStatus
-from app.schemas.common import BookingCustomerData, TimeSlot
+from app.schemas.common import BookingCustomerData, CourtAvailability, TimeSlot
 
 VALID_DURATIONS = {60, 90, 120, 150, 180, 210, 240, 270, 300}
 
@@ -20,11 +20,13 @@ class AvailabilityResponse(BaseModel):
     date: date
     duration_minutes: int
     deposit_amount: float
-    slots: list[TimeSlot]
+    slots: list[TimeSlot] = Field(default_factory=list)
+    courts: list[CourtAvailability] = Field(default_factory=list)
 
 
 class PublicBookingCreateRequest(BookingCustomerData):
     booking_date: date
+    court_id: str | None = None
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
     slot_id: str | None = None
     duration_minutes: int
@@ -103,6 +105,8 @@ class PublicBookingSummary(BaseModel):
 
     id: str
     public_reference: str
+    court_id: str
+    court_name: str | None = None
     start_at: datetime
     end_at: datetime
     duration_minutes: int

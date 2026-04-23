@@ -6,7 +6,7 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
 import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
-import type { PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
+import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
 
@@ -22,9 +22,10 @@ export function PublicBookingPage() {
   const tenantSlug = getTenantSlugFromSearchParams(searchParams);
   const [bookingDate, setBookingDate] = useState(today);
   const [duration, setDuration] = useState(90);
-  const [slots, setSlots] = useState<TimeSlot[]>([]);
+  const [courtGroups, setCourtGroups] = useState<CourtAvailability[]>([]);
   const [depositAmount, setDepositAmount] = useState<number>(20);
   const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
+  const [selectedCourtId, setSelectedCourtId] = useState('');
   const [selectedSlotId, setSelectedSlotId] = useState('');
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -41,7 +42,10 @@ export function PublicBookingPage() {
     privacy_accepted: false,
   });
   const bookingDayLabel = useMemo(() => formatBookingDayLabel(bookingDate, publicConfig?.timezone), [bookingDate, publicConfig?.timezone]);
-  const visibleSlots = useMemo(() => slots.filter(isSlotWithinOpeningHours), [slots]);
+  const visibleCourtGroups = useMemo(
+    () => courtGroups.map((group) => ({ ...group, slots: group.slots.filter(isSlotWithinOpeningHours) })),
+    [courtGroups]
+  );
   const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'PadelBooking';
   const playerRates = useMemo(() => buildPublicRateLines(publicConfig), [publicConfig]);
 
@@ -91,24 +95,34 @@ export function PublicBookingPage() {
     setLoadingSlots(true);
     setFeedback(null);
     setSelectedSlotId('');
+    setSelectedCourtId('');
     try {
       const response = await getAvailability(bookingDate, duration, tenantSlug);
-      setSlots(response.slots);
+      setCourtGroups(normalizeCourtGroups(response));
       setDepositAmount(Number(response.deposit_amount));
     } catch (error) {
       setFeedback({ tone: 'error', message: 'Non riesco a caricare gli slot disponibili in questo momento.' });
+      setCourtGroups([]);
     } finally {
       setLoadingSlots(false);
     }
   }
 
   const selectedSlot = useMemo(
-    () => visibleSlots.find((slot) => slot.slot_id === selectedSlotId),
-    [selectedSlotId, visibleSlots]
+    () => flattenCourtSlots(visibleCourtGroups).find((slot) => slot.slot_id === selectedSlotId && (!selectedCourtId || slot.court_id === selectedCourtId)),
+    [selectedCourtId, selectedSlotId, visibleCourtGroups]
+  );
+  const selectedCourt = useMemo(
+    () => visibleCourtGroups.find((group) => group.court_id === selectedCourtId) || courtGroups.find((group) => group.court_id === selectedCourtId) || null,
+    [courtGroups, selectedCourtId, visibleCourtGroups]
+  );
+  const selectedCourtSlots = useMemo(
+    () => visibleCourtGroups.find((group) => group.court_id === selectedCourtId)?.slots || [],
+    [selectedCourtId, visibleCourtGroups]
   );
   const highlightedSlotIds = useMemo(
-    () => buildHighlightedSlotIds(visibleSlots, selectedSlotId, duration),
-    [duration, selectedSlotId, visibleSlots]
+    () => buildHighlightedSlotIds(selectedCourtSlots, selectedSlotId, duration),
+    [duration, selectedCourtSlots, selectedSlotId]
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -131,6 +145,7 @@ export function PublicBookingPage() {
         {
           ...formData,
           booking_date: bookingDate,
+          court_id: selectedCourtId || selectedSlot.court_id || null,
           start_time: selectedSlot.start_time,
           slot_id: selectedSlot.slot_id,
           duration_minutes: duration,
@@ -268,12 +283,35 @@ export function PublicBookingPage() {
 
               <div className='mt-5'>
                 <div className='mb-3 flex items-center justify-between'>
-                  <p className={secondarySectionTitleClassName}>Orari disponibili</p>
+                  <p className={secondarySectionTitleClassName}>Orari disponibili per campo</p>
                   {loadingSlots && <p className='text-sm text-slate-500'>Aggiornamento in corso…</p>}
                 </div>
-                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : <SlotGrid slots={visibleSlots} selectedSlotId={selectedSlotId} highlightedSlotIds={highlightedSlotIds} onSelect={setSelectedSlotId} />}
+                {loadingSlots ? <LoadingBlock label='Sto caricando gli slot disponibili…' /> : visibleCourtGroups.length === 0 ? <SlotGrid slots={[]} selectedSlotId={selectedSlotId} highlightedSlotIds={[]} onSelect={setSelectedSlotId} /> : (
+                  <div className='space-y-4'>
+                    {visibleCourtGroups.map((group) => (
+                      <div key={group.court_id} className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                        <div className='mb-3 flex items-center justify-between gap-3'>
+                          <div>
+                            <p className='text-sm font-semibold text-slate-900'>{group.court_name}</p>
+                            <p className='text-xs text-slate-500'>Slot disponibili aggiornati in tempo reale per questo campo.</p>
+                          </div>
+                          <span className='rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600'>Campo</span>
+                        </div>
+                        <SlotGrid
+                          slots={group.slots}
+                          selectedSlotId={selectedCourtId === group.court_id ? selectedSlotId : ''}
+                          highlightedSlotIds={selectedCourtId === group.court_id ? highlightedSlotIds : []}
+                          onSelect={(slotId) => {
+                            setSelectedCourtId(group.court_id);
+                            setSelectedSlotId(slotId);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {selectedSlot && (
-                  <p className='mt-3 text-sm font-medium text-emerald-700'>Hai selezionato {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
+                  <p className='mt-3 text-sm font-medium text-emerald-700'>Hai selezionato {selectedCourt?.court_name || 'il campo'} • {selectedSlot.display_start_time} → {selectedSlot.display_end_time}</p>
                 )}
               </div>
             </SectionCard>
@@ -337,6 +375,7 @@ export function PublicBookingPage() {
                 <div className='rounded-2xl bg-cyan-50 p-4 text-sm text-slate-700'>
                   <p className={secondarySectionTitleClassName}>Riepilogo</p>
                   <p className='mt-2'>Data: <strong>{formatDate(bookingDate)}</strong></p>
+                  <p>Campo: <strong>{selectedCourt?.court_name || 'Seleziona uno slot'}</strong></p>
                   <p>Inizio: <strong>{selectedSlot?.display_start_time || 'Seleziona uno slot'}</strong></p>
                   <p>Durata: <strong>{duration} minuti</strong></p>
                   <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p>
@@ -402,6 +441,33 @@ function buildPublicRateLines(config: PublicConfig | null) {
     `90 minuti: ${formatCurrency(memberNinetyMinuteRate)} per giocatore tesserato`,
     `90 minuti: ${formatCurrency(nonMemberNinetyMinuteRate)} per giocatore non tesserato`,
   ];
+}
+
+function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability[] {
+  if (response.courts && response.courts.length > 0) {
+    return response.courts;
+  }
+
+  if (response.slots.length === 0) {
+    return [];
+  }
+
+  const fallbackCourtId = response.slots[0].court_id || 'default-court';
+  const fallbackCourtName = response.slots[0].court_name || 'Campo 1';
+
+  return [{
+    court_id: fallbackCourtId,
+    court_name: fallbackCourtName,
+    slots: response.slots.map((slot) => ({
+      ...slot,
+      court_id: slot.court_id || fallbackCourtId,
+      court_name: slot.court_name || fallbackCourtName,
+    })),
+  }];
+}
+
+function flattenCourtSlots(groups: CourtAvailability[]) {
+  return groups.flatMap((group) => group.slots);
 }
 
 function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, durationMinutes: number) {

@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models import PaymentProvider
-from app.schemas.common import BookingCustomerData, BookingSummary
+from app.schemas.common import BookingCustomerData, BookingSummary, CourtSummary
 from app.schemas.public import VALID_DURATIONS, validate_hhmm_time
 
 
@@ -50,6 +50,7 @@ class AdminBookingCreateRequest(BookingCustomerData):
     model_config = ConfigDict(extra='forbid')
 
     booking_date: date
+    court_id: str | None = None
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
     slot_id: str | None = None
     duration_minutes: int
@@ -72,6 +73,7 @@ class AdminBookingUpdateRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     booking_date: date
+    court_id: str | None = None
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
     slot_id: str | None = None
     duration_minutes: int
@@ -95,6 +97,7 @@ class AdminBookingStatusUpdate(BaseModel):
 
 
 class BlackoutCreateRequest(BaseModel):
+    court_id: str | None = None
     title: str = Field(min_length=2, max_length=140)
     reason: str | None = Field(default=None, max_length=1000)
     start_at: str
@@ -102,6 +105,7 @@ class BlackoutCreateRequest(BaseModel):
 
 
 class RecurringSeriesPreviewRequest(BaseModel):
+    court_id: str | None = None
     label: str = Field(min_length=2, max_length=140)
     weekday: int = Field(ge=0, le=6)
     start_date: date
@@ -154,6 +158,18 @@ class RecurringCancelResponse(BaseModel):
     skipped_count: int
     series_id: str | None = None
     booking_ids: list[str] = Field(default_factory=list)
+
+
+class CourtCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=140)
+
+
+class CourtUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=140)
+
+
+class CourtListResponse(BaseModel):
+    items: list[CourtSummary]
 
 
 class BookingListResponse(BaseModel):

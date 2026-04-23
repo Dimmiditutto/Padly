@@ -68,6 +68,8 @@ def list_blackouts(db: Session = Depends(get_db), admin: Admin = Depends(get_cur
     return [
         {
             'id': item.id,
+            'court_id': item.court_id,
+            'court_name': item.court.name if item.court else None,
             'title': item.title,
             'reason': item.reason,
             'start_at': item.start_at,
@@ -83,6 +85,7 @@ def add_blackout(payload: BlackoutCreateRequest, db: Session = Depends(get_db), 
     with acquire_single_court_lock(db):
         blackout = create_blackout(
             db,
+            court_id=payload.court_id,
             title=payload.title,
             reason=payload.reason,
             start_at=_parse_datetime(payload.start_at, timezone_name=admin.club.timezone),
@@ -101,6 +104,7 @@ def preview_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depe
         occurrences=preview_recurring_occurrences(
             db,
             label=payload.label,
+            court_id=payload.court_id,
             weekday=payload.weekday,
             start_date=payload.start_date,
             end_date=payload.end_date,
@@ -119,6 +123,7 @@ def create_recurring(payload: RecurringSeriesPreviewRequest, db: Session = Depen
         series, created, skipped = create_recurring_series(
             db,
             label=payload.label,
+            court_id=payload.court_id,
             weekday=payload.weekday,
             start_date=payload.start_date,
             end_date=payload.end_date,
@@ -140,6 +145,7 @@ def update_recurring(series_id: str, payload: RecurringSeriesPreviewRequest, db:
             db,
             series_id=series_id,
             label=payload.label,
+            court_id=payload.court_id,
             weekday=payload.weekday,
             start_date=payload.start_date,
             end_date=payload.end_date,

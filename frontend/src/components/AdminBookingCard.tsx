@@ -38,6 +38,7 @@ export function AdminBookingCard({
           <p className='text-sm text-slate-600'>{booking.customer_phone || 'Telefono non disponibile'}</p>
           <div className='flex flex-wrap gap-3 text-sm text-slate-600'>
             <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {booking.booking_date_local}</span>
+            {booking.court_name ? <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {booking.court_name}</span> : null}
             <span className='inline-flex items-center gap-1'><Clock3 size={14} /> Durata {booking.duration_minutes} minuti</span>
             {!isRecurring ? <span className='inline-flex items-center gap-1'><WalletCards size={14} /> Caparra €{booking.deposit_amount}</span> : null}
           </div>

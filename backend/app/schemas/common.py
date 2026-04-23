@@ -23,6 +23,8 @@ class BookingSummary(BaseModel):
 
     id: str
     public_reference: str
+    court_id: str
+    court_name: str | None = None
     start_at: datetime
     end_at: datetime
     duration_minutes: int
@@ -55,6 +57,8 @@ class BookingDetail(BookingSummary):
 
 class TimeSlot(BaseModel):
     slot_id: str
+    court_id: str | None = None
+    court_name: str | None = None
     start_time: str
     end_time: str
     display_start_time: str
@@ -65,3 +69,18 @@ class TimeSlot(BaseModel):
 
 class SimpleMessage(BaseModel):
     message: str
+
+
+class CourtSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    sort_order: int
+    is_active: bool
+
+
+class CourtAvailability(BaseModel):
+    court_id: str
+    court_name: str
+    slots: list[TimeSlot]
