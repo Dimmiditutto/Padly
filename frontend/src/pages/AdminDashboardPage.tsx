@@ -287,7 +287,10 @@ export function AdminDashboardPage() {
             <div className='admin-hero-copy'>
               <p className='admin-hero-kicker'>Dashboard admin</p>
               <h1 className='admin-hero-heading'>Prenotazioni e operatività</h1>
-              <p className='admin-hero-description'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative.</p>
+              <p className='admin-hero-description'>
+                La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative.
+                <span aria-hidden='true' className='block'>&nbsp;</span>
+              </p>
             </div>
             <div className='admin-hero-actions'>
               <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna pagina</button>
