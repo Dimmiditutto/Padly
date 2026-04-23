@@ -63,11 +63,11 @@ h4 {
   }
 
   .admin-hero-layout {
-    @apply flex flex-col gap-4 lg:min-h-[152px] lg:flex-row lg:items-start lg:justify-between;
+    @apply flex flex-col gap-4 lg:min-h-[176px] lg:flex-row lg:items-start lg:justify-between;
   }
 
   .admin-hero-copy {
-    @apply min-h-[136px] max-w-3xl;
+    @apply min-h-[152px] max-w-3xl;
   }
 
   .admin-hero-kicker {
@@ -75,11 +75,11 @@ h4 {
   }
 
   .admin-hero-heading {
-    @apply mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl;
+    @apply mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl;
   }
 
   .admin-hero-description {
-    @apply mt-3 max-w-2xl text-sm leading-6 text-slate-300;
+    @apply mt-4 max-w-2xl text-sm leading-6 text-slate-300;
   }
 
   .admin-hero-actions {
