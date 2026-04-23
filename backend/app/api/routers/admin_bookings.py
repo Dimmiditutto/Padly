@@ -9,7 +9,7 @@ from app.core.db import get_db
 from app.models import Admin, Booking, BookingStatus
 from app.schemas.admin import AdminBookingCreateRequest, AdminBookingStatusUpdate, AdminBookingUpdateRequest, BookingListResponse
 from app.schemas.common import BookingDetail, BookingSummary, SimpleMessage
-from app.services.booking_service import acquire_single_court_lock, create_admin_booking, list_bookings, mark_balance_paid_at_field, update_booking_by_admin, update_booking_status_by_admin
+from app.services.booking_service import acquire_single_court_lock, create_admin_booking, delete_booking_permanently, list_bookings, mark_balance_paid_at_field, update_booking_by_admin, update_booking_status_by_admin
 
 router = APIRouter(prefix='/admin/bookings', tags=['Admin Bookings'])
 
@@ -144,3 +144,11 @@ def mark_balance_paid(booking_id: str, db: Session = Depends(get_db), admin: Adm
         db.commit()
         db.refresh(booking)
     return booking
+
+
+@router.delete('/{booking_id}', response_model=SimpleMessage)
+def delete_booking(booking_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> SimpleMessage:
+    with acquire_single_court_lock(db):
+        delete_booking_permanently(db, booking_id=booking_id, actor=admin.email, club_id=admin.club_id)
+        db.commit()
+    return SimpleMessage(message='Prenotazione eliminata definitivamente.')

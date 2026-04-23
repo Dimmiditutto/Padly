@@ -87,6 +87,11 @@ export async function markAdminBalancePaid(bookingId: string) {
   return response.data;
 }
 
+export async function deleteAdminBooking(bookingId: string) {
+  const response = await api.delete<ApiMessage>(`/admin/bookings/${bookingId}`);
+  return response.data;
+}
+
 export async function getAdminReport() {
   const response = await api.get<ReportResponse>('/admin/reports/summary');
   return response.data;
@@ -129,6 +134,11 @@ export async function cancelRecurringOccurrences(bookingIds: string[]) {
 
 export async function cancelRecurringSeries(seriesId: string) {
   const response = await api.post<RecurringCancelResponse>(`/admin/recurring/${seriesId}/cancel`);
+  return response.data;
+}
+
+export async function deleteRecurringSeries(seriesId: string) {
+  const response = await api.delete<ApiMessage>(`/admin/recurring/${seriesId}`);
   return response.data;
 }
 

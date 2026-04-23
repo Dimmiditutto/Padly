@@ -1026,6 +1026,106 @@ def test_admin_can_cancel_all_future_occurrences_for_a_recurring_series(client):
     assert all(item['status'] == 'CANCELLED' for item in refreshed.json()['items'])
 
 
+def test_admin_can_delete_a_cancelled_booking_and_detach_email_logs(client):
+    admin_login(client)
+    selected_date = future_date(24)
+
+    manual = client.post(
+        '/api/admin/bookings',
+        json={
+            'first_name': 'Elisa',
+            'last_name': 'Delete',
+            'phone': '3331239999',
+            'email': 'delete-booking-admin@example.com',
+            'note': 'Prenotazione da eliminare',
+            'booking_date': selected_date,
+            'start_time': '19:30',
+            'duration_minutes': 90,
+            'payment_provider': 'NONE',
+        },
+    )
+    assert manual.status_code == 200
+    booking_id = manual.json()['id']
+
+    invalid_delete = client.delete(f'/api/admin/bookings/{booking_id}')
+    assert invalid_delete.status_code == 409
+    assert invalid_delete.json()['detail'] == 'Puoi eliminare definitivamente solo prenotazioni annullate o scadute'
+
+    cancelled = client.post(f'/api/admin/bookings/{booking_id}/cancel')
+    assert cancelled.status_code == 200
+
+    deleted = client.delete(f'/api/admin/bookings/{booking_id}')
+    assert deleted.status_code == 200
+    assert deleted.json()['message'] == 'Prenotazione eliminata definitivamente.'
+
+    with SessionLocal() as db:
+        booking = db.scalar(select(Booking).where(Booking.id == booking_id))
+        email_logs = db.scalars(
+            select(EmailNotificationLog)
+            .where(
+                EmailNotificationLog.recipient == 'delete-booking-admin@example.com',
+                EmailNotificationLog.template == 'booking_cancelled',
+            )
+            .order_by(EmailNotificationLog.created_at.asc())
+        ).all()
+        delete_event = db.scalar(
+            select(BookingEventLog)
+            .where(BookingEventLog.event_type == 'BOOKING_DELETED')
+            .order_by(BookingEventLog.created_at.desc())
+        )
+
+        assert booking is None
+        assert len(email_logs) == 1
+        assert email_logs[0].booking_id is None
+        assert delete_event is not None
+        assert delete_event.payload['booking_id'] == booking_id
+
+
+def test_admin_can_delete_a_cancelled_recurring_series(client):
+    admin_login(client)
+    selected_date = future_date(25)
+    selected_start = datetime.fromisoformat(selected_date).date()
+
+    recurring = client.post(
+        '/api/admin/recurring',
+        json={
+            'label': 'Corso eliminazione totale',
+            'weekday': selected_start.weekday(),
+            'start_date': selected_date,
+            'end_date': recurring_end_date(selected_date, 3),
+            'start_time': '18:30',
+            'duration_minutes': 90,
+        },
+    )
+    assert recurring.status_code == 200
+    series_id = recurring.json()['series_id']
+
+    invalid_delete = client.delete(f'/api/admin/recurring/{series_id}')
+    assert invalid_delete.status_code == 409
+    assert invalid_delete.json()['detail'] == 'Puoi eliminare definitivamente solo prenotazioni annullate o scadute'
+
+    cancelled = client.post(f'/api/admin/recurring/{series_id}/cancel')
+    assert cancelled.status_code == 200
+
+    deleted = client.delete(f'/api/admin/recurring/{series_id}')
+    assert deleted.status_code == 200
+    assert deleted.json()['message'] == 'Serie ricorrente eliminata definitivamente.'
+
+    with SessionLocal() as db:
+        series = db.scalar(select(RecurringBookingSeries).where(RecurringBookingSeries.id == series_id))
+        bookings = db.scalars(select(Booking).where(Booking.recurring_series_id == series_id)).all()
+        delete_event = db.scalar(
+            select(BookingEventLog)
+            .where(BookingEventLog.event_type == 'RECURRING_SERIES_DELETED')
+            .order_by(BookingEventLog.created_at.desc())
+        )
+
+        assert series is None
+        assert bookings == []
+        assert delete_event is not None
+        assert delete_event.payload['series_id'] == series_id
+
+
 def test_admin_can_update_a_recurring_series(client):
     admin_login(client)
     selected_date = future_date(24)

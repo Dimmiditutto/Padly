@@ -27,3 +27,7 @@ export function canRestoreBookingConfirmed(status: BookingStatus) {
 export function canMarkBalancePaid(status: BookingStatus, balancePaidAt: string | null | undefined, startAt: string, now = new Date()) {
   return !balancePaidAt && (status === 'CONFIRMED' || status === 'COMPLETED') && hasStarted(startAt, now);
 }
+
+export function canDeleteBookingPermanently(status: BookingStatus) {
+  return status === 'CANCELLED' || status === 'EXPIRED';
+}

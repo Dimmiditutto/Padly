@@ -391,20 +391,20 @@ export function AdminCurrentBookingsPage() {
         {loading ? <LoadingBlock label='Sto caricando le prenotazioni attuali…' /> : null}
 
         {!loading ? (
-          <SectionCard title='Settimana in calendario' description='Le prenotazioni annullate o scadute restano fuori dalla vista per mantenere leggibile l’occupazione reale degli slot.'>
-            <div className='overflow-x-auto'>
-              <div className='grid min-w-[980px] grid-cols-7 gap-3'>
-                {weekDays.map((day) => {
-                  const dayKey = toDateInputValue(day);
-                  const dayBookings = bookingsByDay[dayKey] || [];
-                  const isToday = dayKey === todayKey;
+          <SectionCard title='Settimana in calendario'>
+            <div className='space-y-3'>
+              {weekDays.map((day) => {
+                const dayKey = toDateInputValue(day);
+                const dayBookings = bookingsByDay[dayKey] || [];
+                const isToday = dayKey === todayKey;
 
-                  return (
-                    <div
-                      key={dayKey}
-                      className={`rounded-[24px] border p-4 ${isToday ? 'border-cyan-400 bg-cyan-50/70' : 'border-slate-200 bg-slate-50'}`}
-                    >
-                      <div className='flex items-start justify-between gap-3'>
+                return (
+                  <div
+                    key={dayKey}
+                    className={`rounded-[24px] border p-4 ${isToday ? 'border-cyan-400 bg-cyan-50/70' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className='flex flex-col gap-4 xl:grid xl:grid-cols-[180px_minmax(0,1fr)] xl:items-start'>
+                      <div className='flex items-start justify-between gap-3 xl:pr-4'>
                         <div>
                           <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>{formatWeekdayLabel(day)}</p>
                           <p className='mt-2 text-lg font-semibold text-slate-950'>{formatDayMonthLabel(day)}</p>
@@ -412,71 +412,73 @@ export function AdminCurrentBookingsPage() {
                         {isToday ? <span className='rounded-full bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white'>Oggi</span> : null}
                       </div>
 
-                      <div className='mt-4 space-y-3'>
-                        {dayBookings.length === 0 ? (
-                          <div className='rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-4 text-sm text-slate-500'>Nessuna prenotazione</div>
-                        ) : (
-                          dayBookings.map((booking) => {
-                            const label = booking.customer_name || booking.recurring_series_label || booking.public_reference;
-                            const showStatus = booking.status !== 'CONFIRMED';
-                            const canCancel = canCancelBooking(booking.status);
+                      <div className='overflow-x-auto'>
+                        <div className='flex min-w-full gap-3'>
+                          {dayBookings.length === 0 ? (
+                            <div className='min-w-[240px] rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-4 text-sm text-slate-500'>Nessuna prenotazione</div>
+                          ) : (
+                            dayBookings.map((booking) => {
+                              const label = booking.customer_name || booking.recurring_series_label || booking.public_reference;
+                              const showStatus = booking.status !== 'CONFIRMED';
+                              const canCancel = canCancelBooking(booking.status);
 
-                            return (
-                              <article
-                                key={booking.id}
-                                className='rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-cyan-400 hover:shadow-md'
-                              >
-                                <div className='flex items-start justify-between gap-2'>
-                                  <p className='text-sm font-semibold text-slate-950'>{formatTimeValue(booking.start_at, session?.timezone)} - {formatTimeValue(booking.end_at, session?.timezone)}</p>
-                                  {showStatus ? <StatusBadge status={booking.status} /> : null}
-                                </div>
-                                <p className='mt-2 text-sm text-slate-700'>{label}</p>
-                                {booking.recurring_series_label ? <p className='mt-1 text-xs font-medium text-cyan-700'>{booking.recurring_series_label}</p> : null}
-                                {booking.recurring_series_label ? <p className='mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700'>Serie ricorrente</p> : null}
-                                <div className='mt-2 flex items-center gap-2 text-xs text-slate-500'>
-                                  <CalendarDays size={12} />
-                                  <span>{booking.public_reference}</span>
-                                  <Clock3 size={12} />
-                                  <span>{booking.duration_minutes} min</span>
-                                </div>
-                                <div className='mt-3 flex flex-wrap gap-2'>
-                                  <Link
-                                    to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)}
-                                    aria-label={`Modifica ${booking.public_reference}`}
-                                    className='text-sm font-semibold text-cyan-700 transition hover:text-cyan-900'
-                                  >
-                                    Modifica
-                                  </Link>
-                                  {canCancel ? (
-                                    <button
-                                      type='button'
-                                      aria-label={`Annulla ${booking.public_reference}`}
-                                      className='text-sm font-semibold text-rose-700 transition hover:text-rose-900'
-                                      onClick={() => void handleCancelBooking(booking)}
+                              return (
+                                <article
+                                  key={booking.id}
+                                  className='min-w-[260px] flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-cyan-400 hover:shadow-md'
+                                >
+                                  <div className='flex items-start justify-between gap-2'>
+                                    <p className='text-sm font-semibold text-slate-950'>{formatTimeValue(booking.start_at, session?.timezone)} - {formatTimeValue(booking.end_at, session?.timezone)}</p>
+                                    {showStatus ? <StatusBadge status={booking.status} /> : null}
+                                  </div>
+                                  <p className='mt-2 text-sm text-slate-700'>{label}</p>
+                                  {booking.recurring_series_label ? <p className='mt-1 text-xs font-medium text-cyan-700'>{booking.recurring_series_label}</p> : null}
+                                  {booking.recurring_series_label ? <p className='mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700'>Serie ricorrente</p> : null}
+                                  <div className='mt-2 flex items-center gap-2 text-xs text-slate-500'>
+                                    <CalendarDays size={12} />
+                                    <span>{booking.public_reference}</span>
+                                    <Clock3 size={12} />
+                                    <span>{booking.duration_minutes} min</span>
+                                  </div>
+                                  <div className='mt-3 flex flex-wrap gap-2'>
+                                    <Link
+                                      to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)}
+                                      aria-label={`Modifica ${booking.public_reference}`}
+                                      className='text-sm font-semibold text-cyan-700 transition hover:text-cyan-900'
                                     >
-                                      Annulla
-                                    </button>
-                                  ) : null}
-                                  {booking.recurring_series_id ? (
-                                    <button
-                                      type='button'
-                                      aria-label={`Annulla serie ${booking.recurring_series_label || booking.public_reference}`}
-                                      className='text-sm font-semibold text-amber-700 transition hover:text-amber-900'
-                                      onClick={() => void handleCancelSeries(booking)}
-                                    >
-                                      Annulla serie
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </article>
-                            );
-                          })
-                        )}
+                                      Modifica
+                                    </Link>
+                                    {canCancel ? (
+                                      <button
+                                        type='button'
+                                        aria-label={`Annulla ${booking.public_reference}`}
+                                        className='text-sm font-semibold text-rose-700 transition hover:text-rose-900'
+                                        onClick={() => void handleCancelBooking(booking)}
+                                      >
+                                        Annulla
+                                      </button>
+                                    ) : null}
+                                    {booking.recurring_series_id ? (
+                                      <button
+                                        type='button'
+                                        aria-label={`Annulla serie ${booking.recurring_series_label || booking.public_reference}`}
+                                        className='text-sm font-semibold text-amber-700 transition hover:text-amber-900'
+                                        onClick={() => void handleCancelSeries(booking)}
+                                      >
+                                        Annulla serie
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </article>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
 
             {visibleBookings.length === 0 ? (

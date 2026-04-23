@@ -21,6 +21,7 @@ from app.models import (
     BookingStatus,
     Club,
     Customer,
+    EmailNotificationLog,
     PaymentProvider,
     PaymentStatus,
     RecurringBookingSeries,
@@ -39,6 +40,7 @@ ADMIN_ALLOWED_STATUS_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.NO_SHOW: {BookingStatus.CONFIRMED},
 }
 BALANCE_ALLOWED_STATUSES = {BookingStatus.CONFIRMED, BookingStatus.COMPLETED}
+DELETABLE_BOOKING_STATUSES = {BookingStatus.CANCELLED, BookingStatus.EXPIRED}
 single_court_mutex = RLock()
 
 
@@ -625,6 +627,122 @@ def mark_balance_paid_at_field(db: Session, booking: Booking, *, actor: str) -> 
     booking.balance_paid_at = datetime.now(UTC)
     log_event(db, booking, 'BALANCE_PAID_AT_FIELD', 'Saldo segnato come pagato al campo', actor=actor)
     return booking
+
+
+def _ensure_booking_is_deletable(booking: Booking) -> None:
+    if booking.status not in DELETABLE_BOOKING_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Puoi eliminare definitivamente solo prenotazioni annullate o scadute')
+
+
+def _detach_email_logs_from_bookings(db: Session, *, booking_ids: list[str], club_id: str) -> None:
+    if not booking_ids:
+        return
+
+    email_logs = db.scalars(
+        select(EmailNotificationLog).where(
+            EmailNotificationLog.club_id == club_id,
+            EmailNotificationLog.booking_id.in_(booking_ids),
+        )
+    ).all()
+
+    for email_log in email_logs:
+        email_log.booking_id = None
+
+
+def delete_booking_permanently(db: Session, *, booking_id: str, actor: str, club_id: str | None = None) -> Booking:
+    resolved_club_id = club_id or get_default_club_id(db)
+    booking = db.scalar(
+        select(Booking)
+        .options(selectinload(Booking.recurring_series))
+        .where(Booking.id == booking_id, Booking.club_id == resolved_club_id)
+    )
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Prenotazione non trovata')
+
+    _ensure_booking_is_deletable(booking)
+
+    series = booking.recurring_series
+    payload = {
+        'booking_id': booking.id,
+        'public_reference': booking.public_reference,
+        'status': booking.status.value,
+        'recurring_series_id': booking.recurring_series_id,
+    }
+
+    _detach_email_logs_from_bookings(db, booking_ids=[booking.id], club_id=resolved_club_id)
+    db.delete(booking)
+    db.flush()
+
+    deleted_empty_series = False
+    if series is not None:
+        remaining_booking = db.scalar(
+            select(Booking.id).where(
+                Booking.club_id == resolved_club_id,
+                Booking.recurring_series_id == series.id,
+            ).limit(1)
+        )
+        if remaining_booking is None:
+            db.delete(series)
+            deleted_empty_series = True
+
+    payload['deleted_empty_series'] = deleted_empty_series
+    log_event(
+        db,
+        None,
+        'BOOKING_DELETED',
+        f'Prenotazione eliminata definitivamente: {payload["public_reference"]}',
+        actor=actor,
+        club_id=resolved_club_id,
+        payload=payload,
+    )
+
+    return booking
+
+
+def delete_recurring_series_permanently(
+    db: Session,
+    *,
+    series_id: str,
+    actor: str,
+    club_id: str | None = None,
+) -> tuple[RecurringBookingSeries, list[str]]:
+    resolved_club_id = club_id or get_default_club_id(db)
+    series = db.scalar(
+        select(RecurringBookingSeries)
+        .options(selectinload(RecurringBookingSeries.bookings))
+        .where(RecurringBookingSeries.id == series_id, RecurringBookingSeries.club_id == resolved_club_id)
+    )
+    if not series:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Serie ricorrente non trovata')
+
+    bookings = sorted(series.bookings, key=lambda item: as_utc(item.start_at))
+    for booking in bookings:
+        _ensure_booking_is_deletable(booking)
+
+    booking_ids = [booking.id for booking in bookings]
+    _detach_email_logs_from_bookings(db, booking_ids=booking_ids, club_id=resolved_club_id)
+
+    for booking in bookings:
+        db.delete(booking)
+
+    db.flush()
+    db.delete(series)
+    log_event(
+        db,
+        None,
+        'RECURRING_SERIES_DELETED',
+        f'Serie ricorrente eliminata definitivamente: {series.label}',
+        actor=actor,
+        club_id=resolved_club_id,
+        payload={
+            'series_id': series.id,
+            'label': series.label,
+            'booking_ids': booking_ids,
+            'deleted_count': len(booking_ids),
+        },
+    )
+
+    return series, booking_ids
 
 
 def mark_booking_paid(

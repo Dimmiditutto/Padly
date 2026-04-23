@@ -17,11 +17,13 @@ from app.schemas.admin import (
     RecurringSeriesPreviewRequest,
     ReportResponse,
 )
+from app.schemas.common import SimpleMessage
 from app.services.booking_service import (
     acquire_single_court_lock,
     cancel_recurring_occurrences,
     cancel_recurring_series_future_occurrences,
     create_blackout,
+    delete_recurring_series_permanently,
     create_recurring_series,
     preview_recurring_occurrences,
     update_recurring_series,
@@ -179,6 +181,15 @@ def cancel_recurring_series(series_id: str, db: Session = Depends(get_db), admin
         series_id=series.id,
         booking_ids=[booking.id for booking in cancelled],
     )
+
+
+@router.delete('/recurring/{series_id}', response_model=SimpleMessage)
+def delete_recurring_series(series_id: str, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> SimpleMessage:
+    with acquire_single_court_lock(db):
+        delete_recurring_series_permanently(db, series_id=series_id, actor=admin.email, club_id=admin.club_id)
+        db.commit()
+
+    return SimpleMessage(message='Serie ricorrente eliminata definitivamente.')
 
 
 @router.get('/reports/summary', response_model=ReportResponse)

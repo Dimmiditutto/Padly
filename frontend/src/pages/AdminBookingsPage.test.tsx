@@ -6,6 +6,8 @@ import { AdminBookingsPage } from './AdminBookingsPage';
 vi.mock('../services/adminApi', () => ({
   cancelRecurringOccurrences: vi.fn(),
   cancelRecurringSeries: vi.fn(),
+  deleteAdminBooking: vi.fn(),
+  deleteRecurringSeries: vi.fn(),
   getAdminSession: vi.fn(),
   listAdminBookings: vi.fn(),
   logoutAdmin: vi.fn(),
@@ -16,6 +18,8 @@ vi.mock('../services/adminApi', () => ({
 import {
   cancelRecurringOccurrences,
   cancelRecurringSeries,
+  deleteAdminBooking,
+  deleteRecurringSeries,
   getAdminSession,
   listAdminBookings,
   logoutAdmin,
@@ -113,6 +117,25 @@ const recurringBookings: BookingSummary[] = [
   },
 ];
 
+const cancelledSingleBooking: BookingSummary = {
+  ...singleBooking,
+  id: 'booking-public-cancelled',
+  public_reference: 'PB-BOOK-CANCELLED',
+  customer_name: 'Cliente Cancellato',
+  status: 'CANCELLED',
+  cancelled_at: '2024-04-11T08:00:00Z',
+};
+
+const cancelledRecurringBookings: BookingSummary[] = recurringBookings.map((booking, index) => ({
+  ...booking,
+  id: `rec-cancelled-${index + 1}`,
+  public_reference: `PB-REC-CANCELLED-${index + 1}`,
+  recurring_series_id: 'series-cancelled',
+  recurring_series_label: 'Corso cancellato',
+  status: 'CANCELLED',
+  cancelled_at: '2024-04-11T08:00:00Z',
+}));
+
 function renderPage(path = '/admin/prenotazioni') {
   return render(
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -133,6 +156,8 @@ describe('AdminBookingsPage', () => {
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(cancelRecurringOccurrences).mockResolvedValue({ message: 'ok', cancelled_count: 1, skipped_count: 0, booking_ids: ['rec-1'], series_id: null });
     vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 2, skipped_count: 0, booking_ids: ['rec-1', 'rec-2'], series_id: 'series-1' });
+    vi.mocked(deleteAdminBooking).mockResolvedValue({ message: 'Prenotazione eliminata definitivamente.' });
+    vi.mocked(deleteRecurringSeries).mockResolvedValue({ message: 'Serie ricorrente eliminata definitivamente.' });
     vi.mocked(markAdminBalancePaid).mockResolvedValue({} as never);
     vi.mocked(updateAdminBookingStatus).mockResolvedValue({} as never);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -153,7 +178,9 @@ describe('AdminBookingsPage', () => {
     expect(screen.getByRole('button', { name: 'Aggiorna pagina' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
     expect(screen.getByText('Corso serale')).toBeInTheDocument();
-    expect(screen.getByText('PB-BOOK-100')).toBeInTheDocument();
+    expect(screen.getByText('Cliente Singolo')).toBeInTheDocument();
+    expect(screen.queryByText('PB-BOOK-100')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Durata 90 minuti').length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText('Data inizio'), { target: { value: '2099-04-16' } });
     fireEvent.change(screen.getByLabelText('Data fine'), { target: { value: '2099-04-24' } });
@@ -187,6 +214,43 @@ describe('AdminBookingsPage', () => {
 
     await waitFor(() => expect(cancelRecurringSeries).toHaveBeenCalledWith('series-1'));
     expect(screen.getByText('Serie aggiornata: 2 occorrenze future annullate, 0 saltate.')).toBeInTheDocument();
+  });
+
+  it('deletes a cancelled single booking from the list', async () => {
+    vi.mocked(listAdminBookings).mockResolvedValue({ items: [cancelledSingleBooking], total: 1 });
+
+    renderPage();
+
+    await screen.findByText('Cliente Cancellato');
+    fireEvent.click(screen.getByRole('button', { name: 'Elimina' }));
+
+    await waitFor(() => expect(deleteAdminBooking).toHaveBeenCalledWith('booking-public-cancelled'));
+    expect(screen.getByText('Prenotazione eliminata definitivamente.')).toBeInTheDocument();
+  });
+
+  it('deletes a cancelled recurring occurrence from the grouped list', async () => {
+    vi.mocked(listAdminBookings).mockResolvedValue({ items: cancelledRecurringBookings, total: 2 });
+
+    renderPage();
+
+    await screen.findByText('Corso cancellato');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Elimina singola Mario Rossi 2099-04-17' }));
+
+    await waitFor(() => expect(deleteAdminBooking).toHaveBeenCalledWith('rec-cancelled-1'));
+    expect(screen.getByText('Prenotazione eliminata definitivamente.')).toBeInTheDocument();
+  });
+
+  it('deletes a cancelled recurring series from the grouped actions', async () => {
+    vi.mocked(listAdminBookings).mockResolvedValue({ items: cancelledRecurringBookings, total: 2 });
+
+    renderPage();
+
+    await screen.findByText('Corso cancellato');
+    fireEvent.click(screen.getByRole('button', { name: 'Elimina tutta la serie' }));
+
+    await waitFor(() => expect(deleteRecurringSeries).toHaveBeenCalledWith('series-cancelled'));
+    expect(screen.getByText('Serie ricorrente eliminata definitivamente.')).toBeInTheDocument();
   });
 
   it('preserves tenant query in admin nav and booking detail links', async () => {

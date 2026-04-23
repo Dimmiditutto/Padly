@@ -11,6 +11,8 @@ import { StatusBadge } from '../components/StatusBadge';
 import {
   cancelRecurringOccurrences,
   cancelRecurringSeries,
+  deleteAdminBooking,
+  deleteRecurringSeries,
   getAdminSession,
   listAdminBookings,
   logoutAdmin,
@@ -19,7 +21,7 @@ import {
 } from '../services/adminApi';
 import type { AdminDashboardFilters, AdminSession, BookingSummary } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
-import { canCancelBooking } from '../utils/adminBookingActions';
+import { canCancelBooking, canDeleteBookingPermanently } from '../utils/adminBookingActions';
 import { formatDateTime, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
@@ -198,6 +200,53 @@ export function AdminBookingsPage() {
     }
   }
 
+  async function handleDeleteBooking(bookingId: string, seriesId?: string | null) {
+    if (!window.confirm("Confermi l'eliminazione definitiva di questa prenotazione?")) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      const response = await deleteAdminBooking(bookingId);
+      if (seriesId) {
+        setSelectedOccurrences((prev) => ({
+          ...prev,
+          [seriesId]: (prev[seriesId] || []).filter((value) => value !== bookingId),
+        }));
+      }
+      setFeedback({ tone: 'success', message: response.message });
+      await loadBookings();
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        redirectToLogin();
+        return;
+      }
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Eliminazione prenotazione non riuscita.') });
+    }
+  }
+
+  async function handleDeleteSeries(seriesId: string, seriesLabel: string) {
+    if (!window.confirm(`Confermi l'eliminazione definitiva della serie "${seriesLabel}"?`)) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      const response = await deleteRecurringSeries(seriesId);
+      setSelectedOccurrences((prev) => ({ ...prev, [seriesId]: [] }));
+      setFeedback({ tone: 'success', message: response.message });
+      await loadBookings();
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        redirectToLogin();
+        return;
+      }
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Eliminazione serie ricorrente non riuscita.') });
+    }
+  }
+
   const entries = useMemo(() => buildBookingEntries(bookings), [bookings]);
 
   return (
@@ -307,105 +356,135 @@ export function AdminBookingsPage() {
             <EmptyState icon={ClipboardList} title='Nessuna prenotazione per questi filtri' description='Allarga il periodo o modifica la ricerca per vedere gli slot occupati.' />
           ) : (
             <div className='space-y-4'>
-              {entries.map((entry) => entry.kind === 'single' ? (
-                <AdminBookingCard
-                  key={entry.booking.id}
-                  booking={entry.booking}
-                  onMarkBalancePaid={markBalancePaid}
-                  onUpdateStatus={markBookingState}
-                />
-              ) : (
-                <SectionCard
-                  key={entry.seriesId}
-                  title={entry.label}
-                  description={`${entry.items.length} occorrenze • ${entry.items[0].booking_date_local} → ${entry.items[entry.items.length - 1].booking_date_local}`}
-                  actions={
-                    <div className='flex flex-wrap gap-2'>
-                      <button
-                        className='btn-secondary'
-                        type='button'
-                        onClick={() => setExpandedSeries((prev) => ({ ...prev, [entry.seriesId]: !prev[entry.seriesId] }))}
-                      >
-                        {expandedSeries[entry.seriesId] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        {expandedSeries[entry.seriesId] ? 'Comprimi' : 'Espandi'}
-                      </button>
-                      <button
-                        className='btn-secondary'
-                        type='button'
-                        disabled={(selectedOccurrences[entry.seriesId] || []).length === 0}
-                        onClick={() => void handleCancelOccurrences(
-                          entry.seriesId,
-                          selectedOccurrences[entry.seriesId] || [],
-                          'delle occorrenze selezionate'
-                        )}
-                      >
-                        Annulla selezionate
-                      </button>
-                      <button className='btn-secondary' type='button' onClick={() => void handleCancelSeries(entry.seriesId, entry.label)}>
-                        Annulla tutta la serie
-                      </button>
-                    </div>
-                  }
-                  elevated
-                >
-                  {expandedSeries[entry.seriesId] ? (
-                    <div className='space-y-3'>
-                      {entry.items.map((booking) => {
-                        const isSelectable = canCancelBooking(booking.status);
-                        const isChecked = (selectedOccurrences[entry.seriesId] || []).includes(booking.id);
+              {entries.map((entry) => {
+                if (entry.kind === 'single') {
+                  return (
+                    <AdminBookingCard
+                      key={entry.booking.id}
+                      booking={entry.booking}
+                      onDelete={handleDeleteBooking}
+                      onMarkBalancePaid={markBalancePaid}
+                      onUpdateStatus={markBookingState}
+                    />
+                  );
+                }
 
-                        return (
-                          <div key={booking.id} className='rounded-[24px] border border-slate-200 bg-white px-4 py-4 shadow-sm'>
-                            <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
-                              <div className='flex items-start gap-3'>
-                                <input
-                                  type='checkbox'
-                                  className='mt-1 h-4 w-4 rounded border-slate-300'
-                                  checked={isChecked}
-                                  disabled={!isSelectable}
-                                  onChange={(event) => {
-                                    setSelectedOccurrences((prev) => {
-                                      const current = prev[entry.seriesId] || [];
-                                      if (event.target.checked) {
-                                        return { ...prev, [entry.seriesId]: [...current, booking.id] };
-                                      }
+                const firstOccurrence = entry.items[0];
+                const lastOccurrence = entry.items[entry.items.length - 1];
+                const canDeleteSeries = entry.items.length > 0 && entry.items.every((booking) => canDeleteBookingPermanently(booking.status));
 
-                                      return { ...prev, [entry.seriesId]: current.filter((value) => value !== booking.id) };
-                                    });
-                                  }}
-                                />
-                                <div className='space-y-2'>
-                                  <div className='flex flex-wrap items-center gap-2'>
-                                    <p className='font-semibold text-slate-950'>{booking.customer_name || 'Occorrenza ricorrente'}</p>
-                                    <StatusBadge status={booking.status} />
+                return (
+                  <SectionCard
+                    key={entry.seriesId}
+                    title={entry.label}
+                    description={firstOccurrence && lastOccurrence
+                      ? `Durata ${firstOccurrence.duration_minutes} minuti • ${entry.items.length} occorrenze • ${firstOccurrence.booking_date_local} → ${lastOccurrence.booking_date_local}`
+                      : 'Serie ricorrente'}
+                    actions={
+                      <div className='flex flex-wrap gap-2'>
+                        <button
+                          className='btn-secondary'
+                          type='button'
+                          onClick={() => setExpandedSeries((prev) => ({ ...prev, [entry.seriesId]: !prev[entry.seriesId] }))}
+                        >
+                          {expandedSeries[entry.seriesId] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          {expandedSeries[entry.seriesId] ? 'Comprimi' : 'Espandi'}
+                        </button>
+                        <button
+                          className='btn-secondary'
+                          type='button'
+                          disabled={(selectedOccurrences[entry.seriesId] || []).length === 0}
+                          onClick={() => void handleCancelOccurrences(
+                            entry.seriesId,
+                            selectedOccurrences[entry.seriesId] || [],
+                            'delle occorrenze selezionate'
+                          )}
+                        >
+                          Annulla selezionate
+                        </button>
+                        <button className='btn-secondary' type='button' onClick={() => void handleCancelSeries(entry.seriesId, entry.label)}>
+                          Annulla tutta la serie
+                        </button>
+                        {canDeleteSeries ? (
+                          <button className='btn-secondary' type='button' onClick={() => void handleDeleteSeries(entry.seriesId, entry.label)}>
+                            Elimina tutta la serie
+                          </button>
+                        ) : null}
+                      </div>
+                    }
+                    elevated
+                  >
+                    {expandedSeries[entry.seriesId] ? (
+                      <div className='space-y-3'>
+                        {entry.items.map((booking) => {
+                          const isSelectable = canCancelBooking(booking.status);
+                          const isDeletable = canDeleteBookingPermanently(booking.status);
+                          const isChecked = (selectedOccurrences[entry.seriesId] || []).includes(booking.id);
+
+                          return (
+                            <div key={booking.id} className='rounded-[24px] border border-slate-200 bg-white px-4 py-4 shadow-sm'>
+                              <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
+                                <div className='flex items-start gap-3'>
+                                  <input
+                                    type='checkbox'
+                                    className='mt-1 h-4 w-4 rounded border-slate-300'
+                                    checked={isChecked}
+                                    disabled={!isSelectable}
+                                    onChange={(event) => {
+                                      setSelectedOccurrences((prev) => {
+                                        const current = prev[entry.seriesId] || [];
+                                        if (event.target.checked) {
+                                          return { ...prev, [entry.seriesId]: [...current, booking.id] };
+                                        }
+
+                                        return { ...prev, [entry.seriesId]: current.filter((value) => value !== booking.id) };
+                                      });
+                                    }}
+                                  />
+                                  <div className='space-y-2'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                      <p className='font-semibold text-slate-950'>{booking.customer_name || 'Occorrenza ricorrente'}</p>
+                                      <StatusBadge status={booking.status} />
+                                    </div>
+                                    <div className='flex flex-wrap gap-3 text-sm text-slate-600'>
+                                      <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {formatDateTime(booking.start_at, session?.timezone)}</span>
+                                      <span>Durata {booking.duration_minutes} minuti</span>
+                                    </div>
+                                    <p className='text-sm text-slate-600'>{booking.note || 'Serie ricorrente senza note aggiuntive.'}</p>
                                   </div>
-                                  <div className='flex flex-wrap gap-3 text-sm text-slate-600'>
-                                    <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {formatDateTime(booking.start_at, session?.timezone)}</span>
-                                    <span>{booking.duration_minutes} min</span>
-                                  </div>
-                                  <p className='text-sm text-slate-600'>{booking.note || 'Serie ricorrente senza note aggiuntive.'}</p>
+                                </div>
+                                <div className='flex flex-wrap gap-2'>
+                                  <Link to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)} className='btn-ghost'>Dettaglio</Link>
+                                  {isSelectable ? (
+                                    <button
+                                      aria-label={`Annulla singola ${booking.customer_name || 'Occorrenza'} ${booking.booking_date_local}`}
+                                      className='btn-secondary'
+                                      type='button'
+                                      onClick={() => void handleCancelOccurrences(entry.seriesId, [booking.id], 'della singola occorrenza')}
+                                    >
+                                      Annulla singola
+                                    </button>
+                                  ) : null}
+                                  {isDeletable ? (
+                                    <button
+                                      aria-label={`Elimina singola ${booking.customer_name || 'Occorrenza'} ${booking.booking_date_local}`}
+                                      className='btn-secondary'
+                                      type='button'
+                                      onClick={() => void handleDeleteBooking(booking.id, entry.seriesId)}
+                                    >
+                                      Elimina singola
+                                    </button>
+                                  ) : null}
                                 </div>
                               </div>
-                              <div className='flex flex-wrap gap-2'>
-                                <Link to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)} className='btn-ghost'>Dettaglio</Link>
-                                {isSelectable ? (
-                                  <button
-                                    className='btn-secondary'
-                                    type='button'
-                                    onClick={() => void handleCancelOccurrences(entry.seriesId, [booking.id], 'della singola occorrenza')}
-                                  >
-                                    Annulla singola
-                                  </button>
-                                ) : null}
-                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </SectionCard>
-              ))}
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </SectionCard>
+                );
+              })}
             </div>
           )
         ) : null}
