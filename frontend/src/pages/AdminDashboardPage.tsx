@@ -24,7 +24,7 @@ import {
 } from '../services/adminApi';
 import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, RecurringOccurrence, RecurringSeriesPayload, ReportResponse, SubscriptionStatusBanner } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
-import { formatCurrency, formatDateTime, formatWeekdayLabel, toDateInputValue } from '../utils/format';
+import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -282,15 +282,15 @@ export function AdminDashboardPage() {
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel relative space-y-4'>
           <div className='lg:pr-72'>
-            <div>
+            <div className='admin-hero-copy'>
               <AppBrand light label='Padly' />
-              <p className='mt-4 text-[24px] font-semibold leading-none text-cyan-100'>Dashboard admin</p>
-              <h1 className='mt-2 text-4xl font-bold'>Controllo prenotazioni e operatività</h1>
-              <p className='mt-2 max-w-2xl text-sm text-slate-300'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative. Prenotazioni e log hanno ora pagine dedicate.</p>
+              <p className='admin-hero-kicker mt-4'>Dashboard admin</p>
+              <h1 className='admin-hero-heading'>Prenotazioni e operatività</h1>
+              <p className='admin-hero-description'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative.</p>
             </div>
           </div>
           <div className='admin-hero-actions lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
-            <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna dashboard</button>
+            <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna pagina</button>
             <button onClick={logout} className='admin-hero-button-secondary'>Esci</button>
           </div>
           <AdminNav session={session} notificationEmail={settings?.notification_email || null} />
@@ -301,24 +301,6 @@ export function AdminDashboardPage() {
         {subscription ? <SubscriptionBanner subscription={subscription} /> : null}
 
         {loading ? <LoadingBlock label='Sto sincronizzando dashboard, blackout e regole operative…' /> : null}
-
-        <div className='grid gap-4 md:grid-cols-4'>
-          <StatCard title='Prenotazioni totali' value={String(report?.total_bookings ?? 0)} />
-          <StatCard title='Confermate' value={String(report?.confirmed_bookings ?? 0)} />
-          <StatCard title='In attesa' value={String(report?.pending_bookings ?? 0)} />
-          <StatCard title='Caparre incassate' value={formatCurrency(report?.collected_deposits ?? 0)} />
-        </div>
-
-        <SectionCard
-          title='Prenotazioni e occupazione'
-          description='Apri il calendario della settimana corrente oppure passa all’elenco avanzato con filtri per periodo, ricerca libera e gruppi ricorrenti.'
-          elevated
-        >
-          <div className='mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
-            <Link to={withTenantPath('/admin/prenotazioni-attuali', tenantSlug)} className='btn-primary w-full sm:w-auto'>Prenotazioni Attuali</Link>
-            <Link to={withTenantPath('/admin/prenotazioni', tenantSlug)} className='btn-secondary w-full sm:w-auto'>Elenco prenotazioni</Link>
-          </div>
-        </SectionCard>
 
         <div className='grid gap-6 xl:grid-cols-[1.05fr_0.95fr]'>
           <div className='space-y-6'>
@@ -396,6 +378,7 @@ export function AdminDashboardPage() {
                     label='Data di partenza'
                     value={recurringForm.start_date}
                     min={today}
+                    showDayPreview={false}
                     onChange={(value) => {
                       setRecurringForm((prev) => ({
                         ...prev,
@@ -412,6 +395,7 @@ export function AdminDashboardPage() {
                     label='Fino al'
                     value={recurringForm.end_date}
                     min={recurringForm.start_date}
+                    showDayPreview={false}
                     onChange={(value) => setRecurringForm((prev) => ({ ...prev, end_date: value }))}
                   />
                 </div>
@@ -423,11 +407,11 @@ export function AdminDashboardPage() {
                   </div>
                   <div className='surface-muted self-start'>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Ultima ricorrenza</p>
-                    <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(recurringForm.end_date)} {recurringForm.end_date}</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(recurringForm.end_date)} {formatDate(recurringForm.end_date)}</p>
                   </div>
                 </div>
 
-                <div className='grid gap-3 sm:grid-cols-2'>
+                <div className='grid gap-3 sm:grid-cols-1'>
                   <div>
                     <label className='field-label' htmlFor='admin-recurring-duration'>Durata</label>
                     <select
@@ -440,10 +424,6 @@ export function AdminDashboardPage() {
                     >
                       {DURATIONS.map((value) => <option key={value} value={value}>{value} minuti</option>)}
                     </select>
-                  </div>
-                  <div className='surface-muted self-end'>
-                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Prima ricorrenza</p>
-                    <p className='mt-2 text-base font-medium text-slate-900'>{formatWeekdayLabel(recurringForm.start_date)} {recurringForm.start_date}</p>
                   </div>
                 </div>
 
@@ -489,16 +469,32 @@ export function AdminDashboardPage() {
                   <input id='admin-blackout-reason' className='text-input' value={blackoutForm.reason} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, reason: event.target.value }))} />
                 </div>
                 <div className='grid gap-3 sm:grid-cols-2'>
+                  <DateFieldWithDay
+                    id='admin-blackout-start-date'
+                    label='Data inizio'
+                    value={getLocalDatePart(blackoutForm.start_at)}
+                    min={today}
+                    onChange={(value) => setBlackoutForm((prev) => ({ ...prev, start_at: updateLocalDateTimePart(prev.start_at, 'date', value, today, '12:00') }))}
+                  />
                   <div>
-                    <label className='field-label' htmlFor='admin-blackout-start'>Data e ora inizio</label>
-                    <input id='admin-blackout-start' className='text-input' type='datetime-local' value={blackoutForm.start_at} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, start_at: event.target.value }))} />
-                  </div>
-                  <div>
-                    <label className='field-label' htmlFor='admin-blackout-end'>Data e ora fine</label>
-                    <input id='admin-blackout-end' className='text-input' type='datetime-local' value={blackoutForm.end_at} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, end_at: event.target.value }))} />
+                    <label className='field-label' htmlFor='admin-blackout-start-time'>Ora inizio</label>
+                    <input id='admin-blackout-start-time' className='text-input' type='time' value={getLocalTimePart(blackoutForm.start_at)} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, start_at: updateLocalDateTimePart(prev.start_at, 'time', event.target.value, today, '12:00') }))} />
                   </div>
                 </div>
-                <p className='text-xs text-slate-500'>Il blackout usa il fuso del tenant attivo{adminTimezone ? ` (${adminTimezone})` : ''}. Durante il ritorno all&apos;ora solare gli orari ambigui vengono rifiutati con un errore esplicito.</p>
+                <div className='grid gap-3 sm:grid-cols-2'>
+                  <DateFieldWithDay
+                    id='admin-blackout-end-date'
+                    label='Data fine'
+                    value={getLocalDatePart(blackoutForm.end_at)}
+                    min={getLocalDatePart(blackoutForm.start_at) || today}
+                    onChange={(value) => setBlackoutForm((prev) => ({ ...prev, end_at: updateLocalDateTimePart(prev.end_at, 'date', value, getLocalDatePart(prev.start_at) || today, '13:30') }))}
+                  />
+                  <div>
+                    <label className='field-label' htmlFor='admin-blackout-end-time'>Ora fine</label>
+                    <input id='admin-blackout-end-time' className='text-input' type='time' value={getLocalTimePart(blackoutForm.end_at)} onChange={(event) => setBlackoutForm((prev) => ({ ...prev, end_at: updateLocalDateTimePart(prev.end_at, 'time', event.target.value, getLocalDatePart(prev.start_at) || today, '13:30') }))} />
+                  </div>
+                </div>
+                <p className='text-xs text-slate-500'>Il blackout usa il fuso configurato{adminTimezone ? ` (${adminTimezone})` : ''}. Durante il ritorno all&apos;ora solare gli orari ambigui vengono rifiutati con un errore esplicito.</p>
                 <button className='btn-primary w-full' type='submit'>Crea blackout</button>
               </form>
               <div className='mt-4 space-y-2'>
@@ -577,15 +573,31 @@ export function AdminDashboardPage() {
           </div>
         </div>
 
-        <SectionCard
-          title='Log operativi'
-          description='Consulta gli ultimi eventi business del backend in una pagina dedicata.'
-          actions={<Link to={withTenantPath('/admin/log', tenantSlug)} className={SUBTLE_LINK_CLASS}>Apri log</Link>}
-          elevated
-        />
       </div>
     </div>
   );
+}
+
+function getLocalDatePart(value: string) {
+  return value.split('T')[0] || '';
+}
+
+function getLocalTimePart(value: string) {
+  return value.split('T')[1]?.slice(0, 5) || '';
+}
+
+function updateLocalDateTimePart(
+  value: string,
+  part: 'date' | 'time',
+  nextValue: string,
+  fallbackDate: string,
+  fallbackTime: string,
+) {
+  const currentDate = getLocalDatePart(value) || fallbackDate;
+  const currentTime = getLocalTimePart(value) || fallbackTime;
+  const nextDate = part === 'date' ? nextValue : currentDate;
+  const nextTime = part === 'time' ? nextValue : currentTime;
+  return `${nextDate}T${nextTime}`;
 }
 
 function StatCard({ title, value }: { title: string; value: string }) {

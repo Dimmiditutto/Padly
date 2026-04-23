@@ -322,13 +322,13 @@ export function AdminCurrentBookingsPage() {
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel space-y-4'>
           <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
-            <div>
-              <p className='text-2xl font-semibold text-cyan-100'>Prenotazioni Attuali</p>
-              <h1 className='text-3xl font-bold'>Calendario settimanale prenotazioni</h1>
-              <p className='mt-2 max-w-2xl text-sm text-slate-300'>Consulta velocemente le partite della settimana e apri il dettaglio di ogni prenotazione senza rinunciare alla vista elenco avanzata.</p>
+            <div className='admin-hero-copy'>
+              <p className='admin-hero-kicker'>Dashboard admin</p>
+              <h1 className='admin-hero-heading'>Calendario settimanale prenotazioni</h1>
+              <p className='admin-hero-description'>Consulta velocemente le partite della settimana e apri il dettaglio di ogni prenotazione senza rinunciare alla vista elenco avanzata.</p>
             </div>
             <div className='admin-hero-actions'>
-              <button className='admin-hero-button-primary' type='button' onClick={() => void loadWeek(viewWeekStart)}>Aggiorna dashboard</button>
+              <button className='admin-hero-button-primary' type='button' onClick={() => void loadWeek(viewWeekStart)}>Aggiorna pagina</button>
               <button className='admin-hero-button-secondary' type='button' onClick={() => void logout()}>Esci</button>
             </div>
           </div>

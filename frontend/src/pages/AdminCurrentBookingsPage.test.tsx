@@ -148,7 +148,7 @@ describe('AdminCurrentBookingsPage', () => {
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni');
-    expect(screen.getByRole('button', { name: 'Aggiorna dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Aggiorna pagina' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
     expect(screen.getByText('Luca Bianchi')).toBeInTheDocument();
     expect(screen.getByText('Marco Verdi')).toBeInTheDocument();
@@ -246,7 +246,7 @@ describe('AdminCurrentBookingsPage', () => {
     renderPage('/admin/prenotazioni-attuali?tenant=roma-club');
 
     await screen.findByText('Calendario settimanale prenotazioni');
-    expect(screen.getByText('Tenant attivo: Roma Club')).toBeInTheDocument();
+    expect(screen.queryByText('Tenant attivo: Roma Club')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin?tenant=roma-club');
     expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni?tenant=roma-club');
     expect(screen.getByLabelText('Modifica PB-WEEK-001')).toHaveAttribute('href', '/admin/bookings/booking-current-1?tenant=roma-club');

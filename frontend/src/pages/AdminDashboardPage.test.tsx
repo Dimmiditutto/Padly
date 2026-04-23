@@ -7,7 +7,6 @@ vi.mock('../services/adminApi', () => ({
   createAdminBooking: vi.fn(),
   createBlackout: vi.fn(),
   createRecurring: vi.fn(),
-  getAdminReport: vi.fn(),
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
   listBlackouts: vi.fn(),
@@ -24,7 +23,6 @@ import {
   createAdminBooking,
   createBlackout,
   createRecurring,
-  getAdminReport,
   getAdminSession,
   getAdminSettings,
   listBlackouts,
@@ -76,7 +74,6 @@ function renderDashboard(path = '/admin') {
 
 function mockBootstrapSuccess() {
   vi.mocked(getAdminSession).mockResolvedValue({ ...adminSession });
-  vi.mocked(getAdminReport).mockResolvedValue({ total_bookings: 987, confirmed_bookings: 654, pending_bookings: 32, cancelled_bookings: 0, collected_deposits: 140 });
   vi.mocked(listBlackouts).mockResolvedValue([]);
   vi.mocked(getAdminSettings).mockResolvedValue({ ...adminSettings });
 }
@@ -123,7 +120,7 @@ describe('AdminDashboardPage', () => {
   });
 
   it('shows feedback without redirecting when a non-auth dashboard request fails', async () => {
-    vi.mocked(getAdminReport).mockRejectedValue({ response: { status: 500, data: { detail: 'Errore report' } } });
+    vi.mocked(listBlackouts).mockRejectedValue({ response: { status: 500, data: { detail: 'Errore blackout' } } });
 
     renderDashboard();
 
@@ -145,14 +142,14 @@ describe('AdminDashboardPage', () => {
 
     await screen.findByText('Dashboard admin');
     expect(screen.getByText('Padly')).toBeInTheDocument();
-    expect(screen.getByText('Tenant attivo: PadelBooking')).toBeInTheDocument();
-    expect(screen.getByText('Slug: default-club')).toBeInTheDocument();
-    expect(screen.getByText('Notifiche: desk@padelbooking.app')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
-    expect(screen.getByRole('link', { name: 'Elenco prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
-    expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log');
+    expect(screen.queryByText('Tenant attivo: PadelBooking')).not.toBeInTheDocument();
+    expect(screen.queryByText('Slug: default-club')).not.toBeInTheDocument();
+    expect(screen.queryByText('Notifiche: desk@padelbooking.app')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Log' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Apri log' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
   });
 
@@ -166,17 +163,12 @@ describe('AdminDashboardPage', () => {
     expect(screen.queryByText('Promemoria pagine admin')).not.toBeInTheDocument();
     expect(screen.queryByText('Settimana corrente o ricerca avanzata')).not.toBeInTheDocument();
     expect(screen.queryByText('Audit e attività recenti')).not.toBeInTheDocument();
-
-    const sectionTitles = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
-    expect(sectionTitles.at(-1)).toBe('Log operativi');
-
-    expect(screen.queryByText('987')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Espandi Prenotazioni totali' }));
-    expect(screen.getByText('987')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Comprimi Prenotazioni totali' }));
-    expect(screen.queryByText('987')).not.toBeInTheDocument();
+    expect(screen.queryByText('Prenotazioni totali')).not.toBeInTheDocument();
+    expect(screen.queryByText('Confermate')).not.toBeInTheDocument();
+    expect(screen.queryByText('In attesa')).not.toBeInTheDocument();
+    expect(screen.queryByText('Caparre incassate')).not.toBeInTheDocument();
+    expect(screen.queryByText('Prenotazioni e occupazione')).not.toBeInTheDocument();
+    expect(screen.queryByText('Log operativi')).not.toBeInTheDocument();
 
     expect(screen.queryByLabelText('Nome')).not.toBeInTheDocument();
 
@@ -248,6 +240,7 @@ describe('AdminDashboardPage', () => {
     fireEvent.change(screen.getByLabelText('Data di partenza'), { target: { value: '2026-10-25' } });
 
     expect(screen.getAllByText(/Domenica/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Prima ricorrenza')).not.toBeInTheDocument();
     expect(timezoneCalls).not.toContain('Europe/Rome');
 
     formatterSpy.mockRestore();
@@ -260,8 +253,10 @@ describe('AdminDashboardPage', () => {
 
     await screen.findByText('Dashboard admin');
     fireEvent.click(screen.getByRole('button', { name: 'Espandi Blocca fascia oraria' }));
-    fireEvent.change(screen.getByLabelText('Data e ora inizio'), { target: { value: '2026-10-25T02:15' } });
-    fireEvent.change(screen.getByLabelText('Data e ora fine'), { target: { value: '2026-10-25T03:15' } });
+    fireEvent.change(screen.getByLabelText('Data inizio'), { target: { value: '2026-10-25' } });
+    fireEvent.change(screen.getByLabelText('Ora inizio'), { target: { value: '02:15' } });
+    fireEvent.change(screen.getByLabelText('Data fine'), { target: { value: '2026-10-25' } });
+    fireEvent.change(screen.getByLabelText('Ora fine'), { target: { value: '03:15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Crea blackout' }));
 
     await waitFor(() => expect(createBlackout).toHaveBeenCalledWith(expect.objectContaining({
@@ -296,8 +291,11 @@ describe('AdminDashboardPage', () => {
 
     renderDashboard('/admin?tenant=roma-club');
 
-    await screen.findByText('Tenant attivo: Roma Club');
-    expect(screen.getByRole('link', { name: 'Apri log' })).toHaveAttribute('href', '/admin/log?tenant=roma-club');
+    await screen.findByText('Dashboard admin');
+    expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Prenotazioni Attuali' })).toHaveAttribute('href', '/admin/prenotazioni-attuali?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni?tenant=roma-club');
+    expect(screen.queryByText('Tenant attivo: Roma Club')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
     fireEvent.change(screen.getByLabelText('Nome pubblico tenant'), { target: { value: 'Roma Club Elite' } });

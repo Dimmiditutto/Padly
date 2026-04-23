@@ -62,24 +62,40 @@ h4 {
     @apply rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-5 text-white shadow-soft;
   }
 
+  .admin-hero-copy {
+    @apply min-h-[136px] max-w-3xl;
+  }
+
+  .admin-hero-kicker {
+    @apply text-[1.375rem] font-semibold leading-none text-cyan-100;
+  }
+
+  .admin-hero-heading {
+    @apply mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl;
+  }
+
+  .admin-hero-description {
+    @apply mt-3 max-w-2xl text-sm leading-6 text-slate-300;
+  }
+
   .admin-hero-actions {
-    @apply sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:justify-end sm:bg-transparent sm:p-0;
+    @apply sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:items-stretch sm:justify-end sm:bg-transparent sm:p-0;
   }
 
   .admin-hero-button-primary {
-    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto;
+    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[164px] sm:w-auto;
   }
 
   .admin-hero-button-secondary {
-    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:border-cyan-300/60 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto;
+    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:border-cyan-300/60 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[128px] sm:w-auto;
   }
 
   .admin-nav {
-    @apply flex flex-wrap gap-2 rounded-[24px] border border-white/10 bg-white/5 p-1.5;
+    @apply grid w-full gap-2 rounded-[24px] border border-white/10 bg-white/5 p-1.5 sm:grid-cols-3;
   }
 
   .admin-nav-tab {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200;
+    @apply inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200 sm:min-h-12;
   }
 
   .admin-nav-tab-active {
