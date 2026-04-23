@@ -18,6 +18,11 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   min-width: 320px;
