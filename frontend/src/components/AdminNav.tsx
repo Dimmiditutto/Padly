@@ -23,7 +23,7 @@ export function AdminNav(_: { session?: AdminSession | null; notificationEmail?:
             to={withTenantPath(item.to, tenantSlug)}
             className={isActive ? 'admin-nav-tab admin-nav-tab-active' : 'admin-nav-tab'}
           >
-            {item.label}
+            <span className='admin-nav-tab-label'>{item.label}</span>
           </Link>
         );
       })}

@@ -99,7 +99,11 @@ h4 {
   }
 
   .admin-nav-tab {
-    @apply inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200 sm:min-h-12;
+    @apply flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200 sm:min-h-12;
+  }
+
+  .admin-nav-tab-label {
+    @apply block leading-tight;
   }
 
   .admin-nav-tab-active {
