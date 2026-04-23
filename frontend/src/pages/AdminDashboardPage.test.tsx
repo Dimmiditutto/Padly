@@ -141,7 +141,7 @@ describe('AdminDashboardPage', () => {
     renderDashboard();
 
     await screen.findByText('Dashboard admin');
-    expect(screen.getByText('Padly')).toBeInTheDocument();
+    expect(screen.queryByText('Padly')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Crea Prenotazioni' })).toHaveAttribute('href', '/admin');
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');

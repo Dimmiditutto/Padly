@@ -1,10 +1,9 @@
 import { CalendarClock, ChevronDown, ChevronUp } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AdminNav } from '../components/AdminNav';
 import { AdminTimeSlotPicker } from '../components/AdminTimeSlotPicker';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { DateFieldWithDay } from '../components/DateFieldWithDay';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
@@ -28,7 +27,6 @@ import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateI
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
-const SUBTLE_LINK_CLASS = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-100';
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -283,8 +281,7 @@ export function AdminDashboardPage() {
         <div className='admin-hero-panel relative space-y-4'>
           <div className='lg:pr-72'>
             <div className='admin-hero-copy'>
-              <AppBrand light label='Padly' />
-              <p className='admin-hero-kicker mt-4'>Dashboard admin</p>
+              <p className='admin-hero-kicker'>Dashboard admin</p>
               <h1 className='admin-hero-heading'>Prenotazioni e operatività</h1>
               <p className='admin-hero-description'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative.</p>
             </div>
@@ -304,7 +301,7 @@ export function AdminDashboardPage() {
 
         <div className='grid gap-6 xl:grid-cols-[1.05fr_0.95fr]'>
           <div className='space-y-6'>
-            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.' collapsible defaultExpanded={false}>
+            <SectionCard title='Prenotazione manuale' description='Inserisci rapidamente una prenotazione confermata dal pannello admin.' collapsible defaultExpanded={false} collapsedUniform>
               <form className='mt-4 space-y-4' onSubmit={createManualBooking}>
                 <div className='grid gap-3 sm:grid-cols-2'>
                   <div>
@@ -365,7 +362,7 @@ export function AdminDashboardPage() {
               </form>
             </SectionCard>
 
-            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza fino a una data finale e controlla subito eventuali conflitti.' collapsible defaultExpanded={false}>
+            <SectionCard title='Serie ricorrente' description='Crea una ricorrenza fino a una data finale e controlla subito eventuali conflitti.' collapsible defaultExpanded={false} collapsedUniform>
               <form className='mt-4 space-y-4' onSubmit={submitRecurringPreview}>
                 <div>
                   <label className='field-label' htmlFor='admin-recurring-label'>Nome serie ricorrente</label>
@@ -458,7 +455,7 @@ export function AdminDashboardPage() {
           </div>
 
           <div className='space-y-6'>
-            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.' collapsible defaultExpanded={false}>
+            <SectionCard title='Blocca fascia oraria' description='Usa i blackout per manutenzioni, tornei o indisponibilità tecniche.' collapsible defaultExpanded={false} collapsedUniform>
               <form className='mt-4 space-y-3' onSubmit={submitBlackout}>
                 <div>
                   <label className='field-label' htmlFor='admin-blackout-title'>Titolo blackout</label>
@@ -511,7 +508,7 @@ export function AdminDashboardPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title='Profilo tenant e regole operative' description='Aggiorna nome pubblico, contatti operativi e regole del tenant attivo.' collapsible defaultExpanded={false}>
+            <SectionCard title='Profilo tenant e regole operative' description='Aggiorna nome pubblico, contatti operativi e regole del tenant attivo.' collapsible defaultExpanded={false} collapsedUniform>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
               ) : (

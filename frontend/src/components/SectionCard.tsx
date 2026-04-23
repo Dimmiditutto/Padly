@@ -10,6 +10,7 @@ export function SectionCard({
   elevated = false,
   collapsible = false,
   defaultExpanded = true,
+  collapsedUniform = false,
 }: {
   title: string;
   description?: string;
@@ -18,13 +19,14 @@ export function SectionCard({
   elevated?: boolean;
   collapsible?: boolean;
   defaultExpanded?: boolean;
+  collapsedUniform?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const contentId = useId();
   const hasContent = children !== undefined && children !== null;
 
   return (
-    <section className={`surface-card ${elevated ? 'shadow-lift' : ''}`}>
+    <section className={`surface-card ${elevated ? 'shadow-lift' : ''} ${collapsedUniform && collapsible && !expanded ? 'section-card-collapsed-uniform' : ''}`}>
       <div className='section-card-header'>
         <div className='min-w-0'>
           <h2 className='section-title'>{title}</h2>
