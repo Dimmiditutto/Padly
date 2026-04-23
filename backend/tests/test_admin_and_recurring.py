@@ -205,6 +205,10 @@ def test_admin_settings_update_reflected_in_public_config(client):
             'booking_hold_minutes': 30,
             'cancellation_window_hours': 48,
             'reminder_window_hours': 12,
+            'member_hourly_rate': 8,
+            'non_member_hourly_rate': 11,
+            'member_ninety_minute_rate': 12,
+            'non_member_ninety_minute_rate': 15,
         },
     )
     assert update.status_code == 200
@@ -212,12 +216,20 @@ def test_admin_settings_update_reflected_in_public_config(client):
     assert updated_payload['booking_hold_minutes'] == 30
     assert updated_payload['cancellation_window_hours'] == 48
     assert updated_payload['reminder_window_hours'] == 12
+    assert updated_payload['member_hourly_rate'] == 8
+    assert updated_payload['non_member_hourly_rate'] == 11
+    assert updated_payload['member_ninety_minute_rate'] == 12
+    assert updated_payload['non_member_ninety_minute_rate'] == 15
 
     public_config = client.get('/api/public/config')
     assert public_config.status_code == 200
     public_payload = public_config.json()
     assert public_payload['booking_hold_minutes'] == 30
     assert public_payload['cancellation_window_hours'] == 48
+    assert public_payload['member_hourly_rate'] == 8
+    assert public_payload['non_member_hourly_rate'] == 11
+    assert public_payload['member_ninety_minute_rate'] == 12
+    assert public_payload['non_member_ninety_minute_rate'] == 15
 
 
 def test_admin_booking_filters_reject_invalid_date(client):

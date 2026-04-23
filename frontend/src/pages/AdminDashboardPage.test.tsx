@@ -54,6 +54,10 @@ const adminSettings = {
   booking_hold_minutes: 15,
   cancellation_window_hours: 24,
   reminder_window_hours: 24,
+  member_hourly_rate: 7,
+  non_member_hourly_rate: 9,
+  member_ninety_minute_rate: 10,
+  non_member_ninety_minute_rate: 13,
   stripe_enabled: true,
   paypal_enabled: true,
 } as const;
@@ -287,6 +291,10 @@ describe('AdminDashboardPage', () => {
       notification_email: 'ops@roma-club.example',
       support_email: 'help@roma-club.example',
       support_phone: '+39029876543',
+      member_hourly_rate: 8,
+      non_member_hourly_rate: 11,
+      member_ninety_minute_rate: 12,
+      non_member_ninety_minute_rate: 15,
     });
 
     renderDashboard('/admin?tenant=roma-club');
@@ -298,10 +306,17 @@ describe('AdminDashboardPage', () => {
     expect(screen.queryByText('Tenant attivo: Roma Club')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
-    fireEvent.change(screen.getByLabelText('Nome pubblico tenant'), { target: { value: 'Roma Club Elite' } });
+    expect(screen.queryByText('Slug tenant')).not.toBeInTheDocument();
+    expect(screen.queryByText('Timezone')).not.toBeInTheDocument();
+    expect(screen.queryByText('Valuta')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Nome visibile nella pagina di prenotazione'), { target: { value: 'Roma Club Elite' } });
     fireEvent.change(screen.getByLabelText('Email notifiche operative'), { target: { value: 'ops@roma-club.example' } });
     fireEvent.change(screen.getByLabelText('Email supporto pubblico'), { target: { value: 'help@roma-club.example' } });
     fireEvent.change(screen.getByLabelText('Telefono supporto pubblico'), { target: { value: '+39029876543' } });
+    fireEvent.change(screen.getByLabelText('Tesserati, tariffa oraria per giocatore'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('Non tesserati, tariffa oraria per giocatore'), { target: { value: '11' } });
+    fireEvent.change(screen.getByLabelText('Tesserati, tariffa 90 minuti per giocatore'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('Non tesserati, tariffa 90 minuti per giocatore'), { target: { value: '15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salva impostazioni tenant' }));
 
     await waitFor(() => expect(updateAdminSettings).toHaveBeenCalledWith({
@@ -312,6 +327,10 @@ describe('AdminDashboardPage', () => {
       booking_hold_minutes: 15,
       cancellation_window_hours: 24,
       reminder_window_hours: 24,
+      member_hourly_rate: 8,
+      non_member_hourly_rate: 11,
+      member_ninety_minute_rate: 12,
+      non_member_ninety_minute_rate: 15,
     }));
     await screen.findByText('Regole operative aggiornate.');
   });

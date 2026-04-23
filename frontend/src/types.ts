@@ -82,6 +82,10 @@ export interface PublicConfig {
   support_phone?: string | null;
   booking_hold_minutes: number;
   cancellation_window_hours: number;
+  member_hourly_rate: number;
+  non_member_hourly_rate: number;
+  member_ninety_minute_rate: number;
+  non_member_ninety_minute_rate: number;
   stripe_enabled: boolean;
   paypal_enabled: boolean;
 }
@@ -269,6 +273,10 @@ export interface AdminSettings {
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   reminder_window_hours: number;
+  member_hourly_rate: number;
+  non_member_hourly_rate: number;
+  member_ninety_minute_rate: number;
+  non_member_ninety_minute_rate: number;
   stripe_enabled: boolean;
   paypal_enabled: boolean;
 }
@@ -281,6 +289,10 @@ export interface AdminSettingsUpdatePayload {
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   reminder_window_hours: number;
+  member_hourly_rate: number;
+  non_member_hourly_rate: number;
+  member_ninety_minute_rate: number;
+  non_member_ninety_minute_rate: number;
 }
 
 export interface AdminDashboardData {

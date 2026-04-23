@@ -26,7 +26,7 @@ from app.services.payment_service import (
     refund_booking_payment,
     start_payment_for_booking,
 )
-from app.services.settings_service import get_booking_rules
+from app.services.settings_service import get_booking_rules, get_public_rate_card
 
 router = APIRouter(prefix='/public', tags=['Public'])
 
@@ -74,6 +74,7 @@ def _build_public_cancellation_response(db: Session, booking: Booking, *, messag
 @router.get('/config', response_model=PublicConfigResponse)
 def get_public_config(current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicConfigResponse:
     booking_rules = get_booking_rules(db, club_id=current_club.id)
+    public_rate_card = get_public_rate_card(db, club_id=current_club.id)
     return PublicConfigResponse(
         app_name=current_club.public_name,
         tenant_id=current_club.id,
@@ -86,6 +87,10 @@ def get_public_config(current_club: Club = Depends(get_current_club), db: Sessio
         support_phone=current_club.support_phone,
         booking_hold_minutes=booking_rules['booking_hold_minutes'],
         cancellation_window_hours=booking_rules['cancellation_window_hours'],
+        member_hourly_rate=public_rate_card['member_hourly_rate'],
+        non_member_hourly_rate=public_rate_card['non_member_hourly_rate'],
+        member_ninety_minute_rate=public_rate_card['member_ninety_minute_rate'],
+        non_member_ninety_minute_rate=public_rate_card['non_member_ninety_minute_rate'],
         stripe_enabled=is_stripe_checkout_available(),
         paypal_enabled=is_paypal_checkout_available(),
     )

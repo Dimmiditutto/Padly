@@ -27,6 +27,10 @@ const baseConfig = {
   support_phone: '+390101010101',
   booking_hold_minutes: 15,
   cancellation_window_hours: 24,
+  member_hourly_rate: 7,
+  non_member_hourly_rate: 9,
+  member_ninety_minute_rate: 10,
+  non_member_ninety_minute_rate: 13,
   stripe_enabled: true,
   paypal_enabled: true,
 } as const;
@@ -116,6 +120,10 @@ describe('PublicBookingPage', () => {
     expect(screen.getByText('Rimborso automatico solo se annulli prima di 24 ore. Nelle ultime 24 ore la caparra non e rimborsabile.')).toBeInTheDocument();
     expect(screen.getByText('Tempo massimo per completare il checkout.')).toBeInTheDocument();
     expect(screen.getByText('Tariffe informative per giocatore')).toBeInTheDocument();
+    expect(screen.getByText(/Tesserati: .*ora per giocatore/)).toBeInTheDocument();
+    expect(screen.getByText(/Non tesserati: .*ora per giocatore/)).toBeInTheDocument();
+    expect(screen.getByText(/90 minuti: .*giocatore tesserato/)).toBeInTheDocument();
+    expect(screen.getByText(/90 minuti: .*giocatore non tesserato/)).toBeInTheDocument();
     expect(screen.getByText('Tariffe informative: non sostituiscono la caparra online.')).toBeInTheDocument();
     expect(screen.getByText('Giorno')).toBeInTheDocument();
     expect(screen.getByText('Tenant attivo')).toBeInTheDocument();
@@ -128,8 +136,12 @@ describe('PublicBookingPage', () => {
     expect(screen.getByRole('button', { name: 'Stripe' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'PayPal' })).not.toBeInTheDocument();
 
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-05-10' } });
+    await waitFor(() => expect(getAvailability).toHaveBeenLastCalledWith('2026-05-10', 90, null));
+
     await fillBookingForm();
     fireEvent.click(screen.getByRole('button', { name: '18:00' }));
+    expect(screen.getByText('10/05/2026')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Continua al pagamento della caparra' }));
 
     await waitFor(() => expect(createPublicBooking).toHaveBeenCalledWith(expect.objectContaining({
@@ -174,6 +186,10 @@ describe('PublicBookingPage', () => {
       contact_email: 'desk@roma-club.example',
       support_email: 'support@roma-club.example',
       support_phone: '+39021234567',
+      member_hourly_rate: 8,
+      non_member_hourly_rate: 11,
+      member_ninety_minute_rate: 12,
+      non_member_ninety_minute_rate: 15,
     });
 
     renderPage('/?tenant=roma-club');
@@ -183,6 +199,7 @@ describe('PublicBookingPage', () => {
     expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90, 'roma-club');
     expect(screen.getByRole('link', { name: 'desk@roma-club.example' })).toHaveAttribute('href', 'mailto:desk@roma-club.example');
     expect(screen.getByRole('link', { name: '+39021234567' })).toHaveAttribute('href', 'tel:+39021234567');
+    expect(screen.getByText(/Tesserati: .*ora per giocatore/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login?tenant=roma-club');
   });
 

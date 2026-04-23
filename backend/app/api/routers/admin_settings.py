@@ -37,6 +37,10 @@ def update_settings_payload(
         notification_email=payload.notification_email,
         support_email=payload.support_email,
         support_phone=payload.support_phone,
+        member_hourly_rate=payload.member_hourly_rate,
+        non_member_hourly_rate=payload.non_member_hourly_rate,
+        member_ninety_minute_rate=payload.member_ninety_minute_rate,
+        non_member_ninety_minute_rate=payload.non_member_ninety_minute_rate,
     )
     db.commit()
     return AdminSettingsResponse(

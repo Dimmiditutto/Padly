@@ -262,6 +262,10 @@ export function AdminDashboardPage() {
         booking_hold_minutes: settings.booking_hold_minutes,
         cancellation_window_hours: settings.cancellation_window_hours,
         reminder_window_hours: settings.reminder_window_hours,
+        member_hourly_rate: settings.member_hourly_rate,
+        non_member_hourly_rate: settings.non_member_hourly_rate,
+        member_ninety_minute_rate: settings.member_ninety_minute_rate,
+        non_member_ninety_minute_rate: settings.non_member_ninety_minute_rate,
       });
       setSettings(response);
       setFeedback({ tone: 'success', message: 'Regole operative aggiornate.' });
@@ -278,17 +282,17 @@ export function AdminDashboardPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
-        <div className='admin-hero-panel relative space-y-4'>
-          <div className='lg:pr-72'>
+        <div className='admin-hero-panel space-y-4'>
+          <div className='admin-hero-layout'>
             <div className='admin-hero-copy'>
               <p className='admin-hero-kicker'>Dashboard admin</p>
               <h1 className='admin-hero-heading'>Prenotazioni e operatività</h1>
               <p className='admin-hero-description'>La dashboard resta focalizzata su creazione rapida, serie ricorrenti, blackout e regole operative.</p>
             </div>
-          </div>
-          <div className='admin-hero-actions lg:absolute lg:right-5 lg:top-5 lg:w-auto'>
-            <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna pagina</button>
-            <button onClick={logout} className='admin-hero-button-secondary'>Esci</button>
+            <div className='admin-hero-actions'>
+              <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna pagina</button>
+              <button onClick={logout} className='admin-hero-button-secondary'>Esci</button>
+            </div>
           </div>
           <AdminNav session={session} notificationEmail={settings?.notification_email || null} />
         </div>
@@ -508,15 +512,16 @@ export function AdminDashboardPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title='Profilo tenant e regole operative' description='Aggiorna nome pubblico, contatti operativi e regole del tenant attivo.' collapsible defaultExpanded={false} collapsedUniform>
+            <SectionCard title='Profilo tenant e regole operative' description='Aggiorna il nome visibile ai giocatori, i contatti pubblici, le tariffe informative e le regole operative del tenant attivo.' collapsible defaultExpanded={false} collapsedUniform>
               {!settings ? (
                 <LoadingBlock label='Sto caricando le impostazioni admin…' />
               ) : (
                 <form className='space-y-3' onSubmit={saveSettings}>
                   <div className='grid gap-3 sm:grid-cols-2'>
                     <div>
-                      <label className='field-label' htmlFor='admin-settings-public-name'>Nome pubblico tenant</label>
+                      <label className='field-label' htmlFor='admin-settings-public-name'>Nome visibile nella pagina di prenotazione</label>
                       <input id='admin-settings-public-name' className='text-input' value={settings.public_name} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_name: event.target.value } : prev)} />
+                      <p className='mt-2 text-sm text-slate-500'>Questo nome compare nella home pubblica che i giocatori vedono quando prenotano.</p>
                     </div>
                     <div>
                       <label className='field-label' htmlFor='admin-settings-notification-email'>Email notifiche operative</label>
@@ -545,18 +550,26 @@ export function AdminDashboardPage() {
                       <input className='text-input' type='number' min={1} max={168} value={settings.reminder_window_hours} onChange={(event) => setSettings((prev) => prev ? { ...prev, reminder_window_hours: Number(event.target.value) } : prev)} />
                     </div>
                   </div>
-                  <div className='grid gap-3 sm:grid-cols-3'>
-                    <div className='surface-muted'>
-                      <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Slug tenant</p>
-                      <p className='mt-2 text-sm font-medium text-slate-900'>{settings.club_slug}</p>
-                    </div>
-                    <div className='surface-muted'>
-                      <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Timezone</p>
-                      <p className='mt-2 text-sm font-medium text-slate-900'>{settings.timezone}</p>
-                    </div>
-                    <div className='surface-muted'>
-                      <p className='text-xs font-semibold uppercase tracking-[0.18em] text-slate-500'>Valuta</p>
-                      <p className='mt-2 text-sm font-medium text-slate-900'>{settings.currency}</p>
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className='text-sm font-semibold text-slate-900'>Tariffe informative mostrate nella home pubblica</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Questi importi sono solo informativi per i giocatori e non sostituiscono la caparra online.</p>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-member-hourly-rate'>Tesserati, tariffa oraria per giocatore</label>
+                        <input id='admin-settings-member-hourly-rate' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.member_hourly_rate} onChange={(event) => setSettings((prev) => prev ? { ...prev, member_hourly_rate: Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-non-member-hourly-rate'>Non tesserati, tariffa oraria per giocatore</label>
+                        <input id='admin-settings-non-member-hourly-rate' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.non_member_hourly_rate} onChange={(event) => setSettings((prev) => prev ? { ...prev, non_member_hourly_rate: Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-member-ninety-rate'>Tesserati, tariffa 90 minuti per giocatore</label>
+                        <input id='admin-settings-member-ninety-rate' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.member_ninety_minute_rate} onChange={(event) => setSettings((prev) => prev ? { ...prev, member_ninety_minute_rate: Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-non-member-ninety-rate'>Non tesserati, tariffa 90 minuti per giocatore</label>
+                        <input id='admin-settings-non-member-ninety-rate' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.non_member_ninety_minute_rate} onChange={(event) => setSettings((prev) => prev ? { ...prev, non_member_ninety_minute_rate: Number(event.target.value) } : prev)} />
+                      </div>
                     </div>
                   </div>
                   <div className='surface-muted'>

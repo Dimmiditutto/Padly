@@ -8,17 +8,10 @@ import { SlotGrid } from '../components/SlotGrid';
 import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
 import type { PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
-import { formatCurrency, toDateInputValue } from '../utils/format';
+import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const today = toDateInputValue(new Date());
-
-const playerRates = [
-  'Tesserati: € 7/ora per giocatore',
-  'Non tesserati: € 9/ora per giocatore',
-  '90 minuti: € 10 per giocatore tesserato',
-  '90 minuti: € 13 per giocatore non tesserato',
-];
 const logoUrl = '/Logo_BG.png';
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
@@ -50,6 +43,7 @@ export function PublicBookingPage() {
   const bookingDayLabel = useMemo(() => formatBookingDayLabel(bookingDate, publicConfig?.timezone), [bookingDate, publicConfig?.timezone]);
   const visibleSlots = useMemo(() => slots.filter(isSlotWithinOpeningHours), [slots]);
   const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'PadelBooking';
+  const playerRates = useMemo(() => buildPublicRateLines(publicConfig), [publicConfig]);
 
   useEffect(() => {
     void loadConfig();
@@ -342,7 +336,7 @@ export function PublicBookingPage() {
 
                 <div className='rounded-2xl bg-cyan-50 p-4 text-sm text-slate-700'>
                   <p className={secondarySectionTitleClassName}>Riepilogo</p>
-                  <p className='mt-2'>Data: <strong>{bookingDate}</strong></p>
+                  <p className='mt-2'>Data: <strong>{formatDate(bookingDate)}</strong></p>
                   <p>Inizio: <strong>{selectedSlot?.display_start_time || 'Seleziona uno slot'}</strong></p>
                   <p>Durata: <strong>{duration} minuti</strong></p>
                   <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p>
@@ -394,6 +388,20 @@ function formatBookingDayLabel(value: string, timezone = 'Europe/Rome') {
     timeZone: timezone,
   }).format(normalizedDate);
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function buildPublicRateLines(config: PublicConfig | null) {
+  const memberHourlyRate = config?.member_hourly_rate ?? 7;
+  const nonMemberHourlyRate = config?.non_member_hourly_rate ?? 9;
+  const memberNinetyMinuteRate = config?.member_ninety_minute_rate ?? 10;
+  const nonMemberNinetyMinuteRate = config?.non_member_ninety_minute_rate ?? 13;
+
+  return [
+    `Tesserati: ${formatCurrency(memberHourlyRate)}/ora per giocatore`,
+    `Non tesserati: ${formatCurrency(nonMemberHourlyRate)}/ora per giocatore`,
+    `90 minuti: ${formatCurrency(memberNinetyMinuteRate)} per giocatore tesserato`,
+    `90 minuti: ${formatCurrency(nonMemberNinetyMinuteRate)} per giocatore non tesserato`,
+  ];
 }
 
 function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, durationMinutes: number) {

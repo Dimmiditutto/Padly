@@ -8,6 +8,7 @@ from app.models import AppSetting, Club
 from app.services.tenant_service import get_default_club_id
 
 BOOKING_RULES_KEY = 'booking_rules'
+PUBLIC_RATE_CARD_KEY = 'public_rate_card'
 
 
 def default_booking_rules() -> dict[str, int]:
@@ -15,6 +16,15 @@ def default_booking_rules() -> dict[str, int]:
         'booking_hold_minutes': settings.booking_hold_minutes,
         'cancellation_window_hours': settings.cancellation_window_hours,
         'reminder_window_hours': 24,
+    }
+
+
+def default_public_rate_card() -> dict[str, float]:
+    return {
+        'member_hourly_rate': 7.0,
+        'non_member_hourly_rate': 9.0,
+        'member_ninety_minute_rate': 10.0,
+        'non_member_ninety_minute_rate': 13.0,
     }
 
 
@@ -53,8 +63,53 @@ def update_booking_rules(
     return value
 
 
+def get_public_rate_card(db: Session, *, club_id: str | None = None) -> dict[str, float]:
+    defaults = default_public_rate_card()
+    resolved_club_id = club_id or get_default_club_id(db)
+    record = db.scalar(select(AppSetting).where(AppSetting.club_id == resolved_club_id, AppSetting.key == PUBLIC_RATE_CARD_KEY))
+    if not record:
+        return defaults
+
+    merged = defaults.copy()
+    for key in defaults:
+        value = record.value.get(key)
+        if value is None:
+            continue
+        try:
+            merged[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return merged
+
+
+def update_public_rate_card(
+    db: Session,
+    *,
+    member_hourly_rate: float,
+    non_member_hourly_rate: float,
+    member_ninety_minute_rate: float,
+    non_member_ninety_minute_rate: float,
+    club_id: str | None = None,
+) -> dict[str, float]:
+    value = {
+        'member_hourly_rate': member_hourly_rate,
+        'non_member_hourly_rate': non_member_hourly_rate,
+        'member_ninety_minute_rate': member_ninety_minute_rate,
+        'non_member_ninety_minute_rate': non_member_ninety_minute_rate,
+    }
+    resolved_club_id = club_id or get_default_club_id(db)
+    record = db.scalar(select(AppSetting).where(AppSetting.club_id == resolved_club_id, AppSetting.key == PUBLIC_RATE_CARD_KEY))
+    if record:
+        record.value = value
+    else:
+        db.add(AppSetting(club_id=resolved_club_id, key=PUBLIC_RATE_CARD_KEY, value=value))
+    db.flush()
+    return value
+
+
 def get_tenant_settings(db: Session, *, club: Club) -> dict[str, object]:
     payload: dict[str, object] = get_booking_rules(db, club_id=club.id)
+    payload.update(get_public_rate_card(db, club_id=club.id))
     payload.update(
         {
             'club_id': club.id,
@@ -81,12 +136,24 @@ def update_tenant_settings(
     notification_email: str | None = None,
     support_email: str | None = None,
     support_phone: str | None = None,
+    member_hourly_rate: float,
+    non_member_hourly_rate: float,
+    member_ninety_minute_rate: float,
+    non_member_ninety_minute_rate: float,
 ) -> dict[str, object]:
     update_booking_rules(
         db,
         booking_hold_minutes=booking_hold_minutes,
         cancellation_window_hours=cancellation_window_hours,
         reminder_window_hours=reminder_window_hours,
+        club_id=club.id,
+    )
+    update_public_rate_card(
+        db,
+        member_hourly_rate=member_hourly_rate,
+        non_member_hourly_rate=non_member_hourly_rate,
+        member_ninety_minute_rate=member_ninety_minute_rate,
+        non_member_ninety_minute_rate=non_member_ninety_minute_rate,
         club_id=club.id,
     )
     if public_name is not None:

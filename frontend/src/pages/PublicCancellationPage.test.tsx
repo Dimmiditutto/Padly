@@ -71,6 +71,10 @@ describe('PublicCancellationPage', () => {
       support_phone: '+390101010101',
       booking_hold_minutes: 15,
       cancellation_window_hours: 24,
+      member_hourly_rate: 7,
+      non_member_hourly_rate: 9,
+      member_ninety_minute_rate: 10,
+      non_member_ninety_minute_rate: 13,
       stripe_enabled: true,
       paypal_enabled: true,
     });

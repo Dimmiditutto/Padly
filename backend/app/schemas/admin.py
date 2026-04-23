@@ -181,6 +181,10 @@ class AdminSettingsResponse(BaseModel):
     booking_hold_minutes: int
     cancellation_window_hours: int
     reminder_window_hours: int
+    member_hourly_rate: float
+    non_member_hourly_rate: float
+    member_ninety_minute_rate: float
+    non_member_ninety_minute_rate: float
     stripe_enabled: bool
     paypal_enabled: bool
 
@@ -193,6 +197,10 @@ class AdminSettingsUpdateRequest(BaseModel):
     booking_hold_minutes: int = Field(ge=5, le=120)
     cancellation_window_hours: int = Field(ge=1, le=168)
     reminder_window_hours: int = Field(ge=1, le=168)
+    member_hourly_rate: float = Field(ge=0, le=999)
+    non_member_hourly_rate: float = Field(ge=0, le=999)
+    member_ninety_minute_rate: float = Field(ge=0, le=999)
+    non_member_ninety_minute_rate: float = Field(ge=0, le=999)
 
     @field_validator('notification_email', mode='before')
     @classmethod

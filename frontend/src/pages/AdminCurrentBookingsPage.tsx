@@ -321,7 +321,7 @@ export function AdminCurrentBookingsPage() {
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel space-y-4'>
-          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
+          <div className='admin-hero-layout'>
             <div className='admin-hero-copy'>
               <p className='admin-hero-kicker'>Dashboard admin</p>
               <h1 className='admin-hero-heading'>Calendario settimanale prenotazioni</h1>

@@ -90,6 +90,10 @@ class PublicConfigResponse(BaseModel):
     support_phone: str | None = None
     booking_hold_minutes: int
     cancellation_window_hours: int
+    member_hourly_rate: float
+    non_member_hourly_rate: float
+    member_ninety_minute_rate: float
+    non_member_ninety_minute_rate: float
     stripe_enabled: bool
     paypal_enabled: bool
 

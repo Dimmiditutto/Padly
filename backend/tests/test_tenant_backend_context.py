@@ -323,6 +323,10 @@ def test_admin_settings_and_public_config_are_tenant_scoped(client):
             'booking_hold_minutes': 45,
             'cancellation_window_hours': 72,
             'reminder_window_hours': 6,
+            'member_hourly_rate': 8,
+            'non_member_hourly_rate': 11,
+            'member_ninety_minute_rate': 12,
+            'non_member_ninety_minute_rate': 15,
         },
     )
     assert update.status_code == 200
@@ -337,9 +341,14 @@ def test_admin_settings_and_public_config_are_tenant_scoped(client):
     assert tenant_public.status_code == 200
     assert default_public.json()['tenant_id'] == DEFAULT_CLUB_ID
     assert default_public.json()['booking_hold_minutes'] == 15
+    assert default_public.json()['member_hourly_rate'] == 7
     assert tenant_public.json()['tenant_id'] == tenant['id']
     assert tenant_public.json()['public_name'] == 'Roma Elite Club'
     assert tenant_public.json()['booking_hold_minutes'] == 45
+    assert tenant_public.json()['member_hourly_rate'] == 8
+    assert tenant_public.json()['non_member_hourly_rate'] == 11
+    assert tenant_public.json()['member_ninety_minute_rate'] == 12
+    assert tenant_public.json()['non_member_ninety_minute_rate'] == 15
     assert tenant_public.json()['contact_email'] == 'help@roma-elite.example'
 
 
