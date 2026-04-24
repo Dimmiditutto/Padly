@@ -52,6 +52,21 @@ class BookingSource(str, enum.Enum):
     ADMIN_RECURRING = 'ADMIN_RECURRING'
 
 
+class PlayLevel(str, enum.Enum):
+    NO_PREFERENCE = 'NO_PREFERENCE'
+    BEGINNER = 'BEGINNER'
+    INTERMEDIATE_LOW = 'INTERMEDIATE_LOW'
+    INTERMEDIATE_MEDIUM = 'INTERMEDIATE_MEDIUM'
+    INTERMEDIATE_HIGH = 'INTERMEDIATE_HIGH'
+    ADVANCED = 'ADVANCED'
+
+
+class MatchStatus(str, enum.Enum):
+    OPEN = 'OPEN'
+    FULL = 'FULL'
+    CANCELLED = 'CANCELLED'
+
+
 class Club(Base):
     __tablename__ = 'clubs'
 
@@ -80,6 +95,10 @@ class Club(Base):
     settings: Mapped[list['AppSetting']] = relationship(back_populates='club', cascade='all, delete-orphan')
     email_notifications: Mapped[list['EmailNotificationLog']] = relationship(back_populates='club')
     subscription: Mapped['ClubSubscription | None'] = relationship(back_populates='club', uselist=False)
+    players: Mapped[list['Player']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    community_invites: Mapped[list['CommunityInviteToken']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    player_access_tokens: Mapped[list['PlayerAccessToken']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    matches: Mapped[list['Match']] = relationship(back_populates='club', cascade='all, delete-orphan')
 
 
 class ClubDomain(Base):
@@ -128,6 +147,67 @@ class Customer(Base):
     bookings: Mapped[list['Booking']] = relationship(back_populates='customer')
 
 
+class Player(Base):
+    __tablename__ = 'players'
+    __table_args__ = (
+        UniqueConstraint('club_id', 'profile_name', name='uq_players_club_profile_name'),
+        UniqueConstraint('club_id', 'phone', name='uq_players_club_phone'),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    profile_name: Mapped[str] = mapped_column(String(120), index=True)
+    phone: Mapped[str] = mapped_column(String(50), index=True)
+    declared_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    effective_level: Mapped[PlayLevel | None] = mapped_column(Enum(PlayLevel), nullable=True)
+    privacy_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='players')
+    access_tokens: Mapped[list['PlayerAccessToken']] = relationship(back_populates='player', cascade='all, delete-orphan')
+    created_matches: Mapped[list['Match']] = relationship(back_populates='created_by_player', foreign_keys='Match.created_by_player_id')
+    match_participations: Mapped[list['MatchPlayer']] = relationship(back_populates='player', cascade='all, delete-orphan')
+    accepted_invites: Mapped[list['CommunityInviteToken']] = relationship(back_populates='accepted_player')
+
+
+class CommunityInviteToken(Base):
+    __tablename__ = 'community_invite_tokens'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    profile_name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(50), index=True)
+    invited_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    privacy_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    accepted_player_id: Mapped[str | None] = mapped_column(ForeignKey('players.id'), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='community_invites')
+    accepted_player: Mapped['Player | None'] = relationship(back_populates='accepted_invites')
+
+
+class PlayerAccessToken(Base):
+    __tablename__ = 'player_access_tokens'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='player_access_tokens')
+    player: Mapped['Player'] = relationship(back_populates='access_tokens')
+
+
 class Court(Base):
     __tablename__ = 'courts'
     __table_args__ = (UniqueConstraint('club_id', 'name', name='uq_courts_club_name'),)
@@ -145,6 +225,45 @@ class Court(Base):
     bookings: Mapped[list['Booking']] = relationship(back_populates='court')
     recurring_series: Mapped[list['RecurringBookingSeries']] = relationship(back_populates='court')
     blackouts: Mapped[list['BlackoutPeriod']] = relationship(back_populates='court')
+    matches: Mapped[list['Match']] = relationship(back_populates='court')
+
+
+class Match(Base):
+    __tablename__ = 'matches'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    court_id: Mapped[str] = mapped_column(ForeignKey('courts.id'), index=True)
+    created_by_player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), index=True)
+    booking_id: Mapped[str | None] = mapped_column(ForeignKey('bookings.id'), nullable=True, index=True)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=90)
+    status: Mapped[MatchStatus] = mapped_column(Enum(MatchStatus), default=MatchStatus.OPEN, index=True)
+    level_requested: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    public_share_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='matches')
+    court: Mapped['Court'] = relationship(back_populates='matches')
+    created_by_player: Mapped['Player'] = relationship(back_populates='created_matches', foreign_keys=[created_by_player_id])
+    booking: Mapped['Booking | None'] = relationship()
+    participants: Mapped[list['MatchPlayer']] = relationship(back_populates='match', cascade='all, delete-orphan')
+
+
+class MatchPlayer(Base):
+    __tablename__ = 'match_players'
+    __table_args__ = (UniqueConstraint('match_id', 'player_id', name='uq_match_players_match_player'),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    match_id: Mapped[str] = mapped_column(ForeignKey('matches.id'), index=True)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    match: Mapped['Match'] = relationship(back_populates='participants')
+    player: Mapped['Player'] = relationship(back_populates='match_participations')
 
 
 class RecurringBookingSeries(Base):
