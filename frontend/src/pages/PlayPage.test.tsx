@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
-import type { AvailabilityResponse, PlayMatchSummary, PlayPlayerSummary } from '../types';
+import type { AvailabilityResponse, PlayMatchSummary, PlayNotificationSettings, PlayPlayerSummary } from '../types';
 
 vi.mock('../services/playApi', () => ({
   acceptCommunityInvite: vi.fn(),
@@ -15,7 +15,16 @@ vi.mock('../services/playApi', () => ({
   identifyPlayPlayer: vi.fn(),
   joinPlayMatch: vi.fn(),
   leavePlayMatch: vi.fn(),
+  registerPlayPushSubscription: vi.fn(),
+  revokePlayPushSubscription: vi.fn(),
   updatePlayMatch: vi.fn(),
+  updatePlayNotificationPreferences: vi.fn(),
+}));
+
+vi.mock('../utils/playPush', () => ({
+  isPlayPushSupported: vi.fn(() => true),
+  subscribeBrowserToPlayPush: vi.fn(),
+  unsubscribeBrowserFromPlayPush: vi.fn(),
 }));
 
 vi.mock('../services/publicApi', () => ({
@@ -33,17 +42,39 @@ import {
   identifyPlayPlayer,
   joinPlayMatch,
   leavePlayMatch,
+  registerPlayPushSubscription,
+  revokePlayPushSubscription,
   updatePlayMatch,
+  updatePlayNotificationPreferences,
 } from '../services/playApi';
+import { subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 
 const basePlayer: PlayPlayerSummary = {
   id: 'player-1',
   profile_name: 'Luca Smash',
   phone: '+393331112233',
   declared_level: 'INTERMEDIATE_MEDIUM',
-  effective_level: null,
   privacy_accepted_at: '2026-04-24T10:00:00Z',
   created_at: '2026-04-24T10:00:00Z',
+};
+
+const baseNotificationSettings: PlayNotificationSettings = {
+  preferences: {
+    in_app_enabled: true,
+    web_push_enabled: true,
+    notify_match_three_of_four: true,
+    notify_match_two_of_four: true,
+    notify_match_one_of_four: false,
+    level_compatibility_only: true,
+  },
+  push: {
+    push_supported: true,
+    public_vapid_key: 'BElocalPlayPushKey',
+    service_worker_path: '/play-service-worker.js',
+    has_active_subscription: false,
+    active_subscription_count: 0,
+  },
+  recent_notifications: [],
 };
 
 const baseAvailability: AvailabilityResponse = {
@@ -79,7 +110,6 @@ function buildMatch(id: string, note: string, participantCount: number): PlayMat
     player_id: `${id}-player-${index + 1}`,
     profile_name: `Player ${index + 1}`,
     declared_level: 'INTERMEDIATE_MEDIUM' as const,
-    effective_level: null,
   }));
 
   return {
@@ -117,7 +147,7 @@ describe('Play phase 2 pages', () => {
     vi.clearAllMocks();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(getAvailability).mockResolvedValue({ ...baseAvailability });
-    vi.mocked(getPlaySession).mockResolvedValue({ player: null });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: null, notification_settings: null });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: null,
       open_matches: [
@@ -162,6 +192,31 @@ describe('Play phase 2 pages', () => {
       message: 'Partita annullata.',
       match: { ...buildMatch('match-cancelled', 'cancelled', 1), status: 'CANCELLED' },
     });
+    vi.mocked(updatePlayNotificationPreferences).mockResolvedValue({
+      message: 'Preferenze notifiche aggiornate.',
+      settings: { ...baseNotificationSettings },
+    });
+    vi.mocked(registerPlayPushSubscription).mockResolvedValue({
+      message: 'Subscription web push registrata.',
+      settings: {
+        ...baseNotificationSettings,
+        push: {
+          ...baseNotificationSettings.push,
+          has_active_subscription: true,
+          active_subscription_count: 1,
+        },
+      },
+    });
+    vi.mocked(revokePlayPushSubscription).mockResolvedValue({
+      message: 'Subscription web push revocata.',
+      settings: { ...baseNotificationSettings },
+    });
+    vi.mocked(subscribeBrowserToPlayPush).mockResolvedValue({
+      endpoint: 'https://push.example/sub-1',
+      keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
+      user_agent: 'Vitest Browser',
+    });
+    vi.mocked(unsubscribeBrowserFromPlayPush).mockResolvedValue('https://push.example/sub-1');
     vi.mocked(getPlaySharedMatch).mockResolvedValue({
       player: null,
       match: buildMatch('match-shared', 'shared 3 su 4', 3),
@@ -282,7 +337,7 @@ describe('Play phase 2 pages', () => {
   });
 
   it('shows the shared match page for a recognized player', async () => {
-    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer } });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
     vi.mocked(getPlaySharedMatch).mockResolvedValue({
       player: { ...basePlayer },
       match: buildMatch('match-shared', 'shared 3 su 4', 3),
@@ -297,7 +352,7 @@ describe('Play phase 2 pages', () => {
 
   it('shows compatible matches before forcing a new create flow', async () => {
     const user = userEvent.setup();
-    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer } });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: { ...basePlayer },
       open_matches: [buildMatch('match-3of4', '3 su 4', 3)],
@@ -347,7 +402,7 @@ describe('Play phase 2 pages', () => {
 
   it('shows leave action for joined personal matches and calls the leave endpoint', async () => {
     const user = userEvent.setup();
-    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer } });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: { ...basePlayer },
       open_matches: [],
@@ -360,7 +415,6 @@ describe('Play phase 2 pages', () => {
               player_id: basePlayer.id,
               profile_name: basePlayer.profile_name,
               declared_level: basePlayer.declared_level,
-              effective_level: null,
             },
           ],
         },
@@ -381,7 +435,7 @@ describe('Play phase 2 pages', () => {
 
   it('lets the creator update level and note from the manage panel', async () => {
     const user = userEvent.setup();
-    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer } });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: { ...basePlayer },
       open_matches: [],
@@ -415,7 +469,7 @@ describe('Play phase 2 pages', () => {
 
   it('lets the creator cancel an open match from personal actions', async () => {
     const user = userEvent.setup();
-    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer } });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: { ...basePlayer },
       open_matches: [],
@@ -437,5 +491,102 @@ describe('Play phase 2 pages', () => {
     await waitFor(() => expect(window.confirm).toHaveBeenCalled());
     await waitFor(() => expect(cancelPlayMatch).toHaveBeenCalledWith('match-my-cancel', 'roma-club'));
     expect(await screen.findByText('Partita annullata.')).toBeInTheDocument();
+  });
+
+  it('saves notification preferences from the play panel', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({
+      player: { ...basePlayer },
+      notification_settings: { ...baseNotificationSettings },
+    });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+    vi.mocked(updatePlayNotificationPreferences).mockResolvedValue({
+      message: 'Preferenze notifiche aggiornate.',
+      settings: {
+        ...baseNotificationSettings,
+        preferences: {
+          ...baseNotificationSettings.preferences,
+          notify_match_two_of_four: false,
+        },
+      },
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Notifiche play' });
+    await user.click(screen.getByLabelText('Avvisami per match 2/4'));
+    await user.click(screen.getByRole('button', { name: 'Salva preferenze notifiche' }));
+
+    await waitFor(() => expect(updatePlayNotificationPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      notify_match_two_of_four: false,
+    }), 'roma-club'));
+    expect(await screen.findByText('Preferenze notifiche aggiornate.')).toBeInTheDocument();
+  });
+
+  it('registers and revokes web push from the play panel', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({
+      player: { ...basePlayer },
+      notification_settings: { ...baseNotificationSettings },
+    });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Notifiche play' });
+    await user.click(screen.getByRole('button', { name: 'Attiva web push' }));
+
+    await waitFor(() => expect(subscribeBrowserToPlayPush).toHaveBeenCalledWith('BElocalPlayPushKey', '/play-service-worker.js'));
+    await waitFor(() => expect(registerPlayPushSubscription).toHaveBeenCalledWith({
+      endpoint: 'https://push.example/sub-1',
+      keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
+      user_agent: 'Vitest Browser',
+    }, 'roma-club'));
+
+    await user.click(screen.getByRole('button', { name: 'Disattiva web push' }));
+
+    await waitFor(() => expect(unsubscribeBrowserFromPlayPush).toHaveBeenCalled());
+    await waitFor(() => expect(revokePlayPushSubscription).toHaveBeenCalledWith({ endpoint: 'https://push.example/sub-1' }, 'roma-club'));
+    expect(await screen.findByText('Subscription web push revocata.')).toBeInTheDocument();
+  });
+
+  it('does not call revoke api when this browser has no active push subscription', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({
+      player: { ...basePlayer },
+      notification_settings: {
+        ...baseNotificationSettings,
+        push: {
+          ...baseNotificationSettings.push,
+          has_active_subscription: true,
+          active_subscription_count: 2,
+        },
+      },
+    });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+    vi.mocked(unsubscribeBrowserFromPlayPush).mockResolvedValue(null);
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Notifiche play' });
+    expect(screen.getByText('Web push attiva su 2 browser o dispositivi collegati al tuo profilo play. Le notifiche in-app restano comunque disponibili nella pagina.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Disattiva web push' }));
+
+    await waitFor(() => expect(unsubscribeBrowserFromPlayPush).toHaveBeenCalled());
+    expect(revokePlayPushSubscription).not.toHaveBeenCalled();
+    expect(await screen.findByText('Non ho trovato una subscription web push registrata in questo browser. Lo stato mostrato resta aggregato sul tuo profilo play.')).toBeInTheDocument();
   });
 });

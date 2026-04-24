@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     payment_webhook_retention_days: int = 180
     billing_webhook_retention_days: int = 180
     platform_api_key: str | None = None
+    play_push_vapid_public_key: str | None = None
+    play_push_vapid_private_key: str | None = None
+    play_push_subject: str = 'mailto:noreply@example.com'
 
     @staticmethod
     def _is_blank(value: str | None) -> bool:

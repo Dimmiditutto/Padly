@@ -359,7 +359,6 @@ export interface PlayPlayerSummary {
   profile_name: string;
   phone: string;
   declared_level: PlayLevel;
-  effective_level?: PlayLevel | null;
   privacy_accepted_at: string;
   created_at: string;
 }
@@ -368,7 +367,45 @@ export interface MatchParticipantSummary {
   player_id: string;
   profile_name: string;
   declared_level: PlayLevel;
-  effective_level?: PlayLevel | null;
+}
+
+export type PlayNotificationChannel = 'IN_APP' | 'WEB_PUSH';
+export type PlayNotificationKind = 'MATCH_THREE_OF_FOUR' | 'MATCH_TWO_OF_FOUR' | 'MATCH_ONE_OF_FOUR';
+
+export interface PlayNotificationPreferenceSummary {
+  in_app_enabled: boolean;
+  web_push_enabled: boolean;
+  notify_match_three_of_four: boolean;
+  notify_match_two_of_four: boolean;
+  notify_match_one_of_four: boolean;
+  level_compatibility_only: boolean;
+}
+
+export interface PlayPushState {
+  push_supported: boolean;
+  public_vapid_key?: string | null;
+  service_worker_path: string;
+  has_active_subscription: boolean;
+  active_subscription_count: number;
+}
+
+export interface PlayNotificationItem {
+  id: string;
+  match_id?: string | null;
+  channel: PlayNotificationChannel;
+  kind: PlayNotificationKind;
+  title: string;
+  message: string;
+  payload?: Record<string, unknown> | null;
+  sent_at?: string | null;
+  read_at?: string | null;
+  created_at: string;
+}
+
+export interface PlayNotificationSettings {
+  preferences: PlayNotificationPreferenceSummary;
+  push: PlayPushState;
+  recent_notifications: PlayNotificationItem[];
 }
 
 export interface PlayMatchSummary {
@@ -394,6 +431,7 @@ export interface PlayMatchSummary {
 
 export interface PlaySessionResponse {
   player?: PlayPlayerSummary | null;
+  notification_settings?: PlayNotificationSettings | null;
 }
 
 export interface PlayIdentifyPayload {
@@ -480,4 +518,36 @@ export interface PlayMatchUpdateResponse {
   action: string;
   message: string;
   match: PlayMatchSummary;
+}
+
+export interface PlayNotificationPreferenceUpdatePayload {
+  in_app_enabled: boolean;
+  web_push_enabled: boolean;
+  notify_match_three_of_four: boolean;
+  notify_match_two_of_four: boolean;
+  notify_match_one_of_four: boolean;
+  level_compatibility_only: boolean;
+}
+
+export interface PlayNotificationPreferenceUpdateResponse {
+  message: string;
+  settings: PlayNotificationSettings;
+}
+
+export interface PlayPushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  user_agent?: string | null;
+}
+
+export interface PlayPushSubscriptionRevokePayload {
+  endpoint?: string | null;
+}
+
+export interface PlayPushSubscriptionResponse {
+  message: string;
+  settings: PlayNotificationSettings;
 }

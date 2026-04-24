@@ -67,6 +67,36 @@ class MatchStatus(str, enum.Enum):
     CANCELLED = 'CANCELLED'
 
 
+class PlayerActivityEventType(str, enum.Enum):
+    IDENTIFIED = 'IDENTIFIED'
+    MATCH_CREATED = 'MATCH_CREATED'
+    MATCH_JOINED = 'MATCH_JOINED'
+    MATCH_LEFT = 'MATCH_LEFT'
+    MATCH_CANCELLED = 'MATCH_CANCELLED'
+    MATCH_COMPLETED = 'MATCH_COMPLETED'
+    PUSH_SUBSCRIBED = 'PUSH_SUBSCRIBED'
+    PUSH_UNSUBSCRIBED = 'PUSH_UNSUBSCRIBED'
+
+
+class NotificationChannel(str, enum.Enum):
+    IN_APP = 'IN_APP'
+    WEB_PUSH = 'WEB_PUSH'
+
+
+class NotificationKind(str, enum.Enum):
+    MATCH_THREE_OF_FOUR = 'MATCH_THREE_OF_FOUR'
+    MATCH_TWO_OF_FOUR = 'MATCH_TWO_OF_FOUR'
+    MATCH_ONE_OF_FOUR = 'MATCH_ONE_OF_FOUR'
+
+
+class NotificationDeliveryStatus(str, enum.Enum):
+    PENDING = 'PENDING'
+    SENT = 'SENT'
+    SIMULATED = 'SIMULATED'
+    FAILED = 'FAILED'
+    SKIPPED = 'SKIPPED'
+
+
 class Club(Base):
     __tablename__ = 'clubs'
 
@@ -99,6 +129,11 @@ class Club(Base):
     community_invites: Mapped[list['CommunityInviteToken']] = relationship(back_populates='club', cascade='all, delete-orphan')
     player_access_tokens: Mapped[list['PlayerAccessToken']] = relationship(back_populates='club', cascade='all, delete-orphan')
     matches: Mapped[list['Match']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    play_activity_events: Mapped[list['PlayerActivityEvent']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    play_profiles: Mapped[list['PlayerPlayProfile']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    push_subscriptions: Mapped[list['PlayerPushSubscription']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    notification_preferences: Mapped[list['PlayerNotificationPreference']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    notification_logs: Mapped[list['NotificationLog']] = relationship(back_populates='club', cascade='all, delete-orphan')
 
 
 class ClubDomain(Base):
@@ -170,6 +205,11 @@ class Player(Base):
     created_matches: Mapped[list['Match']] = relationship(back_populates='created_by_player', foreign_keys='Match.created_by_player_id')
     match_participations: Mapped[list['MatchPlayer']] = relationship(back_populates='player', cascade='all, delete-orphan')
     accepted_invites: Mapped[list['CommunityInviteToken']] = relationship(back_populates='accepted_player')
+    activity_events: Mapped[list['PlayerActivityEvent']] = relationship(back_populates='player', cascade='all, delete-orphan')
+    play_profile: Mapped['PlayerPlayProfile | None'] = relationship(back_populates='player', cascade='all, delete-orphan', uselist=False)
+    push_subscriptions: Mapped[list['PlayerPushSubscription']] = relationship(back_populates='player', cascade='all, delete-orphan')
+    notification_preference: Mapped['PlayerNotificationPreference | None'] = relationship(back_populates='player', cascade='all, delete-orphan', uselist=False)
+    notifications: Mapped[list['NotificationLog']] = relationship(back_populates='player', cascade='all, delete-orphan')
 
 
 class CommunityInviteToken(Base):
@@ -264,6 +304,119 @@ class MatchPlayer(Base):
 
     match: Mapped['Match'] = relationship(back_populates='participants')
     player: Mapped['Player'] = relationship(back_populates='match_participations')
+
+
+class PlayerActivityEvent(Base):
+    __tablename__ = 'player_activity_events'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), index=True)
+    match_id: Mapped[str | None] = mapped_column(ForeignKey('matches.id'), nullable=True, index=True)
+    event_type: Mapped[PlayerActivityEventType] = mapped_column(Enum(PlayerActivityEventType), index=True)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='play_activity_events')
+    player: Mapped['Player'] = relationship(back_populates='activity_events')
+    match: Mapped['Match | None'] = relationship()
+
+
+class PlayerPlayProfile(Base):
+    __tablename__ = 'player_play_profiles'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), unique=True, index=True)
+    weekday_scores: Mapped[dict] = mapped_column(JSON, default=dict)
+    time_slot_scores: Mapped[dict] = mapped_column(JSON, default=dict)
+    level_compatibility_scores: Mapped[dict] = mapped_column(JSON, default=dict)
+    useful_events_count: Mapped[int] = mapped_column(Integer, default=0)
+    engagement_score: Mapped[int] = mapped_column(Integer, default=0)
+    declared_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    observed_level: Mapped[PlayLevel | None] = mapped_column(Enum(PlayLevel), nullable=True)
+    effective_level: Mapped[PlayLevel | None] = mapped_column(Enum(PlayLevel), nullable=True)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_decay_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='play_profiles')
+    player: Mapped['Player'] = relationship(back_populates='play_profile')
+
+
+class PlayerPushSubscription(Base):
+    __tablename__ = 'player_push_subscriptions'
+    __table_args__ = (UniqueConstraint('club_id', 'endpoint_hash', name='uq_player_push_subscriptions_club_endpoint_hash'),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), index=True)
+    endpoint: Mapped[str] = mapped_column(Text)
+    endpoint_hash: Mapped[str] = mapped_column(String(64), index=True)
+    p256dh_key: Mapped[str] = mapped_column(Text)
+    auth_key: Mapped[str] = mapped_column(Text)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='push_subscriptions')
+    player: Mapped['Player'] = relationship(back_populates='push_subscriptions')
+
+
+class PlayerNotificationPreference(Base):
+    __tablename__ = 'player_notification_preferences'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), unique=True, index=True)
+    in_app_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    web_push_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_match_three_of_four: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_match_two_of_four: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_match_one_of_four: Mapped[bool] = mapped_column(Boolean, default=False)
+    level_compatibility_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='notification_preferences')
+    player: Mapped['Player'] = relationship(back_populates='notification_preference')
+
+
+class NotificationLog(Base):
+    __tablename__ = 'notification_logs'
+    __table_args__ = (
+        UniqueConstraint(
+            'club_id',
+            'player_id',
+            'match_id',
+            'channel',
+            'kind',
+            name='uq_notification_logs_dispatch_campaign',
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str] = mapped_column(ForeignKey('players.id'), index=True)
+    match_id: Mapped[str | None] = mapped_column(ForeignKey('matches.id'), nullable=True, index=True)
+    channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel), index=True)
+    kind: Mapped[NotificationKind] = mapped_column(Enum(NotificationKind), index=True)
+    status: Mapped[NotificationDeliveryStatus] = mapped_column(Enum(NotificationDeliveryStatus), default=NotificationDeliveryStatus.PENDING, index=True)
+    title: Mapped[str] = mapped_column(String(140))
+    message: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='notification_logs')
+    player: Mapped['Player'] = relationship(back_populates='notifications')
+    match: Mapped['Match | None'] = relationship()
 
 
 class RecurringBookingSeries(Base):

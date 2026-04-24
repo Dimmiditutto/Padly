@@ -63,7 +63,6 @@ class PlayPlayerSummary(BaseModel):
     profile_name: str
     phone: str
     declared_level: PlayLevel
-    effective_level: PlayLevel | None = None
     privacy_accepted_at: datetime
     created_at: datetime
 
@@ -72,7 +71,6 @@ class MatchParticipantSummary(BaseModel):
     player_id: str
     profile_name: str
     declared_level: PlayLevel
-    effective_level: PlayLevel | None = None
 
 
 class PlayMatchSummary(BaseModel):
@@ -98,6 +96,43 @@ class PlayMatchSummary(BaseModel):
 
 class PlaySessionResponse(BaseModel):
     player: PlayPlayerSummary | None = None
+    notification_settings: 'PlayNotificationSettings | None' = None
+
+
+class PlayNotificationPreferenceSummary(BaseModel):
+    in_app_enabled: bool
+    web_push_enabled: bool
+    notify_match_three_of_four: bool
+    notify_match_two_of_four: bool
+    notify_match_one_of_four: bool
+    level_compatibility_only: bool
+
+
+class PlayPushState(BaseModel):
+    push_supported: bool
+    public_vapid_key: str | None = None
+    service_worker_path: str
+    has_active_subscription: bool
+    active_subscription_count: int
+
+
+class PlayNotificationItem(BaseModel):
+    id: str
+    match_id: str | None = None
+    channel: str
+    kind: str
+    title: str
+    message: str
+    payload: dict | None = None
+    sent_at: datetime | None = None
+    read_at: datetime | None = None
+    created_at: datetime
+
+
+class PlayNotificationSettings(BaseModel):
+    preferences: PlayNotificationPreferenceSummary
+    push: PlayPushState
+    recent_notifications: list[PlayNotificationItem] = Field(default_factory=list)
 
 
 class PlayerIdentifyResponse(BaseModel):
@@ -200,3 +235,53 @@ class PlayMatchUpdateResponse(BaseModel):
     action: str
     message: str
     match: PlayMatchSummary
+
+
+class PlayNotificationPreferenceUpdateRequest(BaseModel):
+    in_app_enabled: bool
+    web_push_enabled: bool
+    notify_match_three_of_four: bool
+    notify_match_two_of_four: bool
+    notify_match_one_of_four: bool
+    level_compatibility_only: bool
+
+
+class PlayNotificationPreferenceUpdateResponse(BaseModel):
+    message: str
+    settings: PlayNotificationSettings
+
+
+class PlayPushSubscriptionKeysRequest(BaseModel):
+    p256dh: str = Field(min_length=1)
+    auth: str = Field(min_length=1)
+
+
+class PlayPushSubscriptionRequest(BaseModel):
+    endpoint: str = Field(min_length=1)
+    keys: PlayPushSubscriptionKeysRequest
+    user_agent: str | None = Field(default=None, max_length=255)
+
+    @field_validator('endpoint', mode='before')
+    @classmethod
+    def normalize_endpoint(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if not normalized:
+            raise ValueError('Endpoint push non valido')
+        return normalized
+
+
+class PlayPushSubscriptionRevokeRequest(BaseModel):
+    endpoint: str | None = None
+
+    @field_validator('endpoint', mode='before')
+    @classmethod
+    def normalize_optional_endpoint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+
+class PlayPushSubscriptionResponse(BaseModel):
+    message: str
+    settings: PlayNotificationSettings

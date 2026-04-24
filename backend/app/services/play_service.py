@@ -25,6 +25,8 @@ from app.models import (
     PlayerAccessToken,
     PlayLevel,
 )
+from app.models import PlayerActivityEventType
+from app.services.play_notification_service import dispatch_play_notifications_for_match, record_player_activity
 from app.services.booking_service import acquire_single_court_lock, assert_slot_available, calculate_deposit, log_event, make_public_reference, resolve_slot_window
 from app.services.court_service import resolve_court
 
@@ -448,7 +450,6 @@ def _serialize_match(match: Match, *, current_player_id: str | None = None) -> d
             'player_id': participant.player_id,
             'profile_name': participant.player.profile_name,
             'declared_level': participant.player.declared_level,
-            'effective_level': participant.player.effective_level,
         }
         for participant in participants
     ]
@@ -630,6 +631,19 @@ def create_play_match(
         created_match = _load_match(db, club_id=club_id, match_id=match.id)
         if not created_match:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Impossibile rileggere la partita creata')
+        record_player_activity(
+            db,
+            player=current_player,
+            club_timezone=club_timezone,
+            event_type=PlayerActivityEventType.MATCH_CREATED,
+            match=created_match,
+        )
+        dispatch_play_notifications_for_match(
+            db,
+            club_id=club_id,
+            club_timezone=club_timezone,
+            match_id=created_match.id,
+        )
         return {
             'created': True,
             'message': 'Partita play creata correttamente.',
@@ -686,6 +700,31 @@ def join_play_match(
             match.booking_id = booking.id
             action = 'COMPLETED'
             message = 'Quarto player confermato: partita completata e prenotazione finale creata.'
+            for participant in match.participants:
+                if not participant.player:
+                    continue
+                record_player_activity(
+                    db,
+                    player=participant.player,
+                    club_timezone=club_timezone,
+                    event_type=PlayerActivityEventType.MATCH_COMPLETED,
+                    match=match,
+                    payload={'booking_id': booking.id},
+                )
+        else:
+            record_player_activity(
+                db,
+                player=current_player,
+                club_timezone=club_timezone,
+                event_type=PlayerActivityEventType.MATCH_JOINED,
+                match=match,
+            )
+            dispatch_play_notifications_for_match(
+                db,
+                club_id=club_id,
+                club_timezone=club_timezone,
+                match_id=match.id,
+            )
 
         return {
             'action': action,
@@ -699,6 +738,7 @@ def leave_play_match(
     db: Session,
     *,
     club_id: str,
+    club_timezone: str | None,
     match_id: str,
     current_player: Player,
 ) -> dict:
@@ -732,6 +772,21 @@ def leave_play_match(
             match.status = MatchStatus.OPEN
             if match.created_by_player_id == current_player.id:
                 match.created_by_player_id = remaining_participants[0].player_id
+
+        record_player_activity(
+            db,
+            player=current_player,
+            club_timezone=club_timezone,
+            event_type=PlayerActivityEventType.MATCH_LEFT,
+            match=match,
+        )
+        if match.status == MatchStatus.OPEN:
+            dispatch_play_notifications_for_match(
+                db,
+                club_id=club_id,
+                club_timezone=club_timezone,
+                match_id=match.id,
+            )
 
         return {
             'action': action,
@@ -778,6 +833,7 @@ def cancel_play_match(
     db: Session,
     *,
     club_id: str,
+    club_timezone: str | None,
     match_id: str,
     current_player: Player,
 ) -> dict:
@@ -793,6 +849,13 @@ def cancel_play_match(
         if match.created_by_player_id != current_player.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Solo il creator puo annullare la partita')
         match.status = MatchStatus.CANCELLED
+        record_player_activity(
+            db,
+            player=current_player,
+            club_timezone=club_timezone,
+            event_type=PlayerActivityEventType.MATCH_CANCELLED,
+            match=match,
+        )
         return {
             'action': 'CANCELLED',
             'message': 'Partita annullata.',

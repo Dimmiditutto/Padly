@@ -6,12 +6,17 @@ import type {
   PlayCreateMatchResponse,
   PlayIdentifyPayload,
   PlayIdentifyResponse,
+  PlayNotificationPreferenceUpdatePayload,
+  PlayNotificationPreferenceUpdateResponse,
   PlayMatchDetailResponse,
   PlayMatchJoinResponse,
   PlayMatchLeaveResponse,
   PlayMatchUpdatePayload,
   PlayMatchUpdateResponse,
   PlayMatchesResponse,
+  PlayPushSubscriptionPayload,
+  PlayPushSubscriptionResponse,
+  PlayPushSubscriptionRevokePayload,
   PlaySessionResponse,
 } from '../types';
 
@@ -76,6 +81,24 @@ export async function updatePlayMatch(matchId: string, payload: PlayMatchUpdateP
 
 export async function cancelPlayMatch(matchId: string, tenantSlug?: string | null) {
   const response = await api.post<PlayMatchLeaveResponse>(`/play/matches/${matchId}/cancel`, undefined, { params: withTenantParams(tenantSlug) });
+  return response.data;
+}
+
+
+export async function updatePlayNotificationPreferences(payload: PlayNotificationPreferenceUpdatePayload, tenantSlug?: string | null) {
+  const response = await api.put<PlayNotificationPreferenceUpdateResponse>('/play/notifications/preferences', payload, { params: withTenantParams(tenantSlug) });
+  return response.data;
+}
+
+
+export async function registerPlayPushSubscription(payload: PlayPushSubscriptionPayload, tenantSlug?: string | null) {
+  const response = await api.post<PlayPushSubscriptionResponse>('/play/push-subscriptions', payload, { params: withTenantParams(tenantSlug) });
+  return response.data;
+}
+
+
+export async function revokePlayPushSubscription(payload: PlayPushSubscriptionRevokePayload, tenantSlug?: string | null) {
+  const response = await api.post<PlayPushSubscriptionResponse>('/play/push-subscriptions/revoke', payload, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 

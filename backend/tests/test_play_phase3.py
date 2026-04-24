@@ -7,8 +7,9 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 
 from app.core.db import SessionLocal
-from app.models import Booking, Court, Match, MatchPlayer, MatchStatus, PlayLevel, Player
+from app.models import Booking, Club, Court, Match, MatchPlayer, MatchStatus, PlayLevel, Player
 from app.services.booking_service import resolve_slot_window
+from app.services import play_service as play_service_module
 from app.services.play_service import join_play_match
 
 from test_play_phase1 import DEFAULT_CLUB_ID, first_court_id_for_club, seed_player
@@ -40,6 +41,14 @@ def create_extra_court(*, club_id: str, name: str) -> str:
         db.add(court)
         db.commit()
         return court.id
+
+
+def set_club_timezone(*, club_id: str, timezone: str) -> None:
+    with SessionLocal() as db:
+        club = db.get(Club, club_id)
+        assert club is not None
+        club.timezone = timezone
+        db.commit()
 
 
 def build_future_slot(*, booking_date_offset_days: int = 7, start_time: str = '18:00', duration_minutes: int = 90) -> tuple[str, str, str, datetime, datetime]:
@@ -354,6 +363,43 @@ def test_play_leave_endpoint_removes_participant(client):
         assert participants[0].player_id == creator['id']
 
 
+def test_play_leave_endpoint_propagates_club_timezone(client, monkeypatch):
+    set_club_timezone(club_id=DEFAULT_CLUB_ID, timezone='Europe/London')
+    creator = identify_as(client, profile_name='Creator Leave TZ', phone='3337500013')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Leave TZ', phone='3337500014')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=15)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_LOW,
+        note='match timezone leave',
+    )
+    captured_activity_timezones: list[str | None] = []
+    captured_dispatch_timezones: list[str | None] = []
+
+    def fake_record_player_activity(db, *, player, club_timezone, event_type, match, payload=None, useful=True):
+        captured_activity_timezones.append(club_timezone)
+        return None
+
+    def fake_dispatch_play_notifications_for_match(db, *, club_id, club_timezone, match_id):
+        captured_dispatch_timezones.append(club_timezone)
+
+    monkeypatch.setattr(play_service_module, 'record_player_activity', fake_record_player_activity)
+    monkeypatch.setattr(play_service_module, 'dispatch_play_notifications_for_match', fake_dispatch_play_notifications_for_match)
+
+    identify_as(client, profile_name='Guest Leave TZ', phone='3337500014')
+    response = client.post(f'/api/play/matches/{match_id}/leave')
+
+    assert response.status_code == 200
+    assert captured_activity_timezones == ['Europe/London']
+    assert captured_dispatch_timezones == ['Europe/London']
+
+
 def test_play_cancel_endpoint_marks_match_cancelled(client):
     creator = identify_as(client, profile_name='Creator Cancel', phone='3337500021')
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
@@ -380,3 +426,32 @@ def test_play_cancel_endpoint_marks_match_cancelled(client):
         match = db.get(Match, match_id)
         assert match is not None
         assert match.status == MatchStatus.CANCELLED
+
+
+def test_play_cancel_endpoint_propagates_club_timezone(client, monkeypatch):
+    set_club_timezone(club_id=DEFAULT_CLUB_ID, timezone='Europe/London')
+    creator = identify_as(client, profile_name='Creator Cancel TZ', phone='3337500022')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id']],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.ADVANCED,
+        note='match timezone cancel',
+    )
+    captured_activity_timezones: list[str | None] = []
+
+    def fake_record_player_activity(db, *, player, club_timezone, event_type, match, payload=None, useful=True):
+        captured_activity_timezones.append(club_timezone)
+        return None
+
+    monkeypatch.setattr(play_service_module, 'record_player_activity', fake_record_player_activity)
+
+    response = client.post(f'/api/play/matches/{match_id}/cancel')
+
+    assert response.status_code == 200
+    assert captured_activity_timezones == ['Europe/London']

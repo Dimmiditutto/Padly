@@ -1,4 +1,4 @@
-import { ArrowLeft, Sparkles, UsersRound } from 'lucide-react';
+import { ArrowLeft, BellRing, Sparkles, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
@@ -9,8 +9,27 @@ import { CreateMatchForm, type PlayCreateIntent } from '../components/play/Creat
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
 import { MatchBoard } from '../components/play/MatchBoard';
 import { MyMatches } from '../components/play/MyMatches';
-import { cancelPlayMatch, createPlayMatch, getPlayMatches, getPlaySession, joinPlayMatch, leavePlayMatch, updatePlayMatch } from '../services/playApi';
-import type { PlayLevel, PlayMatchSummary, PlayMatchesResponse, PlayPlayerSummary } from '../types';
+import {
+  cancelPlayMatch,
+  createPlayMatch,
+  getPlayMatches,
+  getPlaySession,
+  joinPlayMatch,
+  leavePlayMatch,
+  registerPlayPushSubscription,
+  revokePlayPushSubscription,
+  updatePlayMatch,
+  updatePlayNotificationPreferences,
+} from '../services/playApi';
+import type {
+  PlayLevel,
+  PlayMatchSummary,
+  PlayMatchesResponse,
+  PlayNotificationPreferenceSummary,
+  PlayNotificationSettings,
+  PlayPlayerSummary,
+} from '../types';
+import { isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
 import { buildClubPlayPath, buildPlayMatchPath, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
@@ -36,6 +55,11 @@ export function PlayPage() {
   const [managedLevel, setManagedLevel] = useState<PlayLevel>('NO_PREFERENCE');
   const [managedNote, setManagedNote] = useState('');
   const [savingManageAction, setSavingManageAction] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState<PlayNotificationSettings | null>(null);
+  const [notificationDraft, setNotificationDraft] = useState<PlayNotificationPreferenceSummary | null>(null);
+  const [savingNotificationPreferences, setSavingNotificationPreferences] = useState(false);
+  const [updatingPushSubscription, setUpdatingPushSubscription] = useState(false);
+  const browserSupportsPush = useMemo(() => isPlayPushSupported(), []);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -50,6 +74,11 @@ export function PlayPage() {
   const openMatches = useMemo(() => playData?.open_matches || [], [playData]);
   const myMatches = useMemo(() => playData?.my_matches || [], [playData]);
 
+  function applyNotificationSettings(nextSettings: PlayNotificationSettings | null) {
+    setNotificationSettings(nextSettings);
+    setNotificationDraft(nextSettings?.preferences || null);
+  }
+
   async function loadPlaySurface(resolvedTenantSlug: string) {
     setLoading(true);
     try {
@@ -59,6 +88,7 @@ export function PlayPage() {
       ]);
       setCurrentPlayer(session.player || matches.player || null);
       setPlayData(matches);
+      applyNotificationSettings(session.notification_settings || null);
     } catch {
       setFeedback({ tone: 'error', message: 'Non riesco a caricare la bacheca play del club.' });
     } finally {
@@ -269,6 +299,86 @@ export function PlayPage() {
     }
   }
 
+  async function handleSaveNotificationPreferences() {
+    if (!tenantSlug || !currentPlayer || !notificationDraft || savingNotificationPreferences) {
+      return;
+    }
+
+    setSavingNotificationPreferences(true);
+    try {
+      const response = await updatePlayNotificationPreferences(notificationDraft, tenantSlug);
+      applyNotificationSettings(response.settings);
+      setFeedback({ tone: 'success', message: response.message });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a salvare le preferenze notifiche.',
+      });
+    } finally {
+      setSavingNotificationPreferences(false);
+    }
+  }
+
+  async function handleEnablePush() {
+    if (!tenantSlug || !currentPlayer || !notificationSettings || updatingPushSubscription) {
+      return;
+    }
+    if (!browserSupportsPush) {
+      setFeedback({ tone: 'error', message: 'Questo browser non supporta le web push.' });
+      return;
+    }
+    if (!notificationSettings.push.public_vapid_key) {
+      setFeedback({ tone: 'warning', message: 'Web push non configurate lato server: manca la chiave pubblica VAPID.' });
+      return;
+    }
+
+    setUpdatingPushSubscription(true);
+    try {
+      const payload = await subscribeBrowserToPlayPush(
+        notificationSettings.push.public_vapid_key,
+        notificationSettings.push.service_worker_path,
+      );
+      const response = await registerPlayPushSubscription(payload, tenantSlug);
+      applyNotificationSettings(response.settings);
+      setFeedback({ tone: 'success', message: response.message });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco ad attivare le web push.',
+      });
+    } finally {
+      setUpdatingPushSubscription(false);
+    }
+  }
+
+  async function handleDisablePush() {
+    if (!tenantSlug || !currentPlayer || !notificationSettings || updatingPushSubscription) {
+      return;
+    }
+
+    setUpdatingPushSubscription(true);
+    try {
+      const endpoint = await unsubscribeBrowserFromPlayPush();
+      if (!endpoint) {
+        setFeedback({
+          tone: 'warning',
+          message: 'Non ho trovato una subscription web push registrata in questo browser. Lo stato mostrato resta aggregato sul tuo profilo play.',
+        });
+        return;
+      }
+      const response = await revokePlayPushSubscription({ endpoint }, tenantSlug);
+      applyNotificationSettings(response.settings);
+      setFeedback({ tone: 'info', message: response.message });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a disattivare le web push.',
+      });
+    } finally {
+      setUpdatingPushSubscription(false);
+    }
+  }
+
   function handleOpenShared(match: PlayMatchSummary) {
     if (!tenantSlug) {
       return;
@@ -334,6 +444,147 @@ export function PlayPage() {
               >
                 <MatchBoard matches={openMatches} onJoin={handleJoin} onShare={handleShare} />
               </SectionCard>
+
+              {currentPlayer && notificationSettings && notificationDraft ? (
+                <SectionCard
+                  title='Notifiche play'
+                  description='Preferenze essenziali, stato web push e feed in-app delle segnalazioni determinate del club.'
+                >
+                  <div className='space-y-4'>
+                    <AlertBanner
+                      tone={notificationSettings.push.has_active_subscription ? 'success' : 'info'}
+                      title='Stato attivazione'
+                    >
+                      {notificationSettings.push.has_active_subscription
+                        ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'browser o dispositivo collegato al tuo profilo play' : 'browser o dispositivi collegati al tuo profilo play'}. Le notifiche in-app restano comunque disponibili nella pagina.`
+                        : 'Nessuna web push attiva sul tuo profilo play. Le notifiche in-app restano sempre nel feed locale della pagina.'}
+                    </AlertBanner>
+
+                    <div className='grid gap-4 lg:grid-cols-2'>
+                      <div className='surface-muted space-y-3'>
+                        <p className='flex items-center gap-2 text-sm font-semibold text-slate-900'>
+                          <BellRing size={16} /> Preferenze essenziali
+                        </p>
+
+                        <label className='flex items-start gap-3 text-sm text-slate-700'>
+                          <input
+                            type='checkbox'
+                            checked={notificationDraft.in_app_enabled}
+                            onChange={(event) => setNotificationDraft({ ...notificationDraft, in_app_enabled: event.target.checked })}
+                          />
+                          <span>Feed in-app attivo</span>
+                        </label>
+
+                        <label className='flex items-start gap-3 text-sm text-slate-700'>
+                          <input
+                            type='checkbox'
+                            checked={notificationDraft.web_push_enabled}
+                            onChange={(event) => setNotificationDraft({ ...notificationDraft, web_push_enabled: event.target.checked })}
+                          />
+                          <span>Web push abilitate quando esiste una subscription valida</span>
+                        </label>
+
+                        <label className='flex items-start gap-3 text-sm text-slate-700'>
+                          <input
+                            type='checkbox'
+                            checked={notificationDraft.notify_match_three_of_four}
+                            onChange={(event) => setNotificationDraft({ ...notificationDraft, notify_match_three_of_four: event.target.checked })}
+                          />
+                          <span>Avvisami per match 3/4</span>
+                        </label>
+
+                        <label className='flex items-start gap-3 text-sm text-slate-700'>
+                          <input
+                            type='checkbox'
+                            checked={notificationDraft.notify_match_two_of_four}
+                            onChange={(event) => setNotificationDraft({ ...notificationDraft, notify_match_two_of_four: event.target.checked })}
+                          />
+                          <span>Avvisami per match 2/4</span>
+                        </label>
+
+                        <label className='flex items-start gap-3 text-sm text-slate-700'>
+                          <input
+                            type='checkbox'
+                            checked={notificationDraft.notify_match_one_of_four}
+                            onChange={(event) => setNotificationDraft({ ...notificationDraft, notify_match_one_of_four: event.target.checked })}
+                          />
+                          <span>Avvisami per match 1/4 solo quando il sistema trova una compatibilita forte</span>
+                        </label>
+
+                        <label className='flex items-start gap-3 text-sm text-slate-700'>
+                          <input
+                            type='checkbox'
+                            checked={notificationDraft.level_compatibility_only}
+                            onChange={(event) => setNotificationDraft({ ...notificationDraft, level_compatibility_only: event.target.checked })}
+                          />
+                          <span>Filtra solo match compatibili col mio livello</span>
+                        </label>
+
+                        <button type='button' className='btn-primary' disabled={savingNotificationPreferences} onClick={() => void handleSaveNotificationPreferences()}>
+                          {savingNotificationPreferences ? 'Salvataggio…' : 'Salva preferenze notifiche'}
+                        </button>
+                      </div>
+
+                      <div className='surface-muted space-y-4'>
+                        <div>
+                          <p className='text-sm font-semibold text-slate-900'>Web push</p>
+                          <p className='mt-2 text-sm text-slate-600'>
+                            {notificationSettings.push.push_supported
+                              ? 'Il backend espone una chiave pubblica VAPID. Se il browser supporta Push API puoi registrare o revocare la subscription dal device corrente.'
+                              : 'Il backend non espone ancora una chiave pubblica VAPID: il feed in-app resta attivo, ma la subscription web push non puo essere completata da questo ambiente.'}
+                          </p>
+                          {!browserSupportsPush ? (
+                            <p className='mt-2 text-sm text-amber-700'>Il browser o l ambiente di test corrente non supportano Service Worker + Push API.</p>
+                          ) : null}
+                        </div>
+
+                        <div className='flex flex-wrap gap-3'>
+                          <button
+                            type='button'
+                            className='btn-primary'
+                            disabled={updatingPushSubscription || !browserSupportsPush || !notificationSettings.push.push_supported}
+                            onClick={() => void handleEnablePush()}
+                          >
+                            {updatingPushSubscription ? 'Attivazione…' : 'Attiva web push'}
+                          </button>
+                          <button
+                            type='button'
+                            className='btn-secondary'
+                            disabled={updatingPushSubscription}
+                            onClick={() => void handleDisablePush()}
+                          >
+                            {updatingPushSubscription ? 'Revoca…' : 'Disattiva web push'}
+                          </button>
+                        </div>
+
+                        <div className='rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600'>
+                          <p><strong className='text-slate-900'>Subscription attive:</strong> {notificationSettings.push.active_subscription_count}</p>
+                          <p className='mt-2'><strong className='text-slate-900'>Cap giornaliero:</strong> massimo 3 campagne notifiche per player.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className='field-label'>Ultime notifiche in-app</p>
+                      {notificationSettings.recent_notifications.length === 0 ? (
+                        <div className='surface-muted text-sm text-slate-700'>Nessuna notifica recente. Il feed si popola quando il club trova match compatibili da completare.</div>
+                      ) : (
+                        <div className='space-y-3'>
+                          {notificationSettings.recent_notifications.map((item) => (
+                            <div key={item.id} className='rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+                              <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
+                                <p className='text-sm font-semibold text-slate-900'>{item.title}</p>
+                                <span className='text-xs uppercase tracking-wide text-slate-500'>{new Date(item.created_at).toLocaleString('it-IT')}</span>
+                              </div>
+                              <p className='mt-2 text-sm text-slate-600'>{item.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </SectionCard>
+              ) : null}
 
               {suggestedMatches.length > 0 ? (
                 <SectionCard
