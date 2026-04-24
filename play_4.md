@@ -107,3 +107,11 @@ Crea `STATO_PLAY_4.md` con almeno:
 - regole finali di frequency cap e compatibilita livello
 - retention effettiva implementata
 - backlog esplicito per una futura v2 notifiche mirate
+
+## Fuori scope approvato
+
+Questa fase non deve assorbire due lavorazioni gia identificate ma autonome:
+- controllo dei link condivisi con revoca e rotazione token, descritto in `revoca_token.md`
+- chiarezza KPI e reportistica backend/admin per booking `/play`, descritta in `kpi.md`
+
+Questi due temi non sono gate della Fase 4 e non devono bloccare il PASS della fase notifiche, salvo priorita esplicita diversa richiesta dal prodotto.

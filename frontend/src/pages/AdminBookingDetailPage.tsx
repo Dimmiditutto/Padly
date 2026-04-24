@@ -10,6 +10,7 @@ import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelRecurringSeries, getAdminBooking, getAdminSession, listAdminCourts, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
 import type { AdminBookingUpdatePayload, AdminSession, BookingDetail, CourtSummary, RecurringSeriesPayload } from '../types';
+import { getBookingOriginLabel, getPlayMatchIdFromBooking, isPlayOriginBooking } from '../utils/bookingOrigin';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
 import { formatCurrency, formatDateTime, formatTimeValue, formatWeekdayLabel } from '../utils/format';
@@ -51,6 +52,9 @@ export function AdminBookingDetailPage() {
     duration_minutes: 90,
   });
   const editableBooking = booking ? canEditBooking(booking) : false;
+  const bookingOriginLabel = booking ? getBookingOriginLabel(booking) : null;
+  const playMatchId = booking ? getPlayMatchIdFromBooking(booking) : null;
+  const isPlayOrigin = booking ? isPlayOriginBooking(booking) : false;
 
   useEffect(() => {
     void bootstrap();
@@ -247,6 +251,7 @@ export function AdminBookingDetailPage() {
                 {!isRecurring ? <InfoItem label='Caparra' value={formatCurrency(booking.deposit_amount)} /> : null}
                 {!isRecurring ? <InfoItem label='Pagamento' value={`${booking.payment_provider} • ${booking.payment_status}`} /> : null}
                 <InfoItem label='Cliente' value={booking.customer_name || 'Cliente non disponibile'} />
+                {bookingOriginLabel ? <InfoItem label='Origine' value={bookingOriginLabel} /> : null}
                 <InfoItem label='Creata da' value={booking.created_by} />
               </div>
               <div className='mt-5 grid gap-3 sm:grid-cols-2'>
@@ -258,6 +263,7 @@ export function AdminBookingDetailPage() {
                 <p className='mt-2 text-sm text-slate-600'>{booking.note || 'Nessuna nota inserita.'}</p>
                 {!isRecurring ? <p className='mt-3 text-xs text-slate-500'>Riferimento pagamento: {booking.payment_reference || 'non ancora disponibile'}</p> : null}
                 {isRecurring ? <p className='mt-3 text-xs text-slate-500'>Le prenotazioni ricorrenti non richiedono caparra online o saldo al campo.</p> : null}
+                {isPlayOrigin ? <p className='mt-3 text-xs text-cyan-700'>Prenotazione generata dal completamento di un match `/play`{playMatchId ? ` (${playMatchId})` : ''}.</p> : null}
               </div>
             </SectionCard>
 

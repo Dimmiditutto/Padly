@@ -1,148 +1,106 @@
-# VERIFICA PLAY FASE 2
+# VERIFICA PLAY FASE 3
 
 ## 1. Esito sintetico generale
 
-`PASS CON RISERVE`
+PASS
 
-La superficie `/play` e coerente nei percorsi canonici e non rompe i flussi esistenti di booking pubblico o area admin. Le validazioni eseguite sono verdi:
+La Fase 3 `/play` e la successiva estensione admin/reporting risultano coerenti sul repository reale dopo i fix piu recenti. Le criticita reali emerse nella verifica precedente sono state chiuse e non ho trovato nuovi conflitti, regressioni o blocchi nel perimetro toccato.
 
-- frontend: `npx vitest run src/pages/PlayPage.test.tsx` -> `6 passed`
-- frontend: `npm run build` -> `PASS`
-- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase1.py tests/test_play_phase1_migration.py -q --tb=short --maxfail=5` -> `6 passed`
+Validazioni reali eseguite sullo stato attuale:
 
-La review rigorosa ha pero trovato due criticita logiche reali e una criticita minore di hygiene/testing:
+- frontend: `npm exec vitest run src/pages/PlayPage.test.tsx src/pages/AdminBookingsPage.test.tsx src/pages/AdminBookingDetailPage.test.tsx` -> PASS, 33 test verdi
+- frontend: `npm run build` -> PASS
+- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase1.py tests/test_play_phase3.py -q --tb=short --maxfail=5` -> PASS, 13 test verdi
+- controllo statico sui file toccati con `get_errors` -> nessun errore rilevato
 
-- le route alias pubbliche `/play/invite/:token` e `/play/matches/:shareToken` fanno fallback silenzioso su `default-club`, quindi un link valido di un altro tenant puo essere instradato sul club sbagliato e fallire anche se il token o la partita sono corretti
-- la shared page continua a usare `match.id` come `shareToken`, mentre il backend e il modello dati dichiarano un concetto diverso tramite `public_share_token_hash`; la feature oggi funziona, ma il contratto pubblico non e realmente chiuso
-- nel worktree e presente il file generato `frontend/playpage-vitest.json`, e i test coprono l alias `/play` ma non proteggono gli alias invite/share che oggi sono proprio la parte piu fragile
+Modifiche e integrazioni confermate nella codebase reale:
+
+- backend `/play` write e share token reale in [backend/app/api/routers/play.py](backend/app/api/routers/play.py), [backend/app/schemas/play.py](backend/app/schemas/play.py), [backend/app/services/play_service.py](backend/app/services/play_service.py) e [backend/app/api/deps.py](backend/app/api/deps.py)
+- frontend `/play` con create/join/share/manage in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx), [frontend/src/pages/SharedMatchPage.tsx](frontend/src/pages/SharedMatchPage.tsx), [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts), [frontend/src/types.ts](frontend/src/types.ts), [frontend/src/components/play/MyMatches.tsx](frontend/src/components/play/MyMatches.tsx), [frontend/src/components/play/MatchCard.tsx](frontend/src/components/play/MatchCard.tsx) e [frontend/src/components/play/CreateMatchForm.tsx](frontend/src/components/play/CreateMatchForm.tsx)
+- reporting admin esplicito per booking nate da `/play` in [frontend/src/pages/AdminBookingsPage.tsx](frontend/src/pages/AdminBookingsPage.tsx), [frontend/src/components/AdminBookingCard.tsx](frontend/src/components/AdminBookingCard.tsx), [frontend/src/pages/AdminBookingDetailPage.tsx](frontend/src/pages/AdminBookingDetailPage.tsx) e [frontend/src/utils/bookingOrigin.ts](frontend/src/utils/bookingOrigin.ts)
+- fix recenti chiusi nel perimetro `/play`:
+  - il ramo anonimo `identify -> create` ora prosegue subito la create passando il player appena identificato in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx)
+  - l update match distingue esplicitamente tra `note` assente e `note=null`, quindi la nota puo essere cancellata davvero in [backend/app/api/routers/play.py](backend/app/api/routers/play.py) e [backend/app/services/play_service.py](backend/app/services/play_service.py)
+  - la copertura backend include ora anche clear note, leave e cancel in [backend/tests/test_play_phase3.py](backend/tests/test_play_phase3.py)
+  - la copertura frontend include la regressione `identify -> create` in [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx)
 
 ## 2. Verifica per area
 
 ### Coerenza complessiva del codice
 
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-  - i percorsi canonici `/c/:clubSlug/play`, `/c/:clubSlug/play/invite/:token` e `/c/:clubSlug/play/matches/:shareToken` sono coerenti con la propagazione tenant attuale
-  - il frontend usa i contratti backend reali di Fase 1 senza rompere il booking pubblico su `/`
-  - resta pero una incoerenza di prodotto sulle route alias pubbliche e sul significato reale di `shareToken`
-- Gravita: `media`
-- Impatto reale: l esperienza canonica e stabile, ma la superficie pubblica alias/share non e ancora sufficientemente robusta per essere considerata chiusa senza riserve
+- Esito: PASS
+- Problemi trovati: nessun problema bloccante rilevato nel perimetro verificato
+- Gravita: nessuna
+- Impatto reale: backend, frontend, contratti dati e reporting admin risultano allineati sul comportamento atteso della Fase 3 `/play`
 
 ### Coerenza tra file modificati
 
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L18) - [frontend/src/App.tsx](frontend/src/App.tsx#L42) introduce alias `/play/*` coerenti con il routing canonico solo quando il tenant e gia noto
-  - [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts#L41) - [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts#L42) tratta `shareToken` come semplice `matchId`
-  - [backend/app/models/__init__.py](backend/app/models/__init__.py#L245) continua invece a dichiarare `public_share_token_hash`, quindi nome del contratto e implementazione effettiva non coincidono
-- Gravita: `media`
-- Impatto reale: il codice compila e i test passano, ma rimane uno scollamento tra naming pubblico, modello dati e comportamento reale del link condiviso
+- Esito: PASS
+- Problemi trovati: nessuna incoerenza attiva tra frontend e backend sui flussi create, join, share, leave, update, cancel e reporting admin
+- Gravita: nessuna
+- Impatto reale: i file modificati sono coerenti tra loro, compilano correttamente e riflettono lo stesso contratto operativo
 
 ### Conflitti o blocchi introdotti dai file modificati
 
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L20) forza `DEFAULT_PLAY_ALIAS_SLUG` quando il tenant non e ricavabile dalla location
-  - [backend/app/api/deps.py](backend/app/api/deps.py#L15) - [backend/app/api/deps.py](backend/app/api/deps.py#L19) e [backend/app/api/routers/public_play.py](backend/app/api/routers/public_play.py) fanno scoping forte sul tenant corrente, quindi un alias mal risolto trasforma un link valido in `not found` o `link non valido`
-  - i test attuali non coprono questo caso: [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx#L148) verifica solo l alias `/play?tenant=roma-club`
-- Gravita: `media`
-- Impatto reale: non ci sono blocchi di build o runtime generalizzati, ma i link alias invite/share possono rompersi per tenant non default
+- Esito: PASS
+- Problemi trovati: nessun conflitto logico o blocco runtime rilevato nei file toccati
+- Gravita: nessuna
+- Impatto reale: non emergono regressioni funzionali o incompatibilita rispetto al resto del progetto nei controlli eseguiti
 
 ### Criticita del progetto nel suo insieme
 
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-  - non emergono regressioni sul dominio booking esistente
-  - non emergono mismatch statici nei file toccati backend/frontend
-  - resta un debito architetturale circoscritto al public sharing del modulo `/play`
-  - nel worktree e presente il file generato [frontend/playpage-vitest.json](frontend/playpage-vitest.json), che non aggiunge valore di prodotto e puo sporcare il commit
-- Gravita: `bassa`
-- Impatto reale: il progetto resta stabile, ma il repository non e ancora pulito e la superficie share non e definitiva
+- Esito: PASS CON RISERVE
+- Problemi trovati: nessuna criticita bloccante emersa nella superficie verificata; restano solo due rischi evolutivi gia noti e non bloccanti dichiarati anche in [STATO_PLAY_3.md](STATO_PLAY_3.md)
+- Gravita: bassa
+- Impatto reale: il modulo e rilasciabile nel suo perimetro attuale; eventuali estensioni future potrebbero richiedere una strategia di revoca token piu esplicita e una distinzione persistita piu ricca per la reportistica `/play`
 
 ### Rispetto della logica di business
 
-- Esito: `PASS CON RISERVE`
-- Problemi trovati:
-  - la logica principale di fase e rispettata: bacheca open match, identificazione player, invite accept, tenant propagation e shared page canonica funzionano
-  - la promessa implicita di un `shareToken` pubblico separato dall identificativo interno del match non e ancora rispettata davvero
-  - gli alias opzionali non rispettano il vincolo di sicurezza del prompt di fase quando il tenant non e determinabile in modo affidabile
-- Gravita: `media`
-- Impatto reale: la business logic centrale e pronta, ma il sottoflusso pubblico alias/share richiede ancora una chiusura coerente prima di essere considerato finito
+- Esito: PASS
+- Problemi trovati: nessuna violazione attiva delle regole di business emersa nei flussi verificati
+- Gravita: nessuna
+- Impatto reale: create, join, share, completamento con booking finale, leave, update, cancel e distinzione admin delle booking `/play` rispettano i vincoli dichiarati dalla fase
 
 ## 3. Elenco criticita
 
-### 1. Alias invite/share instradati sul tenant di default anche quando il tenant reale non e noto
+Nessuna criticita bloccante emersa nella codebase attuale dopo i fix e le validazioni finali.
 
-- Descrizione tecnica:
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L18) - [frontend/src/App.tsx](frontend/src/App.tsx#L20) usa `resolveTenantSlugFromLocation(location) || DEFAULT_PLAY_ALIAS_SLUG`
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L25) - [frontend/src/App.tsx](frontend/src/App.tsx#L33) applica questa logica anche a `/play/invite/:token` e `/play/matches/:shareToken`
-  - backend e router play sono tenant-scoped, quindi il fallback su `default-club` puo rendere invalido un link di un altro club
-- Perche e un problema reale:
-  - il problema non rompe i percorsi canonici, ma rompe proprio gli alias pubblici opzionali se usati fuori dal tenant default
-  - un utente puo ricevere un link alias valido e vedere un errore non per token errato, ma per tenant sbagliato
-- Dove si manifesta:
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L18)
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L25)
-  - [frontend/src/App.tsx](frontend/src/App.tsx#L31)
-  - [backend/app/api/deps.py](backend/app/api/deps.py#L15)
-  - [backend/app/api/routers/public_play.py](backend/app/api/routers/public_play.py)
-- Gravita: `media`
-- Blocca il rilascio: `no`, ma va corretto prima di dichiarare affidabili gli alias pubblici
+Rischi residui non bloccanti gia noti:
 
-### 2. Il contratto `shareToken` non coincide con il comportamento reale della shared page
+### 1. Share token deterministico senza revoca per-link
 
-- Descrizione tecnica:
-  - [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts#L41) - [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts#L42) inoltra `shareToken` a `getPlayMatchDetail(matchId)`
-  - [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L126) e [frontend/src/pages/SharedMatchPage.tsx](frontend/src/pages/SharedMatchPage.tsx#L69) costruiscono link condivisi usando `match.id`
-  - [backend/app/api/routers/play.py](backend/app/api/routers/play.py#L74) espone solo `/play/matches/{match_id}`
-  - [backend/app/models/__init__.py](backend/app/models/__init__.py#L245) conserva invece `public_share_token_hash`, che oggi non viene usato dal frontend ne dal read endpoint condiviso
-- Perche e un problema reale:
-  - il codice oggi funziona solo perche tratta l identificativo interno del match come se fosse il token pubblico di condivisione
-  - il naming pubblico e fuorviante e la strategia dati non e coerente con il comportamento esposto agli utenti
-  - questa ambiguita rende piu costosa la fase successiva, perche il repo dichiara gia un concetto di share token ma non lo usa davvero end-to-end
-- Dove si manifesta:
-  - [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts#L41)
-  - [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L126)
-  - [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L141)
-  - [frontend/src/pages/SharedMatchPage.tsx](frontend/src/pages/SharedMatchPage.tsx#L40)
-  - [frontend/src/pages/SharedMatchPage.tsx](frontend/src/pages/SharedMatchPage.tsx#L69)
-  - [backend/app/api/routers/play.py](backend/app/api/routers/play.py#L74)
-  - [backend/app/models/__init__.py](backend/app/models/__init__.py#L245)
-- Gravita: `media`
-- Blocca il rilascio: `no`, ma va corretto prima di chiamare completa la condivisione pubblica del match
+- Descrizione tecnica: il token pubblico match e stabile e derivato deterministicamente da club e match in [backend/app/services/play_service.py](backend/app/services/play_service.py)
+- Perche non e un problema bloccante oggi: il contratto attuale della Fase 3 richiede stabilita e lookup hash-based, non rotazione/revoca per singolo link
+- Dove si manifesta: [backend/app/services/play_service.py](backend/app/services/play_service.py), [STATO_PLAY_3.md](STATO_PLAY_3.md)
+- Gravita: bassa
+- Blocca il rilascio: no
 
-### 3. Artifact di test generato nel repo e copertura insufficiente sugli alias fragili
+### 2. Distinzione booking `/play` derivata da audit fields esistenti
 
-- Descrizione tecnica:
-  - il file [frontend/playpage-vitest.json](frontend/playpage-vitest.json) e un artifact generato da una run intermedia fallita
-  - [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx#L148) copre l alias `/play`, ma non copre `/play/invite/:token` e `/play/matches/:shareToken`
-- Perche e un problema reale:
-  - l artifact non e parte del prodotto e puo confondere revisioni o commit futuri
-  - l assenza di test sugli alias fragili lascia scoperto proprio il comportamento che oggi ha la maggiore probabilita di regressione logica
-- Dove si manifesta:
-  - [frontend/playpage-vitest.json](frontend/playpage-vitest.json)
-  - [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx#L148)
-- Gravita: `bassa`
-- Blocca il rilascio: `no`
+- Descrizione tecnica: la distinzione admin/reporting usa `source=ADMIN_MANUAL` piu `created_by=play:<match_id>` invece di un source dedicato persistito
+- Perche non e un problema bloccante oggi: il comportamento richiesto dalla fase e soddisfatto nelle viste admin correnti senza introdurre nuova enum o migration
+- Dove si manifesta: [backend/app/services/play_service.py](backend/app/services/play_service.py), [frontend/src/utils/bookingOrigin.ts](frontend/src/utils/bookingOrigin.ts), [STATO_PLAY_3.md](STATO_PLAY_3.md)
+- Gravita: bassa
+- Blocca il rilascio: no
 
 ## 4. Prioritizzazione finale
 
 ### Da correggere prima del rilascio
 
-- rendere sicuri o rimuovere gli alias `/play/invite/:token` e `/play/matches/:shareToken` quando il tenant non e determinabile senza ambiguita
+- nessuna correzione obbligatoria emersa da questa verifica
 
 ### Da correggere prima della beta pubblica
 
-- allineare in modo esplicito il contratto `shareToken` con il comportamento reale della shared page
-- aggiungere test mirati per alias invite/share e per il comportamento del link condiviso
+- nessuna correzione obbligatoria emersa da questa verifica nel perimetro attuale
 
 ### Miglioramenti differibili
 
-- rimuovere dal repo gli artifact di validazione generati e mantenere solo output riproducibili via comando
+- valutare in una fase futura solo se davvero richiesto dal prodotto una revoca/rotazione esplicita dei link share
+- valutare in una fase futura solo se davvero richiesta dalla reportistica una proiezione persistita o un source dedicato per le booking nate da `/play`
 
 ## 5. Verdetto finale
 
-Il codice e quasi pronto ma richiede fix mirati prima di considerare chiusa senza riserve la superficie pubblica `/play`. I percorsi canonici sono stabili e validati; gli aggiustamenti necessari sono confinati al sottoflusso alias/share e alla pulizia del worktree.
+Il codice e pronto nel perimetro verificato. Le integrazioni `/play` e la distinzione admin/reporting risultano coerenti, validate e senza criticita bloccanti attive.
 
 ## 6. Prompt operativo per i fix
 
@@ -150,103 +108,37 @@ Agisci come un Senior Software Engineer, Senior Code Reviewer e QA tecnico.
 
 Leggi prima:
 
-- [play_master.md](play_master.md)
-- [STATO_PLAY_1.md](STATO_PLAY_1.md)
-- [STATO_PLAY_2.md](STATO_PLAY_2.md)
-- [frontend/src/App.tsx](frontend/src/App.tsx)
-- [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts)
-- [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx)
-- [frontend/src/pages/SharedMatchPage.tsx](frontend/src/pages/SharedMatchPage.tsx)
-- [frontend/src/pages/InviteAcceptPage.tsx](frontend/src/pages/InviteAcceptPage.tsx)
-- [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx)
-- [backend/app/api/routers/play.py](backend/app/api/routers/play.py)
-- [backend/app/api/routers/public_play.py](backend/app/api/routers/public_play.py)
-- [backend/app/services/play_service.py](backend/app/services/play_service.py)
-- [backend/app/models/__init__.py](backend/app/models/__init__.py)
+- [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md)
+- [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD)
+- [STATO_PLAY_3.md](STATO_PLAY_3.md)
+- [PROMPT_VERIFICA_ESITO.md](PROMPT_VERIFICA_ESITO.md)
 
 ## Contesto reale gia verificato
 
-- i percorsi canonici `/c/:clubSlug/play`, `/c/:clubSlug/play/invite/:token` e `/c/:clubSlug/play/matches/:shareToken` funzionano
-- `npx vitest run src/pages/PlayPage.test.tsx` e verde con `6 passed`
-- `npm run build` e verde
-- i test backend play `tests/test_play_phase1.py` e `tests/test_play_phase1_migration.py` sono verdi con `6 passed`
-- non devi fare refactor ampi e non devi toccare il booking pubblico su `/` o l area admin fuori da cio che emerge qui
+- non sono emerse criticita bloccanti da correggere nella superficie `/play` attuale
+- i fix precedenti su `identify -> create` e `clear note` risultano chiusi e coperti da test
+- il reporting admin che distingue le booking nate da `/play` e coerente con il perimetro di fase attuale
 
 ## Obiettivo
 
-Correggere solo le criticita reali emerse nella review della Fase 2 `/play`, con patch minime e coerenti con il codice attuale.
+Non applicare patch al codice sulla base di questa verifica, perche non risultano fix obbligatori aperti.
 
-### 1. Chiudere in modo sicuro gli alias pubblici invite/share
-
-Problema confermato:
-
-- oggi `/play/invite/:token` e `/play/matches/:shareToken` fanno fallback silenzioso su `default-club` quando il tenant non e ricavabile dalla location
-- questo comportamento non e sicuro per link appartenenti a tenant diversi dal default
-
-Correzione richiesta:
-
-- applica la patch minima ma esplicita
-- non lasciare piu che gli alias invite/share instradino un link su `default-club` se il tenant reale non e noto con affidabilita
-- scegli una sola strategia coerente:
-  1. rimuovere gli alias invite/share e mantenere solo i percorsi canonici tenant-aware
-  2. oppure farli fallire in modo esplicito e comprensibile, senza redirect al tenant sbagliato
-- l alias `/play` semplice puo restare solo se continua a essere coerente con il tenant noto o con il default realmente supportato
-
-### 2. Allineare il contratto pubblico del shared match
-
-Problema confermato:
-
-- il frontend chiama `shareToken` un valore che oggi e solo `match.id`
-- il backend e il modello dati dichiarano gia `public_share_token_hash`, ma il percorso condiviso legge ancora `/play/matches/{match_id}`
-
-Correzione richiesta:
-
-- rendi esplicito e coerente il contratto, con la patch minima sostenibile
-- non introdurre un refactor ampio del modulo play
-- scegli una sola direzione coerente e portala end-to-end:
-  1. se vuoi mantenere davvero il concetto di `shareToken`, aggiungi il supporto backend minimo necessario per esporre e consumare un identificatore pubblico reale di condivisione
-  2. se un vero token pubblico non e ancora economicamente implementabile in questa fase, smetti di trattare `match.id` come `shareToken` implicito e riallinea naming, test e documentazione al comportamento reale
-- evita soluzioni ibride che lascino ancora mismatch tra nome del contratto, route, API e modello dati
-
-### 3. Pulire gli artifact e chiudere la copertura test minima necessaria
-
-Problema confermato:
-
-- e presente il file generato `frontend/playpage-vitest.json`
-- i test coprono l alias `/play`, ma non i casi fragili su invite/share
-
-Correzione richiesta:
-
-- rimuovi gli artifact temporanei non necessari dal repo
-- aggiungi solo i test davvero necessari per proteggere i fix sopra
-- non espandere la suite oltre il perimetro dei bug emersi
-
-## Test richiesti
-
-1. un test che dimostri il comportamento corretto scelto per `/play/invite/:token` quando il tenant non e determinabile
-2. un test equivalente per `/play/matches/:shareToken`
-3. un test che dimostri il contratto finale scelto per il link condiviso del match
-4. mantieni verdi i test gia presenti su `/c/:clubSlug/play`
-
-## Regole di lavoro
+Se in una fase successiva tocchi di nuovo il modulo `/play`, mantieni questi vincoli:
 
 - patch minime e locali
-- non fare refactor ampi
-- non toccare booking engine, admin area o flussi pagamento se non serve davvero
-- non introdurre nuove feature fuori dai fix richiesti
-- se scegli di rimuovere gli alias fragili, fallo in modo pulito e aggiorna solo i test e la documentazione strettamente toccati
+- nessun refactor ampio
+- nessuna regressione sui contratti attuali di create, join, share, leave, update, cancel e reporting admin
 
-## Verifiche reali richieste
+## Verifiche reali da mantenere come baseline
 
 - `Set-Location 'D:/Padly/PadelBooking/frontend'`
-- `npx vitest run src/pages/PlayPage.test.tsx`
+- `npm exec vitest run src/pages/PlayPage.test.tsx src/pages/AdminBookingsPage.test.tsx src/pages/AdminBookingDetailPage.test.tsx`
 - `npm run build`
-- se tocchi i contratti backend play o il modello dati match, esegui anche `Set-Location 'D:/Padly/PadelBooking/backend'; D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase1.py tests/test_play_phase1_migration.py -q --tb=short --maxfail=5`
+- `Set-Location 'D:/Padly/PadelBooking/backend'`
+- `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase1.py tests/test_play_phase3.py -q --tb=short --maxfail=5`
 
 ## Output obbligatorio
 
-- file toccati
-- bug corretti
-- test aggiunti o aggiornati
-- PASS/FAIL reale dei comandi eseguiti
-- eventuali limiti residui reali, solo se restano davvero
+- nessun fix codice eseguito, salvo futura richiesta esplicita
+- PASS/FAIL reale dei comandi rieseguiti dopo eventuali modifiche future
+- eventuali nuovi limiti residui reali solo se emergono davvero da nuove modifiche o da una nuova review

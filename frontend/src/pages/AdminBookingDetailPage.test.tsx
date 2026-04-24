@@ -60,6 +60,18 @@ const baseBooking = {
   payment_reference: 'pi_test_123',
 } as const;
 
+const playOriginDetailBooking = {
+  ...baseBooking,
+  customer_name: null,
+  customer_email: null,
+  customer_phone: null,
+  payment_provider: 'NONE',
+  payment_status: 'UNPAID',
+  created_by: 'play:match-play-42',
+  source: 'ADMIN_MANUAL',
+  note: 'Booking finale nata da match /play',
+} as const;
+
 function RouteLocation({ label }: { label: string }) {
   const location = useLocation();
   return <div>{`${label} ${location.pathname}${location.search}`}</div>;
@@ -336,6 +348,17 @@ describe('AdminBookingDetailPage', () => {
       note: 'Prenotazione aggiornata',
     })));
     expect(screen.getByText('Prenotazione aggiornata con successo.')).toBeInTheDocument();
+  });
+
+  it('shows explicit play origin details for bookings generated from /play', async () => {
+    vi.mocked(getAdminBooking).mockResolvedValue({ ...playOriginDetailBooking });
+
+    renderPage();
+
+    await screen.findByText('Dettaglio prenotazione');
+    expect(screen.getByText('Play community')).toBeInTheDocument();
+    expect(screen.getByText(/completamento di un match/)).toBeInTheDocument();
+    expect(screen.getAllByText(/match-play-42/).length).toBeGreaterThan(0);
   });
 
   it('preserves the selected fallback slot id when editing a DST-ambiguous booking', async () => {

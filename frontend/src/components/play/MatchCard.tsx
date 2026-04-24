@@ -3,17 +3,25 @@ import type { PlayMatchSummary } from '../../types';
 import { formatDate, formatTimeValue } from '../../utils/format';
 import { formatPlayLevel } from '../../utils/play';
 
+type MatchCardAction = {
+  label: string;
+  onClick: (match: PlayMatchSummary) => void;
+  tone?: 'secondary' | 'danger';
+};
+
 export function MatchCard({
   match,
   onPrimaryAction,
   primaryActionLabel = 'Unisciti',
   onShare,
+  extraActions = [],
   testId = 'play-match-card',
 }: {
   match: PlayMatchSummary;
   onPrimaryAction?: (match: PlayMatchSummary) => void;
   primaryActionLabel?: string;
   onShare?: (match: PlayMatchSummary) => void;
+  extraActions?: MatchCardAction[];
   testId?: string;
 }) {
   return (
@@ -92,6 +100,16 @@ export function MatchCard({
               <span>Condividi</span>
             </button>
           ) : null}
+          {extraActions.map((action) => (
+            <button
+              key={action.label}
+              type='button'
+              className={action.tone === 'danger' ? 'btn-soft-danger' : 'btn-secondary'}
+              onClick={() => action.onClick(match)}
+            >
+              <span>{action.label}</span>
+            </button>
+          ))}
           {onPrimaryAction ? (
             <button type='button' className='btn-primary' onClick={() => onPrimaryAction(match)}>
               <UserPlus size={16} />

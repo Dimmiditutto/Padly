@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import MatchStatus, PlayLevel
+from app.schemas.public import validate_hhmm_time
 
 
 def _normalize_profile_name(value: str) -> str:
@@ -76,6 +77,7 @@ class MatchParticipantSummary(BaseModel):
 
 class PlayMatchSummary(BaseModel):
     id: str
+    share_token: str
     court_id: str
     court_name: str | None = None
     court_badge_label: str | None = None
@@ -116,4 +118,85 @@ class PlayMatchesResponse(BaseModel):
 
 class PlayMatchDetailResponse(BaseModel):
     player: PlayPlayerSummary | None = None
+    match: PlayMatchSummary
+
+
+class PlayBookingSummary(BaseModel):
+    id: str
+    public_reference: str
+    court_id: str
+    start_at: datetime
+    end_at: datetime
+    status: str
+    payment_status: str
+    source: str
+
+
+class PlayMatchCreateRequest(BaseModel):
+    booking_date: date
+    court_id: str
+    start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
+    slot_id: str | None = None
+    duration_minutes: int = 90
+    level_requested: PlayLevel = PlayLevel.NO_PREFERENCE
+    note: str | None = Field(default=None, max_length=1000)
+    force_create: bool = False
+
+    @field_validator('duration_minutes')
+    @classmethod
+    def validate_duration(cls, value: int) -> int:
+        if value != 90:
+            raise ValueError('Le partite play sono da 90 minuti')
+        return value
+
+    @field_validator('start_time')
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return validate_hhmm_time(value)
+
+    @field_validator('note', mode='before')
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+
+class PlayMatchCreateResponse(BaseModel):
+    created: bool
+    message: str
+    match: PlayMatchSummary | None = None
+    suggested_matches: list[PlayMatchSummary] = Field(default_factory=list)
+
+
+class PlayMatchJoinResponse(BaseModel):
+    action: str
+    message: str
+    match: PlayMatchSummary
+    booking: PlayBookingSummary | None = None
+
+
+class PlayMatchLeaveResponse(BaseModel):
+    action: str
+    message: str
+    match: PlayMatchSummary
+
+
+class PlayMatchUpdateRequest(BaseModel):
+    level_requested: PlayLevel | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+    @field_validator('note', mode='before')
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+
+class PlayMatchUpdateResponse(BaseModel):
+    action: str
+    message: str
     match: PlayMatchSummary

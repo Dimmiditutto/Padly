@@ -7,7 +7,7 @@ import type { AvailabilityResponse, CourtAvailability, PlayLevel, TimeSlot } fro
 import { toDateInputValue } from '../../utils/format';
 import { PLAY_LEVEL_OPTIONS, formatPlayLevel } from '../../utils/play';
 
-const PLAY_CREATE_DURATIONS = [90, 120, 150];
+const PLAY_CREATE_DURATIONS = [90];
 const today = toDateInputValue(new Date());
 
 export interface PlayCreateIntent {
@@ -144,7 +144,7 @@ export function CreateMatchForm({
               <option key={duration} value={duration}>{duration} minuti</option>
             ))}
           </select>
-          <p className='mt-2 text-sm text-slate-600'>La v1 community privilegia i match da 90 minuti, ma puoi gia preparare varianti piu lunghe.</p>
+          <p className='mt-2 text-sm text-slate-600'>In Phase 3 le partite play restano fissate a 90 minuti per chiudere il match nello slot reale del club.</p>
         </div>
       </div>
 

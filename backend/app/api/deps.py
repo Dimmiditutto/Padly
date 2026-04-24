@@ -90,3 +90,11 @@ def get_current_player_optional(
     player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> Player | None:
     return get_player_from_access_token(db, club_id=current_club.id, raw_token=player_token, touch=True)
+
+
+def get_current_player_required(
+    current_player: Player | None = Depends(get_current_player_optional),
+) -> Player:
+    if not current_player:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Profilo play richiesto')
+    return current_player

@@ -9,10 +9,10 @@ import { CreateMatchForm, type PlayCreateIntent } from '../components/play/Creat
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
 import { MatchBoard } from '../components/play/MatchBoard';
 import { MyMatches } from '../components/play/MyMatches';
-import { getPlayMatches, getPlaySession } from '../services/playApi';
-import type { PlayMatchSummary, PlayMatchesResponse, PlayPlayerSummary } from '../types';
+import { cancelPlayMatch, createPlayMatch, getPlayMatches, getPlaySession, joinPlayMatch, leavePlayMatch, updatePlayMatch } from '../services/playApi';
+import type { PlayLevel, PlayMatchSummary, PlayMatchesResponse, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayMatchPath } from '../utils/play';
+import { buildClubPlayPath, buildPlayMatchPath, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
 
@@ -30,6 +30,12 @@ export function PlayPage() {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: FeedbackTone; message: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [suggestedMatches, setSuggestedMatches] = useState<PlayMatchSummary[]>([]);
+  const [pendingCreateIntent, setPendingCreateIntent] = useState<PlayCreateIntent | null>(null);
+  const [managedMatch, setManagedMatch] = useState<PlayMatchSummary | null>(null);
+  const [managedLevel, setManagedLevel] = useState<PlayLevel>('NO_PREFERENCE');
+  const [managedNote, setManagedNote] = useState('');
+  const [savingManageAction, setSavingManageAction] = useState(false);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -46,7 +52,6 @@ export function PlayPage() {
 
   async function loadPlaySurface(resolvedTenantSlug: string) {
     setLoading(true);
-    setFeedback(null);
     try {
       const [session, matches] = await Promise.all([
         getPlaySession(resolvedTenantSlug),
@@ -65,16 +70,155 @@ export function PlayPage() {
     setPendingAction(action);
   }
 
+  async function performJoin(match: PlayMatchSummary, player = currentPlayer) {
+    if (!tenantSlug || !player) {
+      return;
+    }
+
+    try {
+      const response = await joinPlayMatch(match.id, tenantSlug);
+      setFeedback({
+        tone: response.action === 'COMPLETED' ? 'success' : 'info',
+        message: response.booking
+          ? `${response.message} Riferimento prenotazione ${response.booking.public_reference}.`
+          : response.message,
+      });
+      setSuggestedMatches([]);
+      setPendingCreateIntent(null);
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a completare il join della partita.',
+      });
+    }
+  }
+
+  function openManagePanel(match: PlayMatchSummary) {
+    setManagedMatch(match);
+    setManagedLevel(match.level_requested);
+    setManagedNote(match.note || '');
+  }
+
+  function closeManagePanel() {
+    setManagedMatch(null);
+    setManagedLevel('NO_PREFERENCE');
+    setManagedNote('');
+  }
+
   function handleJoin(match: PlayMatchSummary) {
     if (!currentPlayer) {
       requireIdentity({ kind: 'join', match });
       return;
     }
 
-    setFeedback({
-      tone: 'info',
-      message: `Profilo attivo per ${currentPlayer.profile_name}. Il join definitivo della partita sara collegato agli endpoint write del prossimo step backend.`,
-    });
+    void performJoin(match, currentPlayer);
+  }
+
+  async function handleLeave(match: PlayMatchSummary) {
+    if (!tenantSlug || !currentPlayer || savingManageAction) {
+      return;
+    }
+    setSavingManageAction(true);
+    try {
+      const response = await leavePlayMatch(match.id, tenantSlug);
+      setFeedback({ tone: response.action === 'CANCELLED' ? 'warning' : 'success', message: response.message });
+      if (managedMatch?.id === match.id) {
+        closeManagePanel();
+      }
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a lasciare la partita.',
+      });
+    } finally {
+      setSavingManageAction(false);
+    }
+  }
+
+  async function handleCancel(match: PlayMatchSummary) {
+    if (!tenantSlug || !currentPlayer || savingManageAction) {
+      return;
+    }
+    if (!window.confirm('Confermi l\'annullamento del match aperto?')) {
+      return;
+    }
+    setSavingManageAction(true);
+    try {
+      const response = await cancelPlayMatch(match.id, tenantSlug);
+      setFeedback({ tone: 'warning', message: response.message });
+      if (managedMatch?.id === match.id) {
+        closeManagePanel();
+      }
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco ad annullare il match.',
+      });
+    } finally {
+      setSavingManageAction(false);
+    }
+  }
+
+  async function handleSaveManagedMatch() {
+    if (!tenantSlug || !managedMatch || savingManageAction) {
+      return;
+    }
+    setSavingManageAction(true);
+    try {
+      const response = await updatePlayMatch(managedMatch.id, {
+        level_requested: managedLevel,
+        note: managedNote.trim() || null,
+      }, tenantSlug);
+      setFeedback({ tone: 'success', message: response.message });
+      closeManagePanel();
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a salvare le modifiche del match.',
+      });
+    } finally {
+      setSavingManageAction(false);
+    }
+  }
+
+  async function submitCreateIntent(intent: PlayCreateIntent, forceCreate = false, player = currentPlayer) {
+    if (!tenantSlug || !player) {
+      return;
+    }
+
+    try {
+      const response = await createPlayMatch({
+        booking_date: intent.bookingDate,
+        court_id: intent.courtId,
+        start_time: intent.startTime,
+        slot_id: intent.slotId,
+        duration_minutes: intent.durationMinutes,
+        level_requested: intent.levelRequested,
+        note: intent.note,
+        force_create: forceCreate,
+      }, tenantSlug);
+
+      if (!response.created) {
+        setPendingCreateIntent(intent);
+        setSuggestedMatches(response.suggested_matches);
+        setFeedback({ tone: 'warning', message: response.message });
+        return;
+      }
+
+      setPendingCreateIntent(null);
+      setSuggestedMatches([]);
+      setFeedback({ tone: 'success', message: response.message });
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a creare la partita play.',
+      });
+    }
   }
 
   function handleCreateIntent(intent: PlayCreateIntent) {
@@ -83,10 +227,7 @@ export function PlayPage() {
       return;
     }
 
-    setFeedback({
-      tone: 'info',
-      message: `Hai preparato la partita su ${intent.courtName} alle ${intent.startTime}. La creazione definitiva verra attivata quando il modulo write play sara disponibile.`,
-    });
+    void submitCreateIntent(intent, false);
   }
 
   async function handleIdentifySuccess(player: PlayPlayerSummary) {
@@ -97,25 +238,19 @@ export function PlayPage() {
     const action = pendingAction;
     setPendingAction(null);
     setCurrentPlayer(player);
-    await loadPlaySurface(tenantSlug);
 
     if (!action) {
+      await loadPlaySurface(tenantSlug);
       setFeedback({ tone: 'success', message: `Profilo play attivo. Bentornato ${player.profile_name}.` });
       return;
     }
 
     if (action.kind === 'join') {
-      setFeedback({
-        tone: 'success',
-        message: `Profilo play attivo. Ora puoi completare il join della partita su ${action.match.court_name || 'questo campo'} quando il backend join sara attivo.`,
-      });
+      await performJoin(action.match, player);
       return;
     }
 
-    setFeedback({
-      tone: 'success',
-      message: `Profilo play attivo. Hai gia preparato la partita delle ${action.intent.startTime} su ${action.intent.courtName}.`,
-    });
+    await submitCreateIntent(action.intent, false, player);
   }
 
   async function handleShare(match: PlayMatchSummary) {
@@ -123,7 +258,7 @@ export function PlayPage() {
       return;
     }
 
-    const sharePath = buildPlayMatchPath(tenantSlug, match.id);
+    const sharePath = buildPlayMatchPath(tenantSlug, match.share_token);
     const absoluteUrl = typeof window !== 'undefined' ? `${window.location.origin}${sharePath}` : sharePath;
 
     try {
@@ -138,7 +273,7 @@ export function PlayPage() {
     if (!tenantSlug) {
       return;
     }
-    navigate(buildPlayMatchPath(tenantSlug, match.id));
+    navigate(buildPlayMatchPath(tenantSlug, match.share_token));
   }
 
   if (!tenantSlug) {
@@ -200,6 +335,23 @@ export function PlayPage() {
                 <MatchBoard matches={openMatches} onJoin={handleJoin} onShare={handleShare} />
               </SectionCard>
 
+              {suggestedMatches.length > 0 ? (
+                <SectionCard
+                  title='Prima completa queste partite compatibili'
+                  description='Il backend ha trovato partite gia aperte nello stesso orario. Il force create e esplicito e separato.'
+                >
+                  <div className='space-y-4'>
+                    <AlertBanner tone='warning'>Il club ha gia partite compatibili da completare prima di aprirne una nuova.</AlertBanner>
+                    <MatchBoard matches={suggestedMatches} onJoin={handleJoin} onShare={handleShare} />
+                    {pendingCreateIntent ? (
+                      <button type='button' className='btn-secondary' onClick={() => void submitCreateIntent(pendingCreateIntent, true)}>
+                        Crea comunque una nuova partita
+                      </button>
+                    ) : null}
+                  </div>
+                </SectionCard>
+              ) : null}
+
               <SectionCard
                 title='Crea nuova partita'
                 description='Scegli giorno, slot libero reale, campo e livello. Il motore slot e gia tenant-aware e riusa la disponibilita esistente del club.'
@@ -207,12 +359,69 @@ export function PlayPage() {
                 <CreateMatchForm tenantSlug={tenantSlug} onCreateIntent={handleCreateIntent} />
               </SectionCard>
 
+              {managedMatch ? (
+                <SectionCard
+                  title='Gestisci il tuo match'
+                  description='Puoi aggiornare solo livello e nota del match aperto di cui sei creator. Leave e cancel restano azioni separate e coerenti con le regole backend.'
+                >
+                  <div className='space-y-4'>
+                    <div className='grid gap-4 lg:grid-cols-2'>
+                      <div>
+                        <label className='field-label' htmlFor='play-manage-level'>Livello match</label>
+                        <select
+                          id='play-manage-level'
+                          className='text-input'
+                          value={managedLevel}
+                          onChange={(event) => setManagedLevel(event.target.value as PlayLevel)}
+                        >
+                          {PLAY_LEVEL_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className='rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600'>
+                        <p><strong className='text-slate-900'>Match:</strong> {managedMatch.court_name || 'Campo del club'} • {managedMatch.participant_count}/4</p>
+                        <p className='mt-2'><strong className='text-slate-900'>Creator:</strong> {managedMatch.creator_profile_name || 'Community del club'}</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className='field-label' htmlFor='play-manage-note'>Nota</label>
+                      <textarea
+                        id='play-manage-note'
+                        className='text-input min-h-[112px] resize-y'
+                        value={managedNote}
+                        onChange={(event) => setManagedNote(event.target.value)}
+                        placeholder='Aggiorna il tono della partita, il livello richiesto o informazioni utili per chi si unisce.'
+                      />
+                    </div>
+
+                    <div className='flex flex-wrap gap-3'>
+                      <button type='button' className='btn-primary' disabled={savingManageAction} onClick={() => void handleSaveManagedMatch()}>
+                        {savingManageAction ? 'Salvataggio…' : 'Salva modifiche'}
+                      </button>
+                      <button type='button' className='btn-secondary' disabled={savingManageAction} onClick={closeManagePanel}>
+                        Chiudi pannello
+                      </button>
+                    </div>
+                  </div>
+                </SectionCard>
+              ) : null}
+
               {currentPlayer ? (
                 <SectionCard
                   title='Le mie partite'
                   description='Partite future create da te o a cui partecipi nel tenant corrente.'
                 >
-                  <MyMatches matches={myMatches} onOpen={handleOpenShared} onShare={handleShare} />
+                  <MyMatches
+                    matches={myMatches}
+                    currentPlayerId={currentPlayer.id}
+                    onOpen={handleOpenShared}
+                    onShare={handleShare}
+                    onLeave={(match) => void handleLeave(match)}
+                    onEdit={openManagePanel}
+                    onCancel={(match) => void handleCancel(match)}
+                  />
                 </SectionCard>
               ) : (
                 <SectionCard title='Le mie partite' description='Questa sezione appare appena ti riconosci con il profilo play.'>

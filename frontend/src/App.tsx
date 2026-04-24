@@ -68,10 +68,10 @@ function PlayInviteAliasRedirect() {
 
 function PlaySharedAliasRedirect() {
   const location = useLocation();
-  const { matchId } = useParams();
+  const { shareToken } = useParams();
   const tenantSlug = resolveTenantSlugFromLocation(location);
 
-  if (!tenantSlug || !matchId) {
+  if (!tenantSlug || !shareToken) {
     return (
       <PlayAliasTenantRequiredPage
         title='Link partita incompleto'
@@ -80,7 +80,7 @@ function PlaySharedAliasRedirect() {
     );
   }
 
-  return <Navigate to={`${buildPlayMatchPath(tenantSlug, matchId)}${location.search}`} replace />;
+  return <Navigate to={`${buildPlayMatchPath(tenantSlug, shareToken)}${location.search}`} replace />;
 }
 
 export default function App() {
@@ -89,10 +89,10 @@ export default function App() {
       <Route path='/' element={<PublicBookingPage />} />
       <Route path='/play' element={<PlayAliasRedirect />} />
       <Route path='/play/invite/:token' element={<PlayInviteAliasRedirect />} />
-      <Route path='/play/matches/:matchId' element={<PlaySharedAliasRedirect />} />
+      <Route path='/play/matches/:shareToken' element={<PlaySharedAliasRedirect />} />
       <Route path='/c/:clubSlug/play' element={<PlayPage />} />
       <Route path='/c/:clubSlug/play/invite/:token' element={<InviteAcceptPage />} />
-      <Route path='/c/:clubSlug/play/matches/:matchId' element={<SharedMatchPage />} />
+      <Route path='/c/:clubSlug/play/matches/:shareToken' element={<SharedMatchPage />} />
       <Route path='/booking/cancel' element={<PublicCancellationPage />} />
       <Route path='/booking/success' element={<PaymentStatusPage variant='success' />} />
       <Route path='/booking/cancelled' element={<PaymentStatusPage variant='cancelled' />} />

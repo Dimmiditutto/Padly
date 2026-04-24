@@ -1,12 +1,36 @@
 from fastapi import APIRouter, Cookie, Depends, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_club, get_current_player_optional
+from app.api.deps import get_current_club, get_current_player_optional, get_current_player_required
 from app.core.config import settings
 from app.core.db import get_db
 from app.models import Club, Player
-from app.schemas.play import PlayMatchDetailResponse, PlayMatchesResponse, PlaySessionResponse, PlayerIdentifyRequest, PlayerIdentifyResponse
-from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, PLAYER_SESSION_MAX_AGE_SECONDS, get_play_match_detail, identify_player, list_play_matches
+from app.schemas.play import (
+    PlayMatchCreateRequest,
+    PlayMatchCreateResponse,
+    PlayMatchDetailResponse,
+    PlayMatchJoinResponse,
+    PlayMatchLeaveResponse,
+    PlayMatchesResponse,
+    PlayMatchUpdateRequest,
+    PlayMatchUpdateResponse,
+    PlaySessionResponse,
+    PlayerIdentifyRequest,
+    PlayerIdentifyResponse,
+)
+from app.services.play_service import (
+    PLAYER_SESSION_COOKIE_NAME,
+    PLAYER_SESSION_MAX_AGE_SECONDS,
+    cancel_play_match,
+    create_play_match,
+    get_play_match_detail,
+    get_play_shared_match_detail,
+    identify_player,
+    join_play_match,
+    leave_play_match,
+    list_play_matches,
+    update_play_match,
+)
 
 router = APIRouter(prefix='/play', tags=['Play'])
 
@@ -64,9 +88,8 @@ def get_play_matches(
     player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> PlayMatchesResponse:
     payload = list_play_matches(db, club_id=current_club.id, current_player=current_player)
-    if current_player:
-        db.commit()
-    elif player_token:
+    db.commit()
+    if not current_player and player_token:
         response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
     return PlayMatchesResponse(**payload)
 
@@ -81,8 +104,111 @@ def get_play_match_detail_endpoint(
     player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> PlayMatchDetailResponse:
     payload = get_play_match_detail(db, club_id=current_club.id, match_id=match_id, current_player=current_player)
-    if current_player:
-        db.commit()
-    elif player_token:
+    db.commit()
+    if not current_player and player_token:
         response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
     return PlayMatchDetailResponse(**payload)
+
+
+@router.get('/shared/{share_token}', response_model=PlayMatchDetailResponse)
+def get_play_shared_match_detail_endpoint(
+    share_token: str,
+    response: Response,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player | None = Depends(get_current_player_optional),
+    db: Session = Depends(get_db),
+    player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
+) -> PlayMatchDetailResponse:
+    payload = get_play_shared_match_detail(db, club_id=current_club.id, share_token=share_token, current_player=current_player)
+    db.commit()
+    if not current_player and player_token:
+        response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
+    return PlayMatchDetailResponse(**payload)
+
+
+@router.post('/matches', response_model=PlayMatchCreateResponse)
+def post_play_match(
+    payload: PlayMatchCreateRequest,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchCreateResponse:
+    result = create_play_match(
+        db,
+        club_id=current_club.id,
+        club_timezone=current_club.timezone,
+        current_player=current_player,
+        booking_date=payload.booking_date,
+        start_time_value=payload.start_time,
+        slot_id=payload.slot_id,
+        court_id=payload.court_id,
+        duration_minutes=payload.duration_minutes,
+        level_requested=payload.level_requested,
+        note=payload.note,
+        force_create=payload.force_create,
+    )
+    db.commit()
+    return PlayMatchCreateResponse(**result)
+
+
+@router.post('/matches/{match_id}/join', response_model=PlayMatchJoinResponse)
+def post_play_match_join(
+    match_id: str,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchJoinResponse:
+    result = join_play_match(
+        db,
+        club_id=current_club.id,
+        club_timezone=current_club.timezone,
+        match_id=match_id,
+        current_player=current_player,
+    )
+    db.commit()
+    return PlayMatchJoinResponse(**result)
+
+
+@router.post('/matches/{match_id}/leave', response_model=PlayMatchLeaveResponse)
+def post_play_match_leave(
+    match_id: str,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchLeaveResponse:
+    result = leave_play_match(db, club_id=current_club.id, match_id=match_id, current_player=current_player)
+    db.commit()
+    return PlayMatchLeaveResponse(**result)
+
+
+@router.patch('/matches/{match_id}', response_model=PlayMatchUpdateResponse)
+def patch_play_match(
+    match_id: str,
+    payload: PlayMatchUpdateRequest,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchUpdateResponse:
+    result = update_play_match(
+        db,
+        club_id=current_club.id,
+        match_id=match_id,
+        current_player=current_player,
+        level_requested=payload.level_requested,
+        note=payload.note,
+        note_provided='note' in payload.model_fields_set,
+    )
+    db.commit()
+    return PlayMatchUpdateResponse(**result)
+
+
+@router.post('/matches/{match_id}/cancel', response_model=PlayMatchLeaveResponse)
+def post_play_match_cancel(
+    match_id: str,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchLeaveResponse:
+    result = cancel_play_match(db, club_id=current_club.id, match_id=match_id, current_player=current_player)
+    db.commit()
+    return PlayMatchLeaveResponse(**result)

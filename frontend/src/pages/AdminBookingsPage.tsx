@@ -22,9 +22,11 @@ import {
 import type { AdminDashboardFilters, AdminSession, BookingSummary } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { canCancelBooking, canDeleteBookingPermanently } from '../utils/adminBookingActions';
+import { countPlayOriginBookings, isPlayOriginBooking } from '../utils/bookingOrigin';
 import { formatDateTime, toDateInputValue } from '../utils/format';
 
 const today = toDateInputValue(new Date());
+type OriginFilter = 'ALL' | 'PLAY_ONLY' | 'NON_PLAY';
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -51,6 +53,7 @@ export function AdminBookingsPage() {
   });
   const [expandedSeries, setExpandedSeries] = useState<Record<string, boolean>>({});
   const [selectedOccurrences, setSelectedOccurrences] = useState<Record<string, string[]>>({});
+  const [originFilter, setOriginFilter] = useState<OriginFilter>('ALL');
 
   useEffect(() => {
     void bootstrap();
@@ -247,7 +250,18 @@ export function AdminBookingsPage() {
     }
   }
 
-  const entries = useMemo(() => buildBookingEntries(bookings), [bookings]);
+  const filteredBookings = useMemo(() => {
+    if (originFilter === 'PLAY_ONLY') {
+      return bookings.filter(isPlayOriginBooking);
+    }
+    if (originFilter === 'NON_PLAY') {
+      return bookings.filter((booking) => !isPlayOriginBooking(booking));
+    }
+    return bookings;
+  }, [bookings, originFilter]);
+
+  const playOriginCount = useMemo(() => countPlayOriginBookings(bookings), [bookings]);
+  const entries = useMemo(() => buildBookingEntries(filteredBookings), [filteredBookings]);
 
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
@@ -332,6 +346,19 @@ export function AdminBookingsPage() {
                 onChange={(event) => setFilters((prev) => ({ ...prev, query: event.target.value }))}
               />
             </div>
+            <div>
+              <label className='field-label' htmlFor='booking-origin'>Origine</label>
+              <select
+                id='booking-origin'
+                className='text-input'
+                value={originFilter}
+                onChange={(event) => setOriginFilter(event.target.value as OriginFilter)}
+              >
+                <option value='ALL'>Tutte le origini</option>
+                <option value='PLAY_ONLY'>Solo /play</option>
+                <option value='NON_PLAY'>Escludi /play</option>
+              </select>
+            </div>
             <div className='flex flex-wrap gap-3 lg:col-span-6'>
               <button className='btn-primary' type='submit'>Applica filtri</button>
               <button
@@ -340,6 +367,7 @@ export function AdminBookingsPage() {
                 onClick={() => {
                   const resetFilters = { start_date: today, end_date: '', status: '', payment_provider: '', query: '' };
                   setFilters(resetFilters);
+                  setOriginFilter('ALL');
                   void loadBookings(resetFilters);
                 }}
               >
@@ -347,6 +375,25 @@ export function AdminBookingsPage() {
               </button>
             </div>
           </form>
+        </SectionCard>
+
+        <SectionCard title='Origine booking' description='Segnale rapido per distinguere le prenotazioni nate dal booking pubblico, dall’admin o dal completamento di un match `/play`.'>
+          <div className='grid gap-4 sm:grid-cols-3'>
+            <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4'>
+              <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Totale filtrato</p>
+              <p className='mt-2 text-2xl font-semibold text-slate-950'>{filteredBookings.length}</p>
+            </div>
+            <div className='rounded-[24px] border border-cyan-200 bg-cyan-50 p-4'>
+              <p className='text-sm font-semibold uppercase tracking-[0.14em] text-cyan-700'>Booking da /play</p>
+              <p className='mt-2 text-2xl font-semibold text-cyan-950'>{playOriginCount}</p>
+            </div>
+            <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4'>
+              <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Filtro origine attivo</p>
+              <p className='mt-2 text-base font-semibold text-slate-950'>
+                {originFilter === 'PLAY_ONLY' ? 'Solo /play' : originFilter === 'NON_PLAY' ? 'Escludi /play' : 'Tutte le origini'}
+              </p>
+            </div>
+          </div>
         </SectionCard>
 
         {loading ? <LoadingBlock label='Sto caricando l’elenco prenotazioni…' /> : null}

@@ -6,13 +6,13 @@ import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { MatchCard } from '../components/play/MatchCard';
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
-import { getPlayMatchDetail, getPlaySession } from '../services/playApi';
+import { getPlaySession, getPlaySharedMatch, joinPlayMatch } from '../services/playApi';
 import type { PlayMatchSummary, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug } from '../utils/tenantContext';
 import { buildClubPlayPath, buildPlayMatchPath } from '../utils/play';
 
 export function SharedMatchPage() {
-  const { clubSlug, matchId } = useParams();
+  const { clubSlug, shareToken } = useParams();
   const [searchParams] = useSearchParams();
   const tenantSlug = normalizeTenantSlug(clubSlug) || getTenantSlugFromSearchParams(searchParams) || null;
   const [currentPlayer, setCurrentPlayer] = useState<PlayPlayerSummary | null>(null);
@@ -22,22 +22,21 @@ export function SharedMatchPage() {
   const [identifyOpen, setIdentifyOpen] = useState(false);
 
   useEffect(() => {
-    if (!tenantSlug || !matchId) {
+    if (!tenantSlug || !shareToken) {
       setLoading(false);
       setFeedback({ tone: 'error', message: 'Link partita non valido per il club corrente.' });
       return;
     }
 
-    void loadSharedSurface(tenantSlug, matchId);
-  }, [matchId, tenantSlug]);
+    void loadSharedSurface(tenantSlug, shareToken);
+  }, [shareToken, tenantSlug]);
 
-  async function loadSharedSurface(resolvedTenantSlug: string, resolvedMatchId: string) {
+  async function loadSharedSurface(resolvedTenantSlug: string, resolvedShareToken: string) {
     setLoading(true);
-    setFeedback(null);
     try {
       const [session, detail] = await Promise.all([
         getPlaySession(resolvedTenantSlug),
-        getPlayMatchDetail(resolvedMatchId, resolvedTenantSlug),
+        getPlaySharedMatch(resolvedShareToken, resolvedTenantSlug),
       ]);
       setCurrentPlayer(session.player || detail.player || null);
       setMatch(detail.match);
@@ -48,16 +47,35 @@ export function SharedMatchPage() {
     }
   }
 
+  async function performJoin(player = currentPlayer) {
+    if (!tenantSlug || !match || !player) {
+      return;
+    }
+
+    try {
+      const response = await joinPlayMatch(match.id, tenantSlug);
+      setFeedback({
+        tone: response.action === 'COMPLETED' ? 'success' : 'info',
+        message: response.booking
+          ? `${response.message} Riferimento prenotazione ${response.booking.public_reference}.`
+          : response.message,
+      });
+      await loadSharedSurface(tenantSlug, match.share_token);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a completare il join della partita condivisa.',
+      });
+    }
+  }
+
   function handleJoinAttempt() {
     if (!currentPlayer) {
       setIdentifyOpen(true);
       return;
     }
 
-    setFeedback({
-      tone: 'info',
-      message: `Profilo attivo per ${currentPlayer.profile_name}. Il join definitivo da link condiviso verra agganciato al backend write del modulo play.`,
-    });
+    void performJoin(currentPlayer);
   }
 
   async function handleShare() {
@@ -66,8 +84,8 @@ export function SharedMatchPage() {
     }
 
     const absoluteUrl = typeof window !== 'undefined'
-      ? `${window.location.origin}${buildPlayMatchPath(tenantSlug, match.id)}`
-      : buildPlayMatchPath(tenantSlug, match.id);
+      ? `${window.location.origin}${buildPlayMatchPath(tenantSlug, match.share_token)}`
+      : buildPlayMatchPath(tenantSlug, match.share_token);
 
     try {
       await navigator.clipboard.writeText(absoluteUrl);
@@ -80,10 +98,14 @@ export function SharedMatchPage() {
   async function handleIdentifySuccess(player: PlayPlayerSummary) {
     setCurrentPlayer(player);
     setIdentifyOpen(false);
-    setFeedback({ tone: 'success', message: `Profilo play attivo. Ora il flusso shared match ti riconosce come ${player.profile_name}.` });
-    if (tenantSlug && matchId) {
-      await loadSharedSurface(tenantSlug, matchId);
+    if (tenantSlug && shareToken) {
+      await loadSharedSurface(tenantSlug, shareToken);
     }
+    if (match) {
+      await performJoin(player);
+      return;
+    }
+    setFeedback({ tone: 'success', message: `Profilo play attivo. Ora il flusso shared match ti riconosce come ${player.profile_name}.` });
   }
 
   return (
@@ -109,7 +131,7 @@ export function SharedMatchPage() {
           {!loading && match ? (
             <MatchCard
               match={match}
-              onPrimaryAction={handleJoinAttempt}
+              onPrimaryAction={match.joined_by_current_player ? undefined : handleJoinAttempt}
               primaryActionLabel={currentPlayer ? 'Unisciti' : 'Identificati per unirti'}
               onShare={handleShare}
               testId='play-shared-match-card'

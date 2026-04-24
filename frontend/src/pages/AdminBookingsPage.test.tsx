@@ -64,6 +64,20 @@ const singleBooking: BookingSummary = {
   balance_paid_at: null,
 };
 
+const playOriginBooking: BookingSummary = {
+  ...singleBooking,
+  id: 'booking-play-1',
+  public_reference: 'PB-PLAY-100',
+  customer_name: 'Match /play completato',
+  customer_email: null,
+  customer_phone: null,
+  payment_provider: 'NONE',
+  payment_status: 'UNPAID',
+  created_by: 'play:match-play-42',
+  source: 'ADMIN_MANUAL',
+  note: 'Booking finale nata da match /play',
+};
+
 const recurringBookings: BookingSummary[] = [
   {
     id: 'rec-1',
@@ -272,5 +286,22 @@ describe('AdminBookingsPage', () => {
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali?tenant=roma-club');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni?tenant=roma-club');
     expect(screen.getAllByRole('link', { name: /Dettaglio/ })[0]).toHaveAttribute('href', '/admin/bookings/booking-public-1?tenant=roma-club');
+  });
+
+  it('marks and filters bookings originating from /play', async () => {
+    vi.mocked(listAdminBookings).mockResolvedValue({ items: [singleBooking, playOriginBooking, ...recurringBookings], total: 4 });
+
+    renderPage();
+
+    await screen.findByText('Ricerca avanzata e gestione ricorrenze');
+    expect(screen.getByText('Booking da /play')).toBeInTheDocument();
+    expect(screen.getByText('Match /play completato')).toBeInTheDocument();
+    expect(screen.getAllByText('Play community').length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText('Origine'), { target: { value: 'PLAY_ONLY' } });
+
+    expect(screen.getByText('Match /play completato')).toBeInTheDocument();
+    expect(screen.queryByText('Cliente Singolo')).not.toBeInTheDocument();
+    expect(screen.queryByText('Corso serale')).not.toBeInTheDocument();
   });
 });

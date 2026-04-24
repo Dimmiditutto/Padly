@@ -2,6 +2,7 @@ import { ArrowRight, CalendarDays, Clock3, WalletCards } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import type { BookingSummary } from '../types';
 import { canCancelBooking, canDeleteBookingPermanently, canMarkBalancePaid, canMarkBookingCompleted, canMarkBookingNoShow, canRestoreBookingConfirmed } from '../utils/adminBookingActions';
+import { getBookingOriginBadgeClassName, getBookingOriginLabel, isPlayOriginBooking } from '../utils/bookingOrigin';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { StatusBadge } from './StatusBadge';
 
@@ -26,6 +27,8 @@ export function AdminBookingCard({
   const canMarkBalance = !isRecurring && canMarkBalancePaid(booking.status, booking.balance_paid_at, booking.start_at);
   const canDelete = canDeleteBookingPermanently(booking.status);
   const heading = booking.customer_name || 'Prenotazione singola';
+  const originLabel = getBookingOriginLabel(booking);
+  const isPlayOrigin = isPlayOriginBooking(booking);
 
   return (
     <article className='surface-card-compact shadow-sm'>
@@ -34,8 +37,10 @@ export function AdminBookingCard({
           <div className='flex flex-wrap items-center gap-2'>
             <p className='font-semibold text-slate-950'>{heading}</p>
             <StatusBadge status={booking.status} />
+            <span className={`status-pill ${getBookingOriginBadgeClassName(booking)}`}>{originLabel}</span>
           </div>
           <p className='text-sm text-slate-600'>{booking.customer_phone || 'Telefono non disponibile'}</p>
+          {isPlayOrigin ? <p className='text-sm text-cyan-700'>Nata dal completamento di un match `/play`.</p> : null}
           <div className='flex flex-wrap gap-3 text-sm text-slate-600'>
             <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {booking.booking_date_local}</span>
             {booking.court_name ? <span className='inline-flex items-center gap-1'><CalendarDays size={14} /> {booking.court_name}</span> : null}

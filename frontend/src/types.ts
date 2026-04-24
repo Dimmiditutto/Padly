@@ -373,6 +373,7 @@ export interface MatchParticipantSummary {
 
 export interface PlayMatchSummary {
   id: string;
+  share_token: string;
   court_id: string;
   court_name?: string | null;
   court_badge_label?: string | null;
@@ -425,5 +426,58 @@ export interface PlayMatchesResponse {
 
 export interface PlayMatchDetailResponse {
   player?: PlayPlayerSummary | null;
+  match: PlayMatchSummary;
+}
+
+export interface PlayCreateMatchPayload {
+  booking_date: string;
+  court_id: string;
+  start_time: string;
+  slot_id?: string | null;
+  duration_minutes: number;
+  level_requested: PlayLevel;
+  note?: string | null;
+  force_create?: boolean;
+}
+
+export interface PlayCreateMatchResponse {
+  created: boolean;
+  message: string;
+  match?: PlayMatchSummary | null;
+  suggested_matches: PlayMatchSummary[];
+}
+
+export interface PlayBookingSummary {
+  id: string;
+  public_reference: string;
+  court_id: string;
+  start_at: string;
+  end_at: string;
+  status: BookingStatus;
+  payment_status: PaymentStatus;
+  source: BookingSource;
+}
+
+export interface PlayMatchJoinResponse {
+  action: string;
+  message: string;
+  match: PlayMatchSummary;
+  booking?: PlayBookingSummary | null;
+}
+
+export interface PlayMatchLeaveResponse {
+  action: string;
+  message: string;
+  match: PlayMatchSummary;
+}
+
+export interface PlayMatchUpdatePayload {
+  level_requested?: PlayLevel;
+  note?: string | null;
+}
+
+export interface PlayMatchUpdateResponse {
+  action: string;
+  message: string;
   match: PlayMatchSummary;
 }
