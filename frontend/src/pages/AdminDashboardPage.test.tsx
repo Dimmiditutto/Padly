@@ -91,7 +91,7 @@ describe('AdminDashboardPage', () => {
     vi.clearAllMocks();
     mockBootstrapSuccess();
     vi.mocked(createAdminBooking).mockResolvedValue({} as never);
-    vi.mocked(createAdminCourt).mockResolvedValue({ id: 'court-2', name: 'Campo 2', sort_order: 2, is_active: true } as never);
+    vi.mocked(createAdminCourt).mockResolvedValue({ id: 'court-2', name: 'Campo 2', badge_label: null, sort_order: 2, is_active: true } as never);
     vi.mocked(createBlackout).mockResolvedValue({ id: 'blackout-1', message: 'ok' });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
     vi.mocked(listAdminCourts).mockResolvedValue({ items: [] });
@@ -283,8 +283,8 @@ describe('AdminDashboardPage', () => {
       .mockResolvedValueOnce({ items: [{ id: 'court-1', name: 'Campo 1', sort_order: 1, is_active: true }] })
       .mockResolvedValueOnce({
         items: [
-          { id: 'court-1', name: 'Campo 1', sort_order: 1, is_active: true },
-          { id: 'court-2', name: 'Campo 2', sort_order: 2, is_active: true },
+          { id: 'court-1', name: 'Campo 1', badge_label: null, sort_order: 1, is_active: true },
+          { id: 'court-2', name: 'Campo 2', badge_label: 'Indoor', sort_order: 2, is_active: true },
         ],
       });
 
@@ -297,13 +297,15 @@ describe('AdminDashboardPage', () => {
     expect(settingsSection).not.toBeNull();
 
     await waitFor(() => expect(within(settingsSection as HTMLElement).getByDisplayValue('Campo 1')).toBeInTheDocument());
+    fireEvent.change(within(settingsSection as HTMLElement).getByLabelText('Etichetta nuovo campo'), { target: { value: 'Indoor' } });
 
     fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Crea campo' }));
 
-    await waitFor(() => expect(createAdminCourt).toHaveBeenCalledWith('Campo 2'));
+    await waitFor(() => expect(createAdminCourt).toHaveBeenCalledWith({ name: 'Campo 2', badge_label: 'Indoor' }));
     expect(updateAdminSettings).not.toHaveBeenCalled();
     await waitFor(() => expect(within(settingsSection as HTMLElement).getByText('Campo creato correttamente.')).toBeInTheDocument());
     expect(within(settingsSection as HTMLElement).getByDisplayValue('Campo 2')).toBeInTheDocument();
+    expect(within(settingsSection as HTMLElement).getByDisplayValue('Indoor')).toBeInTheDocument();
   });
 
   it('saves tenant profile fields and preserves tenant query in admin links', async () => {

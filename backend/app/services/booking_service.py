@@ -402,6 +402,7 @@ def build_daily_slots(
                 'display_end_time': slot_display_time((start_at + timedelta(minutes=duration_minutes)).astimezone(local_timezone), timezone_name=resolved_timezone),
                 'court_id': court.id,
                 'court_name': court.name,
+                'court_badge_label': court.badge_label,
                 'available': available,
                 'reason': reason,
             }
@@ -423,6 +424,7 @@ def build_daily_slots_grouped_by_court(
         {
             'court_id': court.id,
             'court_name': court.name,
+            'badge_label': court.badge_label,
             'slots': build_daily_slots(
                 db,
                 booking_date=booking_date,

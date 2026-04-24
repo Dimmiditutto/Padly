@@ -12,6 +12,11 @@ from app.services.tenant_service import get_default_club_id
 DEFAULT_COURT_NAME = 'Campo 1'
 
 
+def _normalize_badge_label(value: str | None) -> str | None:
+    normalized = (value or '').strip()
+    return normalized or None
+
+
 def ensure_default_court(db: Session, club: Club) -> Court:
     court = db.scalar(
         select(Court)
@@ -67,7 +72,7 @@ def resolve_court(
     raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Seleziona il campo')
 
 
-def create_court(db: Session, *, name: str, club_id: str | None = None) -> Court:
+def create_court(db: Session, *, name: str, badge_label: str | None = None, club_id: str | None = None) -> Court:
     resolved_club_id = club_id or get_default_club_id(db)
     normalized_name = name.strip()
     if not normalized_name:
@@ -86,6 +91,7 @@ def create_court(db: Session, *, name: str, club_id: str | None = None) -> Court
     court = Court(
         club_id=resolved_club_id,
         name=normalized_name,
+        badge_label=_normalize_badge_label(badge_label),
         sort_order=next_sort_order,
         is_active=True,
         created_at=datetime.now(UTC),
@@ -96,7 +102,7 @@ def create_court(db: Session, *, name: str, club_id: str | None = None) -> Court
     return court
 
 
-def rename_court(db: Session, *, court_id: str, name: str, club_id: str | None = None) -> Court:
+def rename_court(db: Session, *, court_id: str, name: str, badge_label: str | None = None, club_id: str | None = None) -> Court:
     court = resolve_court(db, club_id=club_id, court_id=court_id, allow_inactive=True)
     normalized_name = name.strip()
     if not normalized_name:
@@ -113,5 +119,6 @@ def rename_court(db: Session, *, court_id: str, name: str, club_id: str | None =
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Esiste gia un campo con questo nome')
 
     court.name = normalized_name
+    court.badge_label = _normalize_badge_label(badge_label)
     court.updated_at = datetime.now(UTC)
     return court

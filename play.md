@@ -395,6 +395,7 @@ Capire, in modo deterministico:
 - quali giorni usa più spesso
 - quali fasce orarie usa più spesso
 - quale livello sceglie più spesso
+- quale livello è più compatibile con lui
 - quanto risponde alle notifiche
 
 ### Esempio
@@ -506,7 +507,7 @@ Da subito:
 - distribuite su fasce diverse:
   - mattino
   - pranzo / primo pomeriggio
-  - sera
+  - tardo pomeriggio / sera
 
 ### Priorità corretta delle notifiche
 1. **3/4** = priorità alta
@@ -539,8 +540,8 @@ Se la memoria è fatta come sopra:
 - il problema si sposta sulla qualità delle regole, non sulla quantità di dati
 
 Quindi è fattibile anche per club con:
-- 4 campi
-- 400/500 utenti community
+- tanti campi (4+)
+- 400/500+ utenti community
 
 A patto di usare:
 - retention breve

@@ -19,7 +19,7 @@ def get_courts(db: Session = Depends(get_db), admin: Admin = Depends(get_current
 
 @router.post('', response_model=CourtSummary)
 def add_court(payload: CourtCreateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> CourtSummary:
-    court = create_court(db, name=payload.name, club_id=admin.club_id)
+    court = create_court(db, name=payload.name, badge_label=payload.badge_label, club_id=admin.club_id)
     db.commit()
     db.refresh(court)
     return CourtSummary.model_validate(court)
@@ -27,7 +27,7 @@ def add_court(payload: CourtCreateRequest, db: Session = Depends(get_db), admin:
 
 @router.put('/{court_id}', response_model=CourtSummary)
 def update_court(court_id: str, payload: CourtUpdateRequest, db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin_enforced)) -> CourtSummary:
-    court = rename_court(db, court_id=court_id, name=payload.name, club_id=admin.club_id)
+    court = rename_court(db, court_id=court_id, name=payload.name, badge_label=payload.badge_label, club_id=admin.club_id)
     db.commit()
     db.refresh(court)
     return CourtSummary.model_validate(court)

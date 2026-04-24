@@ -12,6 +12,7 @@ export interface TimeSlot {
   slot_id: string;
   court_id?: string | null;
   court_name?: string | null;
+  court_badge_label?: string | null;
   start_time: string;
   end_time: string;
   display_start_time: string;
@@ -23,6 +24,7 @@ export interface TimeSlot {
 export interface CourtSummary {
   id: string;
   name: string;
+  badge_label?: string | null;
   sort_order: number;
   is_active: boolean;
 }
@@ -30,7 +32,13 @@ export interface CourtSummary {
 export interface CourtAvailability {
   court_id: string;
   court_name: string;
+  badge_label?: string | null;
   slots: TimeSlot[];
+}
+
+export interface CourtUpsertPayload {
+  name: string;
+  badge_label?: string | null;
 }
 
 export interface BookingSummary {

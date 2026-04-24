@@ -162,10 +162,34 @@ class RecurringCancelResponse(BaseModel):
 
 class CourtCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=140)
+    badge_label: str | None = Field(default=None, max_length=40)
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def normalize_name(cls, value: object) -> str:
+        return str(value).strip()
+
+    @field_validator('badge_label', mode='before')
+    @classmethod
+    def normalize_badge_label(cls, value: object) -> str | None:
+        normalized = str(value).strip() if value is not None else ''
+        return normalized or None
 
 
 class CourtUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=140)
+    badge_label: str | None = Field(default=None, max_length=40)
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def normalize_name(cls, value: object) -> str:
+        return str(value).strip()
+
+    @field_validator('badge_label', mode='before')
+    @classmethod
+    def normalize_badge_label(cls, value: object) -> str | None:
+        normalized = str(value).strip() if value is not None else ''
+        return normalized or None
 
 
 class CourtListResponse(BaseModel):

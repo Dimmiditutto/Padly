@@ -16,6 +16,7 @@ import type {
   BookingSummary,
   CourtListResponse,
   CourtSummary,
+  CourtUpsertPayload,
   RecurringCancelResponse,
   RecurringCreateResponse,
   RecurringPreviewResponse,
@@ -149,13 +150,13 @@ export async function listAdminCourts() {
   return response.data;
 }
 
-export async function createAdminCourt(name: string) {
-  const response = await api.post<CourtSummary>('/admin/courts', { name });
+export async function createAdminCourt(payload: CourtUpsertPayload) {
+  const response = await api.post<CourtSummary>('/admin/courts', payload);
   return response.data;
 }
 
-export async function updateAdminCourt(courtId: string, name: string) {
-  const response = await api.put<CourtSummary>(`/admin/courts/${courtId}`, { name });
+export async function updateAdminCourt(courtId: string, payload: CourtUpsertPayload) {
+  const response = await api.put<CourtSummary>(`/admin/courts/${courtId}`, payload);
   return response.data;
 }
 

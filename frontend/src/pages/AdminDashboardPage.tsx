@@ -31,6 +31,7 @@ import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateI
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 type FeedbackState = { tone: 'error' | 'success'; message: string } | null;
+type CourtDraftState = { name: string; badge_label: string };
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -78,8 +79,9 @@ export function AdminDashboardPage() {
   const [blackoutFeedback, setBlackoutFeedback] = useState<FeedbackState>(null);
   const [settingsFeedback, setSettingsFeedback] = useState<FeedbackState>(null);
   const [courtsFeedback, setCourtsFeedback] = useState<FeedbackState>(null);
-  const [courtDrafts, setCourtDrafts] = useState<Record<string, string>>({});
+  const [courtDrafts, setCourtDrafts] = useState<Record<string, CourtDraftState>>({});
   const [newCourtName, setNewCourtName] = useState('Campo 2');
+  const [newCourtBadgeLabel, setNewCourtBadgeLabel] = useState('');
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
     last_name: 'Rossi',
@@ -179,7 +181,7 @@ export function AdminDashboardPage() {
     try {
       const response = await listAdminCourts();
       setCourts(response.items);
-      setCourtDrafts(Object.fromEntries(response.items.map((court) => [court.id, court.name])));
+      setCourtDrafts(Object.fromEntries(response.items.map((court) => [court.id, { name: court.name, badge_label: court.badge_label || '' }])));
     } catch {
       setCourts([]);
       setCourtDrafts({});
@@ -321,9 +323,10 @@ export function AdminDashboardPage() {
     setCourtsFeedback(null);
 
     try {
-      await createAdminCourt(newCourtName);
+      await createAdminCourt({ name: newCourtName, badge_label: newCourtBadgeLabel.trim() || null });
       await loadCourts();
       setNewCourtName(`Campo ${courts.length + 2}`);
+      setNewCourtBadgeLabel('');
       setCourtsFeedback({ tone: 'success', message: 'Campo creato correttamente.' });
     } catch (error: any) {
       setCourtsFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione campo non riuscita.' });
@@ -331,7 +334,8 @@ export function AdminDashboardPage() {
   }
 
   async function renameCourt(courtId: string) {
-    const nextName = (courtDrafts[courtId] || '').trim();
+    const nextDraft = courtDrafts[courtId] || { name: '', badge_label: '' };
+    const nextName = nextDraft.name.trim();
     if (!nextName) {
       setCourtsFeedback({ tone: 'error', message: 'Inserisci un nome campo valido.' });
       return;
@@ -339,7 +343,7 @@ export function AdminDashboardPage() {
 
     setCourtsFeedback(null);
     try {
-      await updateAdminCourt(courtId, nextName);
+      await updateAdminCourt(courtId, { name: nextName, badge_label: nextDraft.badge_label.trim() || null });
       await loadCourts();
       setCourtsFeedback({ tone: 'success', message: 'Nome campo aggiornato.' });
     } catch (error: any) {
@@ -707,9 +711,10 @@ export function AdminDashboardPage() {
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>
                     <p className='mt-1 text-sm leading-6 text-slate-600'>Crea un nuovo campo o rinomina i campi gia presenti dal pannello admin.</p>
-                    <div className='mt-4 flex flex-col gap-3 sm:flex-row'>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px_auto]'>
                       <input
                         className='text-input flex-1'
+                        aria-label='Nome nuovo campo'
                         value={newCourtName}
                         onChange={(event) => setNewCourtName(event.target.value)}
                         onKeyDown={(event) => {
@@ -720,15 +725,42 @@ export function AdminDashboardPage() {
                         }}
                         placeholder='Nome nuovo campo'
                       />
+                      <input
+                        className='text-input'
+                        aria-label='Etichetta nuovo campo'
+                        value={newCourtBadgeLabel}
+                        onChange={(event) => setNewCourtBadgeLabel(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void createCourt();
+                          }
+                        }}
+                        placeholder='Indoor / Outdoor'
+                      />
                       <button className='btn-primary sm:w-auto' type='button' onClick={() => void createCourt()}>Crea campo</button>
                     </div>
                     <div className='mt-4 space-y-3'>
                       {courts.length === 0 ? <p className='text-sm text-slate-500'>Nessun campo caricato al momento.</p> : courts.map((court) => (
-                        <div key={court.id} className='flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center'>
+                        <div key={court.id} className='grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_220px_auto] sm:items-center'>
                           <input
                             className='text-input flex-1'
-                            value={courtDrafts[court.id] ?? court.name}
-                            onChange={(event) => setCourtDrafts((prev) => ({ ...prev, [court.id]: event.target.value }))}
+                            aria-label={`Nome ${court.name}`}
+                            value={courtDrafts[court.id]?.name ?? court.name}
+                            onChange={(event) => setCourtDrafts((prev) => ({
+                              ...prev,
+                              [court.id]: { name: event.target.value, badge_label: prev[court.id]?.badge_label ?? court.badge_label ?? '' },
+                            }))}
+                          />
+                          <input
+                            className='text-input'
+                            aria-label={`Etichetta ${court.name}`}
+                            value={courtDrafts[court.id]?.badge_label ?? court.badge_label ?? ''}
+                            onChange={(event) => setCourtDrafts((prev) => ({
+                              ...prev,
+                              [court.id]: { name: prev[court.id]?.name ?? court.name, badge_label: event.target.value },
+                            }))}
+                            placeholder='Indoor / Outdoor'
                           />
                           <button className='btn-secondary sm:w-auto' type='button' onClick={() => void renameCourt(court.id)}>
                             Salva nome

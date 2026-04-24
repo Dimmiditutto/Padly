@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { TimeSlot } from '../types';
 import { EmptyState } from './EmptyState';
 import { Clock3 } from 'lucide-react';
@@ -6,11 +7,13 @@ export function SlotGrid({
   slots,
   selectedSlotId,
   highlightedSlotIds = [],
+  unavailableStateContent,
   onSelect,
 }: {
   slots: TimeSlot[];
   selectedSlotId: string;
   highlightedSlotIds?: string[];
+  unavailableStateContent?: ReactNode;
   onSelect: (slotId: string) => void;
 }) {
   const visibleSlots = slots.filter((slot) => slot.available);
@@ -51,7 +54,7 @@ export function SlotGrid({
       </div>
       {visibleSlots.length === 0 ? (
         <div className='mt-4'>
-          <EmptyState icon={Clock3} title='Fasce piene per questa selezione' description='Il campo è occupato o bloccato. Prova un altro orario o una durata diversa.' />
+          {unavailableStateContent || <EmptyState icon={Clock3} title='Fasce piene per questa selezione' description='Il campo è occupato o bloccato. Prova un altro orario o una durata diversa.' />}
         </div>
       ) : null}
     </>

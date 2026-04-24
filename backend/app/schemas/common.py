@@ -59,6 +59,7 @@ class TimeSlot(BaseModel):
     slot_id: str
     court_id: str | None = None
     court_name: str | None = None
+    court_badge_label: str | None = None
     start_time: str
     end_time: str
     display_start_time: str
@@ -76,6 +77,7 @@ class CourtSummary(BaseModel):
 
     id: str
     name: str
+    badge_label: str | None = None
     sort_order: int
     is_active: bool
 
@@ -83,4 +85,5 @@ class CourtSummary(BaseModel):
 class CourtAvailability(BaseModel):
     court_id: str
     court_name: str
+    badge_label: str | None = None
     slots: list[TimeSlot]

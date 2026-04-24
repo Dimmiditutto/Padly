@@ -299,24 +299,20 @@ export function PublicBookingPage() {
                             <p className='text-xs text-slate-500'>Slot disponibili aggiornati in tempo reale per questo campo.</p>
                           </div>
                           <div className='flex items-center gap-2'>
-                            <span className='rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600'>Campo</span>
+                            {group.badge_label ? <span className='rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600'>{group.badge_label}</span> : null}
                             {group.slots.length > COLLAPSED_COURT_SLOT_COUNT ? (
                               <button
                                 type='button'
                                 aria-expanded={expandedCourtIds[group.court_id] ? 'true' : 'false'}
                                 aria-label={`${expandedCourtIds[group.court_id] ? 'Comprimi' : 'Espandi'} orari di ${group.court_name}`}
-                                className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900'
+                                className='inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:text-slate-900'
                                 onClick={() => setExpandedCourtIds((prev) => ({ ...prev, [group.court_id]: !prev[group.court_id] }))}
                               >
                                 {expandedCourtIds[group.court_id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                <span>{expandedCourtIds[group.court_id] ? 'Mostra meno' : `Prime ${COLLAPSED_COURT_SLOT_COUNT}`}</span>
                               </button>
                             ) : null}
                           </div>
                         </div>
-                        {!expandedCourtIds[group.court_id] && group.slots.length > COLLAPSED_COURT_SLOT_COUNT ? (
-                          <p className='mb-3 text-xs font-medium text-slate-500'>Scheda compressa: mostro i primi {COLLAPSED_COURT_SLOT_COUNT} orari.</p>
-                        ) : null}
                         <SlotGrid
                           slots={getDisplayedCourtSlots({
                             slots: group.slots,
@@ -326,6 +322,12 @@ export function PublicBookingPage() {
                           })}
                           selectedSlotId={selectedCourtId === group.court_id ? selectedSlotId : ''}
                           highlightedSlotIds={selectedCourtId === group.court_id ? highlightedSlotIds : []}
+                          unavailableStateContent={buildCollapsedCourtCta({
+                            courtId: group.court_id,
+                            slots: group.slots,
+                            expanded: Boolean(expandedCourtIds[group.court_id]),
+                            onExpand: () => setExpandedCourtIds((prev) => ({ ...prev, [group.court_id]: true })),
+                          })}
                           onSelect={(slotId) => {
                             setSelectedCourtId(group.court_id);
                             setSelectedSlotId(slotId);
@@ -479,14 +481,17 @@ function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability
 
   const fallbackCourtId = response.slots[0].court_id || 'default-court';
   const fallbackCourtName = response.slots[0].court_name || 'Campo 1';
+  const fallbackBadgeLabel = response.slots[0].court_badge_label || null;
 
   return [{
     court_id: fallbackCourtId,
     court_name: fallbackCourtName,
+    badge_label: fallbackBadgeLabel,
     slots: response.slots.map((slot) => ({
       ...slot,
       court_id: slot.court_id || fallbackCourtId,
       court_name: slot.court_name || fallbackCourtName,
+      court_badge_label: slot.court_badge_label || fallbackBadgeLabel,
     })),
   }];
 }
@@ -523,6 +528,41 @@ function getDisplayedCourtSlots({
 
   const pinnedSlots = slots.filter((slot) => pinnedSlotIds.has(slot.slot_id) && !initialSlotIds.has(slot.slot_id));
   return [...initialSlots, ...pinnedSlots];
+}
+
+function buildCollapsedCourtCta({
+  courtId,
+  slots,
+  expanded,
+  onExpand,
+}: {
+  courtId: string;
+  slots: TimeSlot[];
+  expanded: boolean;
+  onExpand: () => void;
+}) {
+  if (expanded || slots.length <= COLLAPSED_COURT_SLOT_COUNT) {
+    return null;
+  }
+
+  const initialSlots = slots.slice(0, COLLAPSED_COURT_SLOT_COUNT);
+  const hasVisibleAvailableSlots = initialSlots.some((slot) => slot.available);
+  const hasHiddenSlots = slots.length > initialSlots.length;
+
+  if (!hasHiddenSlots || hasVisibleAvailableSlots) {
+    return null;
+  }
+
+  return (
+    <button
+      type='button'
+      className='btn-secondary w-full'
+      onClick={onExpand}
+      aria-label='Vedi tutti gli orari'
+    >
+      Vedi tutti gli orari
+    </button>
+  );
 }
 
 function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, durationMinutes: number) {

@@ -287,6 +287,7 @@ describe('PublicBookingPage', () => {
         {
           court_id: 'court-1',
           court_name: 'Campo 1',
+          badge_label: 'Indoor',
           slots: buildHalfHourSlots(10),
         },
       ],
@@ -296,7 +297,7 @@ describe('PublicBookingPage', () => {
 
     const expandButton = await screen.findByRole('button', { name: 'Espandi orari di Campo 1' });
     expect(expandButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByText('Scheda compressa: mostro i primi 8 orari.')).toBeInTheDocument();
+    expect(screen.getByText('Indoor')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '07:00' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '10:30' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '11:00' })).not.toBeInTheDocument();
@@ -306,6 +307,44 @@ describe('PublicBookingPage', () => {
 
     await screen.findByRole('button', { name: 'Comprimi orari di Campo 1' });
     expect(screen.getByRole('button', { name: '11:00' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '11:30' })).toBeInTheDocument();
+  });
+
+  it('shows a see-all button instead of the unavailable-state message when more slots are hidden', async () => {
+    vi.mocked(getAvailability).mockResolvedValue({
+      date: '2026-05-10',
+      duration_minutes: 60,
+      deposit_amount: 20,
+      slots: [],
+      courts: [
+        {
+          court_id: 'court-1',
+          court_name: 'Campo 1',
+          slots: [
+            ...buildHalfHourSlots(8).map((slot) => ({ ...slot, available: false, reason: 'Occupato' })),
+            ...buildHalfHourSlots(2).map((slot, index) => ({
+              ...slot,
+              slot_id: `2026-05-10T1${index + 1}:00:00+00:00`,
+              start_time: index === 0 ? '11:00' : '11:30',
+              end_time: index === 0 ? '12:00' : '12:30',
+              display_start_time: index === 0 ? '11:00' : '11:30',
+              display_end_time: index === 0 ? '12:00' : '12:30',
+              available: true,
+              reason: null,
+            })),
+          ],
+        },
+      ],
+    });
+
+    renderPage();
+
+    const seeAllButton = await screen.findByRole('button', { name: 'Vedi tutti gli orari' });
+    expect(screen.queryByText('Fasce piene per questa selezione')).not.toBeInTheDocument();
+
+    fireEvent.click(seeAllButton);
+
+    await screen.findByRole('button', { name: '11:00' });
     expect(screen.getByRole('button', { name: '11:30' })).toBeInTheDocument();
   });
 

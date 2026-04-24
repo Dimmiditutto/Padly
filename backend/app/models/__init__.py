@@ -135,6 +135,7 @@ class Court(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
     name: Mapped[str] = mapped_column(String(140))
+    badge_label: Mapped[str | None] = mapped_column(String(40), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=1)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
