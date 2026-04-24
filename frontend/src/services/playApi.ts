@@ -2,6 +2,8 @@ import { api } from './api';
 import type {
   CommunityInviteAcceptPayload,
   CommunityInviteAcceptResponse,
+  PaymentInitResponse,
+  PlayBookingCheckoutPayload,
   PlayCreateMatchPayload,
   PlayCreateMatchResponse,
   PlayIdentifyPayload,
@@ -63,6 +65,12 @@ export async function createPlayMatch(payload: PlayCreateMatchPayload, tenantSlu
 
 export async function joinPlayMatch(matchId: string, tenantSlug?: string | null) {
   const response = await api.post<PlayMatchJoinResponse>(`/play/matches/${matchId}/join`, undefined, { params: withTenantParams(tenantSlug) });
+  return response.data;
+}
+
+
+export async function startPlayBookingCheckout(bookingId: string, payload: PlayBookingCheckoutPayload, tenantSlug?: string | null) {
+  const response = await api.post<PaymentInitResponse>(`/play/bookings/${bookingId}/checkout`, payload, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 

@@ -46,6 +46,13 @@ def create_secondary_tenant(
     admin_email: str = 'admin@padelbooking.app',
     admin_password: str = 'RomaTenant123!',
     timezone: str = 'Europe/Rome',
+    public_address: str | None = None,
+    public_postal_code: str | None = None,
+    public_city: str | None = None,
+    public_province: str | None = None,
+    public_latitude: Decimal | None = None,
+    public_longitude: Decimal | None = None,
+    is_community_open: bool = False,
 ) -> dict[str, str]:
     with SessionLocal() as db:
         club = Club(
@@ -54,6 +61,13 @@ def create_secondary_tenant(
             notification_email=f'ops@{slug}.example',
             support_email=f'support@{slug}.example',
             support_phone='+39021234567',
+            public_address=public_address,
+            public_postal_code=public_postal_code,
+            public_city=public_city,
+            public_province=public_province,
+            public_latitude=public_latitude,
+            public_longitude=public_longitude,
+            is_community_open=is_community_open,
             timezone=timezone,
             currency='EUR',
             is_active=True,

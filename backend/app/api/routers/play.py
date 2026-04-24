@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.models import Club, Player
 from app.schemas.play import (
+    PlayBookingCheckoutRequest,
     PlayMatchCreateRequest,
     PlayMatchCreateResponse,
     PlayMatchDetailResponse,
@@ -23,6 +24,8 @@ from app.schemas.play import (
     PlayerIdentifyRequest,
     PlayerIdentifyResponse,
 )
+from app.schemas.public import PaymentInitResponse
+from app.services.booking_service import acquire_single_court_lock
 from app.services.play_notification_service import (
     get_player_notification_settings,
     record_player_activity,
@@ -41,6 +44,7 @@ from app.services.play_service import (
     join_play_match,
     leave_play_match,
     list_play_matches,
+    start_play_booking_checkout,
     update_play_match,
 )
 from app.models import PlayerActivityEventType
@@ -272,6 +276,26 @@ def post_play_match_join(
     )
     db.commit()
     return PlayMatchJoinResponse(**result)
+
+
+@router.post('/bookings/{booking_id}/checkout', response_model=PaymentInitResponse)
+def post_play_booking_checkout(
+    booking_id: str,
+    payload: PlayBookingCheckoutRequest,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PaymentInitResponse:
+    with acquire_single_court_lock(db):
+        result = start_play_booking_checkout(
+            db,
+            club_id=current_club.id,
+            booking_id=booking_id,
+            current_player=current_player,
+            provider=payload.provider,
+        )
+        db.commit()
+        return PaymentInitResponse(**result)
 
 
 @router.post('/matches/{match_id}/leave', response_model=PlayMatchLeaveResponse)

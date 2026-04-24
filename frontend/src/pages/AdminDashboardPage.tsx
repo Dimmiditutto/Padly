@@ -304,6 +304,13 @@ export function AdminDashboardPage() {
         notification_email: settings.notification_email,
         support_email: settings.support_email || null,
         support_phone: settings.support_phone || null,
+        public_address: settings.public_address || null,
+        public_postal_code: settings.public_postal_code || null,
+        public_city: settings.public_city || null,
+        public_province: settings.public_province || null,
+        public_latitude: settings.public_latitude ?? null,
+        public_longitude: settings.public_longitude ?? null,
+        is_community_open: settings.is_community_open,
         booking_hold_minutes: settings.booking_hold_minutes,
         cancellation_window_hours: settings.cancellation_window_hours,
         reminder_window_hours: settings.reminder_window_hours,
@@ -311,6 +318,9 @@ export function AdminDashboardPage() {
         non_member_hourly_rate: settings.non_member_hourly_rate,
         member_ninety_minute_rate: settings.member_ninety_minute_rate,
         non_member_ninety_minute_rate: settings.non_member_ninety_minute_rate,
+        play_community_deposit_enabled: settings.play_community_deposit_enabled,
+        play_community_deposit_amount: settings.play_community_deposit_amount,
+        play_community_payment_timeout_minutes: settings.play_community_payment_timeout_minutes,
       });
       setSettings(response);
       setSettingsFeedback({ tone: 'success', message: 'Regole operative aggiornate.' });
@@ -655,9 +665,9 @@ export function AdminDashboardPage() {
                 <form className='space-y-3' onSubmit={saveSettings}>
                   <div className='grid gap-3 sm:grid-cols-2'>
                     <div>
-                      <label className='field-label' htmlFor='admin-settings-public-name'>Nome visibile nella pagina di prenotazione</label>
+                      <label className='field-label' htmlFor='admin-settings-public-name'>Nome club</label>
                       <input id='admin-settings-public-name' className='text-input' value={settings.public_name} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_name: event.target.value } : prev)} />
-                      <p className='mt-2 text-sm text-slate-500'>Questo nome compare nella home pubblica che i giocatori vedono quando prenotano.</p>
+                      <p className='mt-2 text-sm text-slate-500'>Questo nome compare nella directory pubblica, nella pagina pubblica del club e nella home booking del tenant.</p>
                     </div>
                     <div>
                       <label className='field-label' htmlFor='admin-settings-notification-email'>Email notifiche operative</label>
@@ -671,6 +681,47 @@ export function AdminDashboardPage() {
                       <label className='field-label' htmlFor='admin-settings-support-phone'>Telefono supporto pubblico</label>
                       <input id='admin-settings-support-phone' className='text-input' value={settings.support_phone || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, support_phone: event.target.value || null } : prev)} />
                     </div>
+                  </div>
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className='text-sm font-semibold text-slate-900'>Identita pubblica del club</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Questi campi alimentano la directory pubblica, la ricerca manuale per citta/CAP/provincia e la pagina pubblica del club.</p>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                      <div className='sm:col-span-2'>
+                        <label className='field-label' htmlFor='admin-settings-public-address'>Indirizzo (via, piazza, ecc.)</label>
+                        <input id='admin-settings-public-address' className='text-input' value={settings.public_address || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_address: event.target.value || null } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-postal-code'>CAP</label>
+                        <input id='admin-settings-public-postal-code' className='text-input' value={settings.public_postal_code || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_postal_code: event.target.value || null } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-city'>Citta</label>
+                        <input id='admin-settings-public-city' className='text-input' value={settings.public_city || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_city: event.target.value || null } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-province'>Provincia</label>
+                        <input id='admin-settings-public-province' className='text-input' value={settings.public_province || ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_province: event.target.value || null } : prev)} />
+                      </div>
+                      <label className='flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 sm:items-center'>
+                        <input
+                          type='checkbox'
+                          checked={settings.is_community_open}
+                          onChange={(event) => setSettings((prev) => prev ? { ...prev, is_community_open: event.target.checked } : prev)}
+                        />
+                        <span>Community aperta a nuovi ingressi</span>
+                      </label>
+                    </div>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-latitude'>Latitudine (opzionale)</label>
+                        <input id='admin-settings-public-latitude' className='text-input' type='number' step='0.000001' min={-90} max={90} value={settings.public_latitude ?? ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_latitude: event.target.value === '' ? null : Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-longitude'>Longitudine (opzionale)</label>
+                        <input id='admin-settings-public-longitude' className='text-input' type='number' step='0.000001' min={-180} max={180} value={settings.public_longitude ?? ''} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_longitude: event.target.value === '' ? null : Number(event.target.value) } : prev)} />
+                      </div>
+                    </div>
+                    <p className='mt-3 text-sm text-slate-600'>Se inserisci latitudine e longitudine, il club puo comparire anche nell ordinamento “vicino a me” senza usare servizi esterni di geocoding.</p>
                   </div>
                   <div className='grid gap-3 sm:grid-cols-3'>
                     <div>
@@ -707,6 +758,48 @@ export function AdminDashboardPage() {
                         <input id='admin-settings-non-member-ninety-rate' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.non_member_ninety_minute_rate} onChange={(event) => setSettings((prev) => prev ? { ...prev, non_member_ninety_minute_rate: Number(event.target.value) } : prev)} />
                       </div>
                     </div>
+                  </div>
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className='text-sm font-semibold text-slate-900'>Caparra community /play</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Per default il match 4/4 resta confermato con saldo al circolo. Se attivi la caparra community, paga solo il quarto player che completa la partita.</p>
+                    <label className='mt-4 flex items-start gap-3 text-sm text-slate-700'>
+                      <input
+                        type='checkbox'
+                        checked={settings.play_community_deposit_enabled}
+                        onChange={(event) => setSettings((prev) => prev ? { ...prev, play_community_deposit_enabled: event.target.checked } : prev)}
+                      />
+                      <span>Attiva caparra community online sul quarto player</span>
+                    </label>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-play-community-deposit-amount'>Importo caparra community</label>
+                        <input
+                          id='admin-settings-play-community-deposit-amount'
+                          className='text-input'
+                          type='number'
+                          min={0}
+                          max={999}
+                          step='0.5'
+                          disabled={!settings.play_community_deposit_enabled}
+                          value={settings.play_community_deposit_amount}
+                          onChange={(event) => setSettings((prev) => prev ? { ...prev, play_community_deposit_amount: Number(event.target.value) } : prev)}
+                        />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-play-community-timeout'>Timeout checkout community</label>
+                        <input
+                          id='admin-settings-play-community-timeout'
+                          className='text-input'
+                          type='number'
+                          min={5}
+                          max={120}
+                          disabled={!settings.play_community_deposit_enabled}
+                          value={settings.play_community_payment_timeout_minutes}
+                          onChange={(event) => setSettings((prev) => prev ? { ...prev, play_community_payment_timeout_minutes: Number(event.target.value) } : prev)}
+                        />
+                      </div>
+                    </div>
+                    <p className='mt-3 text-sm text-slate-600'>Provider online disponibili ora: Stripe <strong>{settings.stripe_enabled ? 'attivo' : 'non disponibile'}</strong> • PayPal <strong>{settings.paypal_enabled ? 'attivo' : 'non disponibile'}</strong>.</p>
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>

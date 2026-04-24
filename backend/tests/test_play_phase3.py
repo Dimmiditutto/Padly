@@ -7,11 +7,12 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 
 from app.core.db import SessionLocal
-from app.models import Booking, Club, Court, Match, MatchPlayer, MatchStatus, PlayLevel, Player
-from app.services.booking_service import resolve_slot_window
+from app.models import Booking, BookingStatus, Club, Court, Match, MatchPlayer, MatchStatus, PaymentProvider, PaymentStatus, PlayLevel, Player
+from app.services.booking_service import expire_pending_bookings, resolve_slot_window
 from app.services import play_service as play_service_module
 from app.services.play_service import join_play_match
 
+from test_admin_and_recurring import admin_login
 from test_play_phase1 import DEFAULT_CLUB_ID, first_court_id_for_club, seed_player
 
 
@@ -92,6 +93,32 @@ def seed_match_at(
             db.add(MatchPlayer(match_id=match.id, player_id=player_id))
         db.commit()
         return match.id
+
+
+def update_play_community_payment_settings(
+    client,
+    *,
+    enabled: bool,
+    deposit_amount: float = 20,
+    payment_timeout_minutes: int = 30,
+) -> None:
+    admin_login(client)
+    response = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 15,
+            'cancellation_window_hours': 24,
+            'reminder_window_hours': 24,
+            'member_hourly_rate': 7,
+            'non_member_hourly_rate': 9,
+            'member_ninety_minute_rate': 10,
+            'non_member_ninety_minute_rate': 13,
+            'play_community_deposit_enabled': enabled,
+            'play_community_deposit_amount': deposit_amount,
+            'play_community_payment_timeout_minutes': payment_timeout_minutes,
+        },
+    )
+    assert response.status_code == 200
 
 
 def test_play_create_suggests_existing_match_then_force_create_allows_new_one(client):
@@ -235,6 +262,11 @@ def test_play_fourth_join_completes_booking_and_blocks_further_joins(client):
     completion_payload = completion_response.json()
     assert completion_payload['action'] == 'COMPLETED'
     assert completion_payload['booking'] is not None
+    assert completion_payload['payment_action'] is None
+    assert completion_payload['booking']['status'] == 'CONFIRMED'
+    assert completion_payload['booking']['deposit_amount'] == 0
+    assert completion_payload['booking']['payment_provider'] == 'NONE'
+    assert completion_payload['booking']['payment_status'] == 'UNPAID'
 
     identify_as(client, profile_name='Extra Full', phone='3337300005')
     blocked_response = client.post(f'/api/play/matches/{match_id}/join')
@@ -249,6 +281,221 @@ def test_play_fourth_join_completes_booking_and_blocks_further_joins(client):
         booking = db.get(Booking, match.booking_id)
         assert booking is not None
         assert booking.created_by == f'play:{match.id}'
+        assert booking.status == BookingStatus.CONFIRMED
+        assert booking.deposit_amount == 0
+        assert booking.payment_provider == PaymentProvider.NONE
+        assert booking.payment_status == PaymentStatus.UNPAID
+        assert booking.expires_at is None
+
+
+def test_play_fourth_join_requires_community_deposit_when_enabled(client):
+    update_play_community_payment_settings(client, enabled=True, deposit_amount=12.5, payment_timeout_minutes=45)
+
+    creator = identify_as(client, profile_name='Creator Deposit', phone='3337310001')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Deposit 1', phone='3337310002')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Deposit 2', phone='3337310003')
+    fourth_player = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Fourth Deposit', phone='3337310004')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=13)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='3 su 4 caparra',
+    )
+
+    identify_as(client, profile_name='Fourth Deposit', phone='3337310004')
+    completion_response = client.post(f'/api/play/matches/{match_id}/join')
+
+    assert completion_response.status_code == 200
+    completion_payload = completion_response.json()
+    assert completion_payload['action'] == 'COMPLETED'
+    assert completion_payload['booking']['status'] == 'PENDING_PAYMENT'
+    assert completion_payload['booking']['deposit_amount'] == 12.5
+    assert completion_payload['booking']['payment_provider'] == 'NONE'
+    assert completion_payload['booking']['payment_status'] == 'UNPAID'
+    assert completion_payload['payment_action'] == {
+        'required': True,
+        'payer_player_id': fourth_player,
+        'deposit_amount': 12.5,
+        'payment_timeout_minutes': 45,
+        'expires_at': completion_payload['booking']['expires_at'],
+        'available_providers': ['STRIPE', 'PAYPAL'],
+        'selected_provider': None,
+    }
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match is not None
+        booking = db.get(Booking, match.booking_id)
+        assert booking is not None
+        assert booking.status == BookingStatus.PENDING_PAYMENT
+        assert float(booking.deposit_amount) == 12.5
+        assert booking.payment_provider == PaymentProvider.NONE
+        assert booking.payment_status == PaymentStatus.UNPAID
+        assert booking.expires_at is not None
+
+
+def test_play_checkout_requires_completing_player_and_starts_selected_provider(client):
+    update_play_community_payment_settings(client, enabled=True, deposit_amount=15, payment_timeout_minutes=30)
+
+    creator = identify_as(client, profile_name='Creator Checkout', phone='3337320001')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Checkout 1', phone='3337320002')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Checkout 2', phone='3337320003')
+    fourth_player = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Fourth Checkout', phone='3337320004')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=14)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='3 su 4 checkout',
+    )
+
+    identify_as(client, profile_name='Fourth Checkout', phone='3337320004')
+    completion_response = client.post(f'/api/play/matches/{match_id}/join')
+    assert completion_response.status_code == 200
+    booking_id = completion_response.json()['booking']['id']
+
+    identify_as(client, profile_name='Guest Checkout 1', phone='3337320002')
+    forbidden_response = client.post(
+        f'/api/play/bookings/{booking_id}/checkout',
+        json={'provider': 'STRIPE'},
+    )
+    assert forbidden_response.status_code == 403
+    assert forbidden_response.json()['detail'] == 'Solo il quarto player che ha completato il match puo avviare il pagamento'
+
+    identify_as(client, profile_name='Fourth Checkout', phone='3337320004')
+    checkout_response = client.post(
+        f'/api/play/bookings/{booking_id}/checkout',
+        json={'provider': 'PAYPAL'},
+    )
+    assert checkout_response.status_code == 200
+    checkout_payload = checkout_response.json()
+    assert checkout_payload['booking_id'] == booking_id
+    assert checkout_payload['provider'] == 'PAYPAL'
+    assert checkout_payload['payment_status'] == 'INITIATED'
+    assert '/api/payments/mock/complete' in checkout_payload['checkout_url']
+
+    repeated_checkout = client.post(
+        f'/api/play/bookings/{booking_id}/checkout',
+        json={'provider': 'STRIPE'},
+    )
+    assert repeated_checkout.status_code == 200
+    repeated_payload = repeated_checkout.json()
+    assert repeated_payload['booking_id'] == booking_id
+    assert repeated_payload['provider'] == 'PAYPAL'
+    assert repeated_payload['payment_status'] == 'INITIATED'
+    assert repeated_payload['checkout_url'] == checkout_payload['checkout_url']
+
+    with SessionLocal() as db:
+        booking = db.get(Booking, booking_id)
+        assert booking is not None
+        assert booking.payment_provider == PaymentProvider.PAYPAL
+        assert booking.payment_status == PaymentStatus.INITIATED
+
+
+def test_play_community_deposit_mock_payment_confirms_booking(client):
+    update_play_community_payment_settings(client, enabled=True, deposit_amount=15, payment_timeout_minutes=30)
+
+    creator = identify_as(client, profile_name='Creator Paid', phone='3337330001')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Paid 1', phone='3337330002')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Paid 2', phone='3337330003')
+    seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Fourth Paid', phone='3337330004')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=15)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='3 su 4 paid',
+    )
+
+    identify_as(client, profile_name='Fourth Paid', phone='3337330004')
+    completion_response = client.post(f'/api/play/matches/{match_id}/join')
+    assert completion_response.status_code == 200
+    booking = completion_response.json()['booking']
+
+    checkout_response = client.post(
+        f"/api/play/bookings/{booking['id']}/checkout",
+        json={'provider': 'STRIPE'},
+    )
+    assert checkout_response.status_code == 200
+
+    payment_redirect = client.get(
+        f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe",
+        follow_redirects=False,
+    )
+    assert payment_redirect.status_code in {302, 307}
+
+    with SessionLocal() as db:
+        stored_booking = db.get(Booking, booking['id'])
+        assert stored_booking is not None
+        assert stored_booking.status == BookingStatus.CONFIRMED
+        assert stored_booking.payment_provider == PaymentProvider.STRIPE
+        assert stored_booking.payment_status == PaymentStatus.PAID
+
+    checkout_after_payment = client.post(
+        f"/api/play/bookings/{booking['id']}/checkout",
+        json={'provider': 'STRIPE'},
+    )
+    assert checkout_after_payment.status_code == 409
+    assert checkout_after_payment.json()['detail'] == 'La prenotazione community non e piu in attesa di pagamento'
+
+
+def test_play_community_deposit_expiry_marks_booking_expired(client):
+    update_play_community_payment_settings(client, enabled=True, deposit_amount=15, payment_timeout_minutes=30)
+
+    creator = identify_as(client, profile_name='Creator Expire', phone='3337340001')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Expire 1', phone='3337340002')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Expire 2', phone='3337340003')
+    seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Fourth Expire', phone='3337340004')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_LOW,
+        note='3 su 4 expire',
+    )
+
+    identify_as(client, profile_name='Fourth Expire', phone='3337340004')
+    completion_response = client.post(f'/api/play/matches/{match_id}/join')
+    assert completion_response.status_code == 200
+    booking_id = completion_response.json()['booking']['id']
+
+    with SessionLocal() as db:
+        stored_booking = db.get(Booking, booking_id)
+        assert stored_booking is not None
+        stored_booking.expires_at = datetime.now(UTC) - timedelta(minutes=5)
+        db.commit()
+
+    with SessionLocal() as db:
+        expired = expire_pending_bookings(db)
+        db.commit()
+        assert any(item.id == booking_id for item in expired)
+
+    with SessionLocal() as db:
+        stored_booking = db.get(Booking, booking_id)
+        assert stored_booking is not None
+        assert stored_booking.status == BookingStatus.EXPIRED
+        assert stored_booking.payment_status == PaymentStatus.EXPIRED
 
 
 def test_play_concurrent_fourth_join_allows_only_one_winner():

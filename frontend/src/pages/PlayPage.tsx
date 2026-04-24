@@ -18,11 +18,15 @@ import {
   leavePlayMatch,
   registerPlayPushSubscription,
   revokePlayPushSubscription,
+  startPlayBookingCheckout,
   updatePlayMatch,
   updatePlayNotificationPreferences,
 } from '../services/playApi';
 import type {
+  PaymentProvider,
   PlayLevel,
+  PlayBookingPaymentAction,
+  PlayBookingSummary,
   PlayMatchSummary,
   PlayMatchesResponse,
   PlayNotificationPreferenceSummary,
@@ -39,6 +43,21 @@ type PendingAction =
   | { kind: 'join'; match: PlayMatchSummary }
   | { kind: 'create'; intent: PlayCreateIntent };
 
+type PendingPlayPayment = {
+  booking: PlayBookingSummary;
+  paymentAction: PlayBookingPaymentAction;
+};
+
+function paymentProviderLabel(provider: PaymentProvider) {
+  if (provider === 'STRIPE') {
+    return 'Stripe';
+  }
+  if (provider === 'PAYPAL') {
+    return 'PayPal';
+  }
+  return 'Pagamento online';
+}
+
 export function PlayPage() {
   const { clubSlug } = useParams();
   const [searchParams] = useSearchParams();
@@ -49,6 +68,8 @@ export function PlayPage() {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: FeedbackTone; message: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [pendingPlayPayment, setPendingPlayPayment] = useState<PendingPlayPayment | null>(null);
+  const [startingCheckoutProvider, setStartingCheckoutProvider] = useState<PaymentProvider | null>(null);
   const [suggestedMatches, setSuggestedMatches] = useState<PlayMatchSummary[]>([]);
   const [pendingCreateIntent, setPendingCreateIntent] = useState<PlayCreateIntent | null>(null);
   const [managedMatch, setManagedMatch] = useState<PlayMatchSummary | null>(null);
@@ -64,10 +85,12 @@ export function PlayPage() {
   useEffect(() => {
     if (!tenantSlug) {
       setLoading(false);
+      setPendingPlayPayment(null);
       setFeedback({ tone: 'error', message: 'Tenant play non valido. Apri la pagina da un club specifico.' });
       return;
     }
 
+    setPendingPlayPayment(null);
     void loadPlaySurface(tenantSlug);
   }, [tenantSlug]);
 
@@ -88,6 +111,14 @@ export function PlayPage() {
       ]);
       setCurrentPlayer(session.player || matches.player || null);
       setPlayData(matches);
+      setPendingPlayPayment(
+        matches.pending_payment
+          ? {
+            booking: matches.pending_payment.booking,
+            paymentAction: matches.pending_payment.payment_action,
+          }
+          : null,
+      );
       applyNotificationSettings(session.notification_settings || null);
     } catch {
       setFeedback({ tone: 'error', message: 'Non riesco a caricare la bacheca play del club.' });
@@ -107,8 +138,13 @@ export function PlayPage() {
 
     try {
       const response = await joinPlayMatch(match.id, tenantSlug);
+      if (response.booking && response.payment_action?.required) {
+        setPendingPlayPayment({ booking: response.booking, paymentAction: response.payment_action });
+      } else {
+        setPendingPlayPayment(null);
+      }
       setFeedback({
-        tone: response.action === 'COMPLETED' ? 'success' : 'info',
+        tone: response.payment_action?.required ? 'warning' : response.action === 'COMPLETED' ? 'success' : 'info',
         message: response.booking
           ? `${response.message} Riferimento prenotazione ${response.booking.public_reference}.`
           : response.message,
@@ -121,6 +157,38 @@ export function PlayPage() {
         tone: 'error',
         message: error instanceof Error ? error.message : 'Non riesco a completare il join della partita.',
       });
+    }
+  }
+
+  async function handleStartPlayCheckout(provider?: PaymentProvider) {
+    if (!tenantSlug || !pendingPlayPayment) {
+      return;
+    }
+
+    const selectedProvider = provider
+      || pendingPlayPayment.paymentAction.selected_provider
+      || (pendingPlayPayment.paymentAction.available_providers.length === 1 ? pendingPlayPayment.paymentAction.available_providers[0] : null);
+
+    if (!selectedProvider) {
+      setFeedback({ tone: 'error', message: 'Seleziona un provider per completare la caparra community.' });
+      return;
+    }
+
+    setStartingCheckoutProvider(selectedProvider);
+    try {
+      const response = await startPlayBookingCheckout(
+        pendingPlayPayment.booking.id,
+        { provider: selectedProvider },
+        tenantSlug,
+      );
+      window.location.assign(response.checkout_url);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco ad avviare il checkout della caparra community.',
+      });
+    } finally {
+      setStartingCheckoutProvider(null);
     }
   }
 
@@ -432,6 +500,38 @@ export function PlayPage() {
 
         <div className='mt-6 space-y-6'>
           {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+
+          {pendingPlayPayment ? (
+            <SectionCard
+              title='Caparra community da completare'
+              description='Paga ora la caparra del match appena completato. Il checkout resta riservato al quarto player che ha chiuso il 4/4.'
+              elevated
+            >
+              <div className='space-y-4'>
+                <AlertBanner tone='warning' title='Ultimo passo per bloccare il campo'>
+                  Prenotazione {pendingPlayPayment.booking.public_reference}. Caparra richiesta di {pendingPlayPayment.paymentAction.deposit_amount.toFixed(2).replace('.', ',')} EUR.
+                  {pendingPlayPayment.paymentAction.expires_at ? ` Completa entro le ${new Date(pendingPlayPayment.paymentAction.expires_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}.` : ''}
+                </AlertBanner>
+
+                <div className='surface-muted space-y-3'>
+                  <p className='text-sm text-slate-700'>Il sistema ha associato il pagamento al player che ha completato il match. Dopo il checkout tornerai sul flusso standard di conferma pagamento.</p>
+                  <div className='flex flex-wrap gap-3'>
+                    {pendingPlayPayment.paymentAction.available_providers.map((provider) => (
+                      <button
+                        key={provider}
+                        type='button'
+                        className='btn-primary'
+                        disabled={startingCheckoutProvider !== null}
+                        onClick={() => void handleStartPlayCheckout(provider)}
+                      >
+                        {startingCheckoutProvider === provider ? 'Apertura checkout…' : `Paga con ${paymentProviderLabel(provider)}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+          ) : null}
 
           {loading ? (
             <LoadingBlock label='Carico la bacheca community del club…' labelClassName='text-base' />

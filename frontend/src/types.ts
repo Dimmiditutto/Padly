@@ -117,6 +117,51 @@ export interface PublicConfig {
   paypal_enabled: boolean;
 }
 
+export interface PublicClubSummary {
+  club_id: string;
+  club_slug: string;
+  public_name: string;
+  public_address?: string | null;
+  public_postal_code?: string | null;
+  public_city?: string | null;
+  public_province?: string | null;
+  public_latitude?: number | null;
+  public_longitude?: number | null;
+  has_coordinates: boolean;
+  distance_km?: number | null;
+  courts_count: number;
+  contact_email?: string | null;
+  support_phone?: string | null;
+  is_community_open: boolean;
+}
+
+export interface PublicClubDirectoryResponse {
+  query?: string | null;
+  items: PublicClubSummary[];
+}
+
+export interface PublicClubOpenMatchSummary {
+  id: string;
+  court_name?: string | null;
+  court_badge_label?: string | null;
+  start_at: string;
+  end_at: string;
+  level_requested: PlayLevel;
+  participant_count: number;
+  available_spots: number;
+  occupancy_label: string;
+  missing_players_message: string;
+}
+
+export interface PublicClubDetailResponse {
+  club: PublicClubSummary;
+  timezone: string;
+  support_email?: string | null;
+  support_phone?: string | null;
+  public_match_window_days: number;
+  open_matches: PublicClubOpenMatchSummary[];
+}
+
 export interface AvailabilityResponse {
   date: string;
   duration_minutes: number;
@@ -309,6 +354,13 @@ export interface AdminSettings {
   notification_email: string;
   support_email?: string | null;
   support_phone?: string | null;
+  public_address?: string | null;
+  public_postal_code?: string | null;
+  public_city?: string | null;
+  public_province?: string | null;
+  public_latitude?: number | null;
+  public_longitude?: number | null;
+  is_community_open: boolean;
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   reminder_window_hours: number;
@@ -316,6 +368,9 @@ export interface AdminSettings {
   non_member_hourly_rate: number;
   member_ninety_minute_rate: number;
   non_member_ninety_minute_rate: number;
+  play_community_deposit_enabled: boolean;
+  play_community_deposit_amount: number;
+  play_community_payment_timeout_minutes: number;
   stripe_enabled: boolean;
   paypal_enabled: boolean;
 }
@@ -325,6 +380,13 @@ export interface AdminSettingsUpdatePayload {
   notification_email?: string | null;
   support_email?: string | null;
   support_phone?: string | null;
+  public_address?: string | null;
+  public_postal_code?: string | null;
+  public_city?: string | null;
+  public_province?: string | null;
+  public_latitude?: number | null;
+  public_longitude?: number | null;
+  is_community_open: boolean;
   booking_hold_minutes: number;
   cancellation_window_hours: number;
   reminder_window_hours: number;
@@ -332,6 +394,9 @@ export interface AdminSettingsUpdatePayload {
   non_member_hourly_rate: number;
   member_ninety_minute_rate: number;
   non_member_ninety_minute_rate: number;
+  play_community_deposit_enabled: boolean;
+  play_community_deposit_amount: number;
+  play_community_payment_timeout_minutes: number;
 }
 
 export interface AdminDashboardData {
@@ -460,6 +525,7 @@ export interface PlayMatchesResponse {
   player?: PlayPlayerSummary | null;
   open_matches: PlayMatchSummary[];
   my_matches: PlayMatchSummary[];
+  pending_payment?: PlayPendingPaymentSummary | null;
 }
 
 export interface PlayMatchDetailResponse {
@@ -492,8 +558,26 @@ export interface PlayBookingSummary {
   start_at: string;
   end_at: string;
   status: BookingStatus;
+  deposit_amount: number;
+  payment_provider: PaymentProvider;
   payment_status: PaymentStatus;
+  expires_at?: string | null;
   source: BookingSource;
+}
+
+export interface PlayBookingPaymentAction {
+  required: boolean;
+  payer_player_id: string;
+  deposit_amount: number;
+  payment_timeout_minutes: number;
+  expires_at?: string | null;
+  available_providers: PaymentProvider[];
+  selected_provider?: PaymentProvider | null;
+}
+
+export interface PlayPendingPaymentSummary {
+  booking: PlayBookingSummary;
+  payment_action: PlayBookingPaymentAction;
 }
 
 export interface PlayMatchJoinResponse {
@@ -501,6 +585,11 @@ export interface PlayMatchJoinResponse {
   message: string;
   match: PlayMatchSummary;
   booking?: PlayBookingSummary | null;
+  payment_action?: PlayBookingPaymentAction | null;
+}
+
+export interface PlayBookingCheckoutPayload {
+  provider?: PaymentProvider | null;
 }
 
 export interface PlayMatchLeaveResponse {

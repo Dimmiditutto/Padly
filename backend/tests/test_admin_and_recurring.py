@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.api.routers import admin_settings as admin_settings_router
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.security import create_admin_password_reset_token, hash_password, verify_password
@@ -230,6 +231,128 @@ def test_admin_settings_update_reflected_in_public_config(client):
     assert public_payload['non_member_hourly_rate'] == 11
     assert public_payload['member_ninety_minute_rate'] == 12
     assert public_payload['non_member_ninety_minute_rate'] == 15
+
+
+def test_admin_settings_manage_play_community_payment(client, monkeypatch):
+    admin_login(client)
+
+    default_response = client.get('/api/admin/settings')
+    assert default_response.status_code == 200
+    default_payload = default_response.json()
+    assert default_payload['play_community_deposit_enabled'] is False
+    assert default_payload['play_community_deposit_amount'] == 20
+    assert default_payload['play_community_payment_timeout_minutes'] == 15
+
+    update_response = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 30,
+            'cancellation_window_hours': 48,
+            'reminder_window_hours': 12,
+            'member_hourly_rate': 8,
+            'non_member_hourly_rate': 11,
+            'member_ninety_minute_rate': 12,
+            'non_member_ninety_minute_rate': 15,
+            'play_community_deposit_enabled': True,
+            'play_community_deposit_amount': 12.5,
+            'play_community_payment_timeout_minutes': 45,
+        },
+    )
+    assert update_response.status_code == 200
+    updated_payload = update_response.json()
+    assert updated_payload['play_community_deposit_enabled'] is True
+    assert updated_payload['play_community_deposit_amount'] == 12.5
+    assert updated_payload['play_community_payment_timeout_minutes'] == 45
+
+    monkeypatch.setattr(admin_settings_router, 'list_available_checkout_providers', lambda: [])
+    rejected_response = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 30,
+            'cancellation_window_hours': 48,
+            'reminder_window_hours': 12,
+            'member_hourly_rate': 8,
+            'non_member_hourly_rate': 11,
+            'member_ninety_minute_rate': 12,
+            'non_member_ninety_minute_rate': 15,
+            'play_community_deposit_enabled': True,
+            'play_community_deposit_amount': 12.5,
+            'play_community_payment_timeout_minutes': 45,
+        },
+    )
+    assert rejected_response.status_code == 409
+    assert rejected_response.json()['detail'] == 'Nessun provider online disponibile per attivare la caparra community'
+
+
+def test_admin_settings_manage_public_club_fields(client):
+    admin_login(client)
+
+    update_response = client.put(
+        '/api/admin/settings',
+        json={
+            'public_name': 'Padel Savona Rocca',
+            'notification_email': 'desk@padelsavona.example',
+            'support_email': 'support@padelsavona.example',
+            'support_phone': '+39019999999',
+            'public_address': 'Via dei Campi 12',
+            'public_postal_code': '17100',
+            'public_city': 'Savona',
+            'public_province': 'sv',
+            'public_latitude': 44.30941,
+            'public_longitude': 8.47715,
+            'is_community_open': True,
+            'booking_hold_minutes': 30,
+            'cancellation_window_hours': 48,
+            'reminder_window_hours': 12,
+            'member_hourly_rate': 8,
+            'non_member_hourly_rate': 11,
+            'member_ninety_minute_rate': 12,
+            'non_member_ninety_minute_rate': 15,
+            'play_community_deposit_enabled': False,
+            'play_community_deposit_amount': 20,
+            'play_community_payment_timeout_minutes': 15,
+        },
+    )
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload['public_name'] == 'Padel Savona Rocca'
+    assert payload['public_address'] == 'Via dei Campi 12'
+    assert payload['public_postal_code'] == '17100'
+    assert payload['public_city'] == 'Savona'
+    assert payload['public_province'] == 'SV'
+    assert payload['public_latitude'] == 44.30941
+    assert payload['public_longitude'] == 8.47715
+    assert payload['is_community_open'] is True
+
+    get_response = client.get('/api/admin/settings')
+    assert get_response.status_code == 200
+    assert get_response.json()['public_address'] == 'Via dei Campi 12'
+    assert get_response.json()['public_province'] == 'SV'
+
+
+def test_admin_settings_reject_partial_public_coordinates(client):
+    admin_login(client)
+
+    response = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 30,
+            'cancellation_window_hours': 48,
+            'reminder_window_hours': 12,
+            'member_hourly_rate': 8,
+            'non_member_hourly_rate': 11,
+            'member_ninety_minute_rate': 12,
+            'non_member_ninety_minute_rate': 15,
+            'play_community_deposit_enabled': False,
+            'play_community_deposit_amount': 20,
+            'play_community_payment_timeout_minutes': 15,
+            'is_community_open': False,
+            'public_latitude': 44.30941,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Dati richiesta non validi'
 
 
 def test_admin_booking_filters_reject_invalid_date(client):

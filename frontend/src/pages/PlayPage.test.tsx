@@ -1,9 +1,11 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import type { AvailabilityResponse, PlayMatchSummary, PlayNotificationSettings, PlayPlayerSummary } from '../types';
+
+const originalLocation = window.location;
 
 vi.mock('../services/playApi', () => ({
   acceptCommunityInvite: vi.fn(),
@@ -17,6 +19,7 @@ vi.mock('../services/playApi', () => ({
   leavePlayMatch: vi.fn(),
   registerPlayPushSubscription: vi.fn(),
   revokePlayPushSubscription: vi.fn(),
+  startPlayBookingCheckout: vi.fn(),
   updatePlayMatch: vi.fn(),
   updatePlayNotificationPreferences: vi.fn(),
 }));
@@ -44,6 +47,7 @@ import {
   leavePlayMatch,
   registerPlayPushSubscription,
   revokePlayPushSubscription,
+  startPlayBookingCheckout,
   updatePlayMatch,
   updatePlayNotificationPreferences,
 } from '../services/playApi';
@@ -144,7 +148,9 @@ function renderApp(path: string) {
 
 describe('Play phase 2 pages', () => {
   beforeEach(() => {
+    const assignMock = vi.fn();
     vi.clearAllMocks();
+    vi.stubGlobal('location', { ...originalLocation, assign: assignMock });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(getAvailability).mockResolvedValue({ ...baseAvailability });
     vi.mocked(getPlaySession).mockResolvedValue({ player: null, notification_settings: null });
@@ -176,6 +182,7 @@ describe('Play phase 2 pages', () => {
       message: 'Ti sei unito alla partita.',
       match: buildMatch('match-shared', 'shared 4 su 4', 4),
       booking: null,
+      payment_action: null,
     });
     vi.mocked(leavePlayMatch).mockResolvedValue({
       action: 'LEFT',
@@ -211,6 +218,13 @@ describe('Play phase 2 pages', () => {
       message: 'Subscription web push revocata.',
       settings: { ...baseNotificationSettings },
     });
+    vi.mocked(startPlayBookingCheckout).mockResolvedValue({
+      booking_id: 'booking-play-1',
+      public_reference: 'PB-PLAY-001',
+      provider: 'STRIPE',
+      checkout_url: '/checkout/play/stripe',
+      payment_status: 'INITIATED',
+    });
     vi.mocked(subscribeBrowserToPlayPush).mockResolvedValue({
       endpoint: 'https://push.example/sub-1',
       keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
@@ -221,6 +235,11 @@ describe('Play phase 2 pages', () => {
       player: null,
       match: buildMatch('match-shared', 'shared 3 su 4', 3),
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('renders the canonical /c/:clubSlug/play route, preserves tenant slug and keeps the visual order of open matches', async () => {
@@ -398,6 +417,136 @@ describe('Play phase 2 pages', () => {
 
     await waitFor(() => expect(joinPlayMatch).toHaveBeenCalledWith('match-shared', 'roma-club'));
     expect(await screen.findByText('Ti sei unito alla partita.')).toBeInTheDocument();
+  });
+
+  it('shows the community deposit CTA for the fourth player and starts the selected checkout', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches)
+      .mockResolvedValueOnce({
+        player: { ...basePlayer },
+        open_matches: [buildMatch('match-3of4', '3 su 4', 3)],
+        my_matches: [],
+      })
+      .mockResolvedValueOnce({
+        player: { ...basePlayer },
+        open_matches: [],
+        my_matches: [],
+        pending_payment: {
+          booking: {
+            id: 'booking-play-1',
+            public_reference: 'PB-PLAY-001',
+            court_id: 'court-1',
+            start_at: '2026-05-10T18:00:00Z',
+            end_at: '2026-05-10T19:30:00Z',
+            status: 'PENDING_PAYMENT',
+            deposit_amount: 12.5,
+            payment_provider: 'NONE',
+            payment_status: 'UNPAID',
+            expires_at: '2026-05-10T17:45:00Z',
+            source: 'ADMIN_MANUAL',
+          },
+          payment_action: {
+            required: true,
+            payer_player_id: basePlayer.id,
+            deposit_amount: 12.5,
+            payment_timeout_minutes: 45,
+            expires_at: '2026-05-10T17:45:00Z',
+            available_providers: ['STRIPE', 'PAYPAL'],
+            selected_provider: null,
+          },
+        },
+      });
+    vi.mocked(joinPlayMatch).mockResolvedValueOnce({
+      action: 'COMPLETED',
+      message: 'Quarto player confermato: partita completata. Versa ora la caparra community per confermare definitivamente il campo.',
+      match: { ...buildMatch('match-3of4', '4 su 4', 4), status: 'FULL', participant_count: 4, available_spots: 0 },
+      booking: {
+        id: 'booking-play-1',
+        public_reference: 'PB-PLAY-001',
+        court_id: 'court-1',
+        start_at: '2026-05-10T18:00:00Z',
+        end_at: '2026-05-10T19:30:00Z',
+        status: 'PENDING_PAYMENT',
+        deposit_amount: 12.5,
+        payment_provider: 'NONE',
+        payment_status: 'UNPAID',
+        expires_at: '2026-05-10T17:45:00Z',
+        source: 'ADMIN_MANUAL',
+      },
+      payment_action: {
+        required: true,
+        payer_player_id: basePlayer.id,
+        deposit_amount: 12.5,
+        payment_timeout_minutes: 45,
+        expires_at: '2026-05-10T17:45:00Z',
+        available_providers: ['STRIPE', 'PAYPAL'],
+        selected_provider: null,
+      },
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await user.click(screen.getAllByRole('button', { name: 'Unisciti' })[0]);
+
+    expect(await screen.findByRole('heading', { name: 'Caparra community da completare' })).toBeInTheDocument();
+    expect(screen.getByText(/Prenotazione PB-PLAY-001/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Paga con Stripe' }));
+
+    await waitFor(() => expect(startPlayBookingCheckout).toHaveBeenCalledWith('booking-play-1', { provider: 'STRIPE' }, 'roma-club'));
+    expect(window.location.assign).toHaveBeenCalledWith('/checkout/play/stripe');
+  });
+
+  it('recovers the community deposit CTA after reload from the play matches payload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [buildMatch('match-3of4', '3 su 4', 3)],
+      my_matches: [],
+      pending_payment: {
+        booking: {
+          id: 'booking-play-recover',
+          public_reference: 'PB-PLAY-RECOVER',
+          court_id: 'court-1',
+          start_at: '2026-05-10T18:00:00Z',
+          end_at: '2026-05-10T19:30:00Z',
+          status: 'PENDING_PAYMENT',
+          deposit_amount: 12.5,
+          payment_provider: 'PAYPAL',
+          payment_status: 'INITIATED',
+          expires_at: '2026-05-10T17:45:00Z',
+          source: 'ADMIN_MANUAL',
+        },
+        payment_action: {
+          required: true,
+          payer_player_id: basePlayer.id,
+          deposit_amount: 12.5,
+          payment_timeout_minutes: 45,
+          expires_at: '2026-05-10T17:45:00Z',
+          available_providers: ['PAYPAL'],
+          selected_provider: 'PAYPAL',
+        },
+      },
+    });
+    vi.mocked(startPlayBookingCheckout).mockResolvedValueOnce({
+      booking_id: 'booking-play-recover',
+      public_reference: 'PB-PLAY-RECOVER',
+      provider: 'PAYPAL',
+      checkout_url: '/checkout/play/paypal',
+      payment_status: 'INITIATED',
+    });
+
+    renderApp('/c/roma-club/play');
+
+    expect(await screen.findByRole('heading', { name: 'Caparra community da completare' })).toBeInTheDocument();
+    expect(screen.getByText(/Prenotazione PB-PLAY-RECOVER/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Paga con PayPal' }));
+
+    await waitFor(() => expect(startPlayBookingCheckout).toHaveBeenCalledWith('booking-play-recover', { provider: 'PAYPAL' }, 'roma-club'));
+    expect(window.location.assign).toHaveBeenCalledWith('/checkout/play/paypal');
   });
 
   it('shows leave action for joined personal matches and calls the leave endpoint', async () => {

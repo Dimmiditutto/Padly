@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import BookingStatus, PaymentProvider, PaymentStatus
+from app.models import BookingStatus, PaymentProvider, PaymentStatus, PlayLevel
 from app.schemas.common import BookingCustomerData, CourtAvailability, TimeSlot
 
 VALID_DURATIONS = {60, 90, 120, 150, 180, 210, 240, 270, 300}
@@ -98,6 +98,51 @@ class PublicConfigResponse(BaseModel):
     non_member_ninety_minute_rate: float
     stripe_enabled: bool
     paypal_enabled: bool
+
+
+class PublicClubSummary(BaseModel):
+    club_id: str
+    club_slug: str
+    public_name: str
+    public_address: str | None = None
+    public_postal_code: str | None = None
+    public_city: str | None = None
+    public_province: str | None = None
+    public_latitude: float | None = None
+    public_longitude: float | None = None
+    has_coordinates: bool
+    distance_km: float | None = None
+    courts_count: int
+    contact_email: str | None = None
+    support_phone: str | None = None
+    is_community_open: bool
+
+
+class PublicClubDirectoryResponse(BaseModel):
+    query: str | None = None
+    items: list[PublicClubSummary] = Field(default_factory=list)
+
+
+class PublicClubOpenMatchSummary(BaseModel):
+    id: str
+    court_name: str | None = None
+    court_badge_label: str | None = None
+    start_at: datetime
+    end_at: datetime
+    level_requested: PlayLevel
+    participant_count: int
+    available_spots: int
+    occupancy_label: str
+    missing_players_message: str
+
+
+class PublicClubDetailResponse(BaseModel):
+    club: PublicClubSummary
+    timezone: str
+    support_email: str | None = None
+    support_phone: str | None = None
+    public_match_window_days: int
+    open_matches: list[PublicClubOpenMatchSummary] = Field(default_factory=list)
 
 
 class PublicBookingSummary(BaseModel):

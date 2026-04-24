@@ -3,6 +3,8 @@ import type {
   AvailabilityResponse,
   BookingStatusResponse,
   PaymentInitResponse,
+  PublicClubDetailResponse,
+  PublicClubDirectoryResponse,
   PublicCancellationResponse,
   PublicBookingCreateResponse,
   PublicBookingPayload,
@@ -16,6 +18,32 @@ function withTenantParams(tenantSlug?: string | null) {
 
 export async function getPublicConfig(tenantSlug?: string | null) {
   const response = await api.get<PublicConfig>('/public/config', { params: withTenantParams(tenantSlug) });
+  return response.data;
+}
+
+
+export async function listPublicClubs(query?: string | null) {
+  const response = await api.get<PublicClubDirectoryResponse>('/public/clubs', { params: query ? { query } : undefined });
+  return response.data;
+}
+
+
+export async function listPublicClubsNearby(latitude: number, longitude: number, query?: string | null) {
+  const response = await api.get<PublicClubDirectoryResponse>('/public/clubs/nearby', {
+    params: {
+      latitude,
+      longitude,
+      ...(query ? { query } : {}),
+    },
+  });
+  return response.data;
+}
+
+
+export async function getPublicClubDetail(clubSlug: string, level?: string | null) {
+  const response = await api.get<PublicClubDetailResponse>(`/public/clubs/${clubSlug}`, {
+    params: level ? { level } : undefined,
+  });
   return response.data;
 }
 

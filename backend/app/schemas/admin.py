@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models import PaymentProvider
 from app.schemas.common import BookingCustomerData, BookingSummary, CourtSummary
@@ -10,6 +10,13 @@ from app.schemas.public import VALID_DURATIONS, validate_hhmm_time
 
 def _normalize_email(value: object) -> str:
     return str(value).strip().lower()
+
+
+def _normalize_optional_string(value: object | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 class AdminLoginRequest(BaseModel):
@@ -218,6 +225,13 @@ class AdminSettingsResponse(BaseModel):
     notification_email: EmailStr
     support_email: EmailStr | None = None
     support_phone: str | None = None
+    public_address: str | None = None
+    public_postal_code: str | None = None
+    public_city: str | None = None
+    public_province: str | None = None
+    public_latitude: float | None = None
+    public_longitude: float | None = None
+    is_community_open: bool
     booking_hold_minutes: int
     cancellation_window_hours: int
     reminder_window_hours: int
@@ -225,6 +239,9 @@ class AdminSettingsResponse(BaseModel):
     non_member_hourly_rate: float
     member_ninety_minute_rate: float
     non_member_ninety_minute_rate: float
+    play_community_deposit_enabled: bool
+    play_community_deposit_amount: float
+    play_community_payment_timeout_minutes: int
     stripe_enabled: bool
     paypal_enabled: bool
 
@@ -234,6 +251,13 @@ class AdminSettingsUpdateRequest(BaseModel):
     notification_email: EmailStr | None = None
     support_email: EmailStr | None = None
     support_phone: str | None = Field(default=None, max_length=50)
+    public_address: str | None = Field(default=None, max_length=255)
+    public_postal_code: str | None = Field(default=None, max_length=20)
+    public_city: str | None = Field(default=None, max_length=120)
+    public_province: str | None = Field(default=None, max_length=120)
+    public_latitude: float | None = Field(default=None, ge=-90, le=90)
+    public_longitude: float | None = Field(default=None, ge=-180, le=180)
+    is_community_open: bool = False
     booking_hold_minutes: int = Field(ge=5, le=120)
     cancellation_window_hours: int = Field(ge=1, le=168)
     reminder_window_hours: int = Field(ge=1, le=168)
@@ -241,6 +265,9 @@ class AdminSettingsUpdateRequest(BaseModel):
     non_member_hourly_rate: float = Field(ge=0, le=999)
     member_ninety_minute_rate: float = Field(ge=0, le=999)
     non_member_ninety_minute_rate: float = Field(ge=0, le=999)
+    play_community_deposit_enabled: bool = False
+    play_community_deposit_amount: float = Field(default=20, ge=0, le=999)
+    play_community_payment_timeout_minutes: int = Field(default=15, ge=5, le=120)
 
     @field_validator('notification_email', mode='before')
     @classmethod
@@ -256,3 +283,20 @@ class AdminSettingsUpdateRequest(BaseModel):
             return None
         normalized = _normalize_email(value)
         return normalized or None
+
+    @field_validator('support_phone', 'public_address', 'public_postal_code', 'public_city', mode='before')
+    @classmethod
+    def normalize_optional_strings(cls, value: object | None) -> str | None:
+        return _normalize_optional_string(value)
+
+    @field_validator('public_province', mode='before')
+    @classmethod
+    def normalize_public_province(cls, value: object | None) -> str | None:
+        normalized = _normalize_optional_string(value)
+        return normalized.upper() if normalized else None
+
+    @model_validator(mode='after')
+    def validate_public_coordinates_pair(self) -> 'AdminSettingsUpdateRequest':
+        if (self.public_latitude is None) != (self.public_longitude is None):
+            raise ValueError('Latitudine e longitudine devono essere entrambe valorizzate oppure entrambe assenti')
+        return self

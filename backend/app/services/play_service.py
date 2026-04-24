@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Booking,
+    BookingEventLog,
     BookingSource,
     BookingStatus,
     CommunityInviteToken,
@@ -27,13 +28,16 @@ from app.models import (
 )
 from app.models import PlayerActivityEventType
 from app.services.play_notification_service import dispatch_play_notifications_for_match, record_player_activity
-from app.services.booking_service import acquire_single_court_lock, assert_slot_available, calculate_deposit, log_event, make_public_reference, resolve_slot_window
+from app.services.booking_service import acquire_single_court_lock, assert_slot_available, calculate_deposit, expire_pending_booking_if_needed, log_event, make_public_reference, resolve_slot_window
 from app.services.court_service import resolve_court
+from app.services.payment_service import list_available_checkout_providers, start_payment_for_booking
+from app.services.settings_service import get_play_community_payment
 
 PLAYER_SESSION_COOKIE_NAME = 'padel_play_session'
 PLAYER_SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 PLAY_MATCH_SIZE = 4
 PLAY_MATCH_DURATION_MINUTES = 90
+PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS = 7
 
 
 def _utcnow() -> datetime:
@@ -249,6 +253,17 @@ def _match_query(db: Session, *, club_id: str):
     )
 
 
+def _public_match_query(db: Session, *, club_id: str):
+    return (
+        select(Match)
+        .where(Match.club_id == club_id)
+        .options(
+            selectinload(Match.court),
+            selectinload(Match.participants),
+        )
+    )
+
+
 def _load_match(db: Session, *, club_id: str, match_id: str, for_update: bool = False) -> Match | None:
     stmt = _match_query(db, club_id=club_id).where(Match.id == match_id).limit(1).execution_options(populate_existing=True)
     if for_update:
@@ -274,9 +289,63 @@ def _serialize_booking(booking: Booking | None) -> dict | None:
         'start_at': booking.start_at,
         'end_at': booking.end_at,
         'status': booking.status.value,
+        'deposit_amount': float(Decimal(str(booking.deposit_amount or 0)).quantize(Decimal('0.01'))),
+        'payment_provider': booking.payment_provider.value,
         'payment_status': booking.payment_status.value,
+        'expires_at': booking.expires_at,
         'source': booking.source.value,
     }
+
+
+def _serialize_pending_play_payment(
+    db: Session,
+    *,
+    club_id: str,
+    current_player: Player | None,
+) -> dict | None:
+    if not current_player:
+        return None
+
+    now = _utcnow()
+    payment_timeout_minutes = int(_get_play_community_payment_settings(db, club_id=club_id)['payment_timeout_minutes'])
+    pending_bookings = db.scalars(
+        select(Booking)
+        .where(
+            Booking.club_id == club_id,
+            Booking.status == BookingStatus.PENDING_PAYMENT,
+            Booking.start_at > now,
+            Booking.created_by.like('play:%'),
+        )
+        .order_by(Booking.created_at.asc())
+    ).all()
+
+    for booking in pending_bookings:
+        if booking.expires_at and _as_utc(booking.expires_at) <= now:
+            expire_pending_booking_if_needed(db, booking, actor='play')
+            continue
+
+        payer_player_id = _get_play_booking_payer_player_id(db, booking=booking)
+        if payer_player_id != current_player.id:
+            continue
+
+        available_providers = (
+            [booking.payment_provider]
+            if booking.payment_status == PaymentStatus.INITIATED and booking.payment_provider != PaymentProvider.NONE
+            else list_available_checkout_providers()
+        )
+        payment_action = _build_play_payment_action(
+            booking,
+            actor_player_id=current_player.id,
+            payment_timeout_minutes=payment_timeout_minutes,
+            available_providers=available_providers,
+        )
+        if payment_action:
+            return {
+                'booking': _serialize_booking(booking),
+                'payment_action': payment_action,
+            }
+
+    return None
 
 
 def _is_future_match(match: Match) -> bool:
@@ -393,6 +462,74 @@ def _build_booking_date_local(start_at: datetime, *, club_timezone: str | None) 
     return _as_utc(start_at).astimezone(ZoneInfo(timezone_name)).date()
 
 
+def _get_play_community_payment_settings(db: Session, *, club_id: str) -> dict[str, object]:
+    payload = get_play_community_payment(db, club_id=club_id)
+    return {
+        'enabled': bool(payload['play_community_deposit_enabled']),
+        'deposit_amount': Decimal(str(payload['play_community_deposit_amount'])).quantize(Decimal('0.01')),
+        'payment_timeout_minutes': int(payload['play_community_payment_timeout_minutes']),
+    }
+
+
+def _build_play_payment_action(
+    booking: Booking,
+    *,
+    actor_player_id: str,
+    payment_timeout_minutes: int,
+    available_providers: list[PaymentProvider],
+) -> dict | None:
+    if booking.status != BookingStatus.PENDING_PAYMENT:
+        return None
+    selected_provider = booking.payment_provider if booking.payment_provider != PaymentProvider.NONE else None
+    return {
+        'required': True,
+        'payer_player_id': actor_player_id,
+        'deposit_amount': float(Decimal(str(booking.deposit_amount or 0)).quantize(Decimal('0.01'))),
+        'payment_timeout_minutes': payment_timeout_minutes,
+        'expires_at': booking.expires_at,
+        'available_providers': available_providers,
+        'selected_provider': selected_provider,
+    }
+
+
+def _get_play_booking_completion_event(db: Session, *, booking_id: str) -> BookingEventLog | None:
+    return db.scalar(
+        select(BookingEventLog)
+        .where(BookingEventLog.booking_id == booking_id, BookingEventLog.event_type == 'PLAY_MATCH_COMPLETED')
+        .order_by(BookingEventLog.created_at.desc())
+        .limit(1)
+    )
+
+
+def _get_play_booking_payer_player_id(db: Session, *, booking: Booking) -> str | None:
+    completion_event = _get_play_booking_completion_event(db, booking_id=booking.id)
+    if not completion_event:
+        return None
+    payload = completion_event.payload or {}
+    payer_player_id = payload.get('payer_player_id')
+    if isinstance(payer_player_id, str) and payer_player_id:
+        return payer_player_id
+    actor = completion_event.actor or ''
+    if actor.startswith('player:'):
+        return actor.replace('player:', '', 1)
+    return None
+
+
+def _resolve_play_checkout_provider(*, booking: Booking, provider: PaymentProvider | None, available_providers: list[PaymentProvider]) -> PaymentProvider:
+    if provider is not None:
+        if provider not in available_providers:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Provider pagamento non disponibile per la caparra community')
+        return provider
+
+    if booking.payment_provider in available_providers and booking.payment_provider != PaymentProvider.NONE:
+        return booking.payment_provider
+
+    if len(available_providers) == 1:
+        return available_providers[0]
+
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Seleziona un provider di pagamento disponibile')
+
+
 def _complete_match_booking(
     db: Session,
     *,
@@ -400,7 +537,7 @@ def _complete_match_booking(
     club_timezone: str | None,
     match: Match,
     actor_player_id: str,
-) -> Booking:
+) -> tuple[Booking, dict | None]:
     assert_slot_available(
         db,
         start_at=match.start_at,
@@ -408,6 +545,26 @@ def _complete_match_booking(
         court_id=match.court_id,
         club_id=club_id,
     )
+    community_payment = _get_play_community_payment_settings(db, club_id=club_id)
+    community_payment_enabled = bool(community_payment['enabled'])
+    available_providers = list_available_checkout_providers() if community_payment_enabled else []
+    deposit_amount = Decimal('0.00')
+    booking_status = BookingStatus.CONFIRMED
+    payment_provider = PaymentProvider.NONE
+    expires_at = None
+    payment_timeout_minutes = int(community_payment['payment_timeout_minutes'])
+
+    if community_payment_enabled:
+        deposit_amount = Decimal(str(community_payment['deposit_amount'])).quantize(Decimal('0.01'))
+        if deposit_amount <= Decimal('0.00'):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Configura una caparra community valida prima di completare la partita')
+        if not available_providers:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Caparra community attiva ma nessun provider online disponibile')
+        booking_status = BookingStatus.PENDING_PAYMENT
+        if len(available_providers) == 1:
+            payment_provider = available_providers[0]
+        expires_at = _utcnow() + timedelta(minutes=payment_timeout_minutes)
+
     booking = Booking(
         club_id=club_id,
         court_id=match.court_id,
@@ -417,10 +574,11 @@ def _complete_match_booking(
         end_at=match.end_at,
         duration_minutes=match.duration_minutes,
         booking_date_local=_build_booking_date_local(match.start_at, club_timezone=club_timezone),
-        status=BookingStatus.CONFIRMED,
-        deposit_amount=Decimal(calculate_deposit(match.duration_minutes)),
-        payment_provider=PaymentProvider.NONE,
+        status=booking_status,
+        deposit_amount=deposit_amount,
+        payment_provider=payment_provider,
         payment_status=PaymentStatus.UNPAID,
+        expires_at=expires_at,
         note=match.note,
         created_by=f'play:{match.id}',
         source=BookingSource.ADMIN_MANUAL,
@@ -431,15 +589,24 @@ def _complete_match_booking(
         db,
         booking,
         'PLAY_MATCH_COMPLETED',
-        'Prenotazione confermata al completamento della partita play.',
+        'Prenotazione play creata al completamento della partita community.',
         actor=f'player:{actor_player_id}',
         payload={
             'match_id': match.id,
             'player_ids': [participant.player_id for participant in sorted(match.participants, key=lambda item: item.created_at)],
+            'payer_player_id': actor_player_id,
+            'community_payment_enabled': community_payment_enabled,
+            'deposit_amount': float(deposit_amount),
+            'payment_timeout_minutes': payment_timeout_minutes,
         },
         club_id=club_id,
     )
-    return booking
+    return booking, _build_play_payment_action(
+        booking,
+        actor_player_id=actor_player_id,
+        payment_timeout_minutes=payment_timeout_minutes,
+        available_providers=available_providers,
+    )
 
 
 def _serialize_match(match: Match, *, current_player_id: str | None = None) -> dict:
@@ -474,6 +641,50 @@ def _serialize_match(match: Match, *, current_player_id: str | None = None) -> d
         'created_at': match.created_at,
         'participants': participant_items,
     }
+
+
+def _serialize_public_match(match: Match) -> dict:
+    participant_count = len(match.participants)
+    available_spots = max(0, PLAY_MATCH_SIZE - participant_count)
+    missing_players_message = 'Manca 1 giocatore' if available_spots == 1 else f'Mancano {available_spots} giocatori'
+    return {
+        'id': match.id,
+        'court_name': match.court.name if match.court else None,
+        'court_badge_label': match.court.badge_label if match.court else None,
+        'start_at': match.start_at,
+        'end_at': match.end_at,
+        'level_requested': match.level_requested,
+        'participant_count': participant_count,
+        'available_spots': available_spots,
+        'occupancy_label': f'{participant_count}/4',
+        'missing_players_message': missing_players_message,
+    }
+
+
+def list_public_open_matches(
+    db: Session,
+    *,
+    club_id: str,
+    level_requested: PlayLevel | None = None,
+    lookahead_days: int = PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
+) -> list[dict]:
+    now = _utcnow()
+    window_end = now + timedelta(days=lookahead_days)
+    stmt = (
+        _public_match_query(db, club_id=club_id)
+        .where(
+            Match.status == MatchStatus.OPEN,
+            Match.start_at > now,
+            Match.start_at <= window_end,
+        )
+        .order_by(Match.start_at.asc(), Match.created_at.asc())
+    )
+    if level_requested is not None:
+        stmt = stmt.where(Match.level_requested == level_requested)
+
+    matches = db.scalars(stmt).all()
+    items = [_serialize_public_match(match) for match in matches]
+    return sorted(items, key=lambda item: (-item['participant_count'], item['start_at'], item['id']))
 
 
 def list_play_matches(db: Session, *, club_id: str, current_player: Player | None = None) -> dict:
@@ -511,6 +722,7 @@ def list_play_matches(db: Session, *, club_id: str, current_player: Player | Non
         'player': current_player,
         'open_matches': open_match_items,
         'my_matches': my_match_items,
+        'pending_payment': _serialize_pending_play_payment(db, club_id=club_id, current_player=current_player),
     }
 
 
@@ -686,10 +898,11 @@ def join_play_match(
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Impossibile rileggere la partita')
 
         booking = None
+        payment_action = None
         action = 'JOINED'
         message = 'Ti sei unito alla partita.'
         if len(match.participants) == PLAY_MATCH_SIZE:
-            booking = _complete_match_booking(
+            booking, payment_action = _complete_match_booking(
                 db,
                 club_id=club_id,
                 club_timezone=club_timezone,
@@ -699,7 +912,10 @@ def join_play_match(
             match.status = MatchStatus.FULL
             match.booking_id = booking.id
             action = 'COMPLETED'
-            message = 'Quarto player confermato: partita completata e prenotazione finale creata.'
+            if payment_action:
+                message = 'Quarto player confermato: partita completata. Versa ora la caparra community per confermare definitivamente il campo.'
+            else:
+                message = 'Quarto player confermato: partita completata e campo confermato. Il saldo verra gestito al circolo.'
             for participant in match.participants:
                 if not participant.player:
                     continue
@@ -731,7 +947,53 @@ def join_play_match(
             'message': message,
             'match': _serialize_match(match, current_player_id=current_player.id),
             'booking': _serialize_booking(booking),
+            'payment_action': payment_action,
         }
+
+
+def start_play_booking_checkout(
+    db: Session,
+    *,
+    club_id: str,
+    booking_id: str,
+    current_player: Player,
+    provider: PaymentProvider | None,
+) -> dict:
+    booking = db.scalar(select(Booking).where(Booking.club_id == club_id, Booking.id == booking_id).limit(1))
+    if not booking or not str(booking.created_by or '').startswith('play:'):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Prenotazione play non trovata')
+    if expire_pending_booking_if_needed(db, booking, actor='play'):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La prenotazione community e scaduta')
+    if booking.status != BookingStatus.PENDING_PAYMENT:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La prenotazione community non e piu in attesa di pagamento')
+
+    payer_player_id = _get_play_booking_payer_player_id(db, booking=booking)
+    if not payer_player_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Pagatore community non determinabile per questa prenotazione')
+    if payer_player_id != current_player.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Solo il quarto player che ha completato il match puo avviare il pagamento')
+
+    if booking.payment_status == PaymentStatus.INITIATED and booking.payment_provider != PaymentProvider.NONE:
+        selected_provider = booking.payment_provider
+    else:
+        available_providers = list_available_checkout_providers()
+        if not available_providers:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Nessun provider online disponibile per la caparra community')
+
+        selected_provider = _resolve_play_checkout_provider(
+            booking=booking,
+            provider=provider,
+            available_providers=available_providers,
+        )
+
+    payment_init = start_payment_for_booking(db, booking, selected_provider)
+    return {
+        'booking_id': booking.id,
+        'public_reference': booking.public_reference,
+        'provider': selected_provider,
+        'checkout_url': payment_init.checkout_url,
+        'payment_status': booking.payment_status,
+    }
 
 
 def leave_play_match(

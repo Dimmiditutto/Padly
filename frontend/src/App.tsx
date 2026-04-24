@@ -8,8 +8,10 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { AdminLogsPage } from './pages/AdminLogsPage';
 import { AdminPasswordResetPage } from './pages/AdminPasswordResetPage';
+import { ClubDirectoryPage } from './pages/ClubDirectoryPage';
 import { InviteAcceptPage } from './pages/InviteAcceptPage';
 import { PublicCancellationPage } from './pages/PublicCancellationPage';
+import { PublicClubPage } from './pages/PublicClubPage';
 import { PaymentStatusPage } from './pages/PaymentStatusPage';
 import { PlayPage } from './pages/PlayPage';
 import { PublicBookingPage } from './pages/PublicBookingPage';
@@ -87,9 +89,12 @@ export default function App() {
   return (
     <Routes>
       <Route path='/' element={<PublicBookingPage />} />
+      <Route path='/clubs' element={<ClubDirectoryPage />} />
+      <Route path='/clubs/nearby' element={<ClubDirectoryPage autoLocateOnMount />} />
       <Route path='/play' element={<PlayAliasRedirect />} />
       <Route path='/play/invite/:token' element={<PlayInviteAliasRedirect />} />
       <Route path='/play/matches/:shareToken' element={<PlaySharedAliasRedirect />} />
+      <Route path='/c/:clubSlug' element={<PublicClubPage />} />
       <Route path='/c/:clubSlug/play' element={<PlayPage />} />
       <Route path='/c/:clubSlug/play/invite/:token' element={<InviteAcceptPage />} />
       <Route path='/c/:clubSlug/play/matches/:shareToken' element={<SharedMatchPage />} />

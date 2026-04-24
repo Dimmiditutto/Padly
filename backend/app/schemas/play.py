@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import MatchStatus, PlayLevel
+from app.models import MatchStatus, PaymentProvider, PlayLevel
 from app.schemas.public import validate_hhmm_time
 
 
@@ -149,6 +149,7 @@ class PlayMatchesResponse(BaseModel):
     player: PlayPlayerSummary | None = None
     open_matches: list[PlayMatchSummary] = Field(default_factory=list)
     my_matches: list[PlayMatchSummary] = Field(default_factory=list)
+    pending_payment: 'PlayPendingPaymentSummary | None' = None
 
 
 class PlayMatchDetailResponse(BaseModel):
@@ -163,8 +164,26 @@ class PlayBookingSummary(BaseModel):
     start_at: datetime
     end_at: datetime
     status: str
+    deposit_amount: float
+    payment_provider: str
     payment_status: str
+    expires_at: datetime | None = None
     source: str
+
+
+class PlayBookingPaymentAction(BaseModel):
+    required: bool
+    payer_player_id: str
+    deposit_amount: float
+    payment_timeout_minutes: int
+    expires_at: datetime | None = None
+    available_providers: list[PaymentProvider] = Field(default_factory=list)
+    selected_provider: PaymentProvider | None = None
+
+
+class PlayPendingPaymentSummary(BaseModel):
+    booking: PlayBookingSummary
+    payment_action: PlayBookingPaymentAction
 
 
 class PlayMatchCreateRequest(BaseModel):
@@ -210,6 +229,11 @@ class PlayMatchJoinResponse(BaseModel):
     message: str
     match: PlayMatchSummary
     booking: PlayBookingSummary | None = None
+    payment_action: PlayBookingPaymentAction | None = None
+
+
+class PlayBookingCheckoutRequest(BaseModel):
+    provider: PaymentProvider | None = None
 
 
 class PlayMatchLeaveResponse(BaseModel):

@@ -55,6 +55,13 @@ const adminSettings = {
   notification_email: 'desk@padelbooking.app',
   support_email: 'help@padelbooking.app',
   support_phone: '+390101010101',
+  public_address: 'Via dei Campi 1',
+  public_postal_code: '17100',
+  public_city: 'Savona',
+  public_province: 'SV',
+  public_latitude: 44.30941,
+  public_longitude: 8.47715,
+  is_community_open: false,
   booking_hold_minutes: 15,
   cancellation_window_hours: 24,
   reminder_window_hours: 24,
@@ -62,6 +69,9 @@ const adminSettings = {
   non_member_hourly_rate: 9,
   member_ninety_minute_rate: 10,
   non_member_ninety_minute_rate: 13,
+  play_community_deposit_enabled: false,
+  play_community_deposit_amount: 20,
+  play_community_payment_timeout_minutes: 15,
   stripe_enabled: true,
   paypal_enabled: true,
 } as const;
@@ -347,7 +357,7 @@ describe('AdminDashboardPage', () => {
     expect(screen.queryByText('Slug tenant')).not.toBeInTheDocument();
     expect(screen.queryByText('Timezone')).not.toBeInTheDocument();
     expect(screen.queryByText('Valuta')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Nome visibile nella pagina di prenotazione'), { target: { value: 'Roma Club Elite' } });
+    fireEvent.change(screen.getByLabelText('Nome club'), { target: { value: 'Roma Club Elite' } });
     fireEvent.change(screen.getByLabelText('Email notifiche operative'), { target: { value: 'ops@roma-club.example' } });
     fireEvent.change(screen.getByLabelText('Email supporto pubblico'), { target: { value: 'help@roma-club.example' } });
     fireEvent.change(screen.getByLabelText('Telefono supporto pubblico'), { target: { value: '+39029876543' } });
@@ -364,6 +374,13 @@ describe('AdminDashboardPage', () => {
       notification_email: 'ops@roma-club.example',
       support_email: 'help@roma-club.example',
       support_phone: '+39029876543',
+      public_address: 'Via dei Campi 1',
+      public_postal_code: '17100',
+      public_city: 'Savona',
+      public_province: 'SV',
+      public_latitude: 44.30941,
+      public_longitude: 8.47715,
+      is_community_open: false,
       booking_hold_minutes: 15,
       cancellation_window_hours: 24,
       reminder_window_hours: 24,
@@ -371,7 +388,62 @@ describe('AdminDashboardPage', () => {
       non_member_hourly_rate: 11,
       member_ninety_minute_rate: 12,
       non_member_ninety_minute_rate: 15,
+      play_community_deposit_enabled: false,
+      play_community_deposit_amount: 20,
+      play_community_payment_timeout_minutes: 15,
     }));
     await waitFor(() => expect(within(settingsSection as HTMLElement).getByText('Regole operative aggiornate.')).toBeInTheDocument());
+  });
+
+  it('saves public club identity fields inside the existing settings block', async () => {
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    fireEvent.change(screen.getByLabelText('Nome club'), { target: { value: 'Savona Centro' } });
+    fireEvent.change(screen.getByLabelText('Indirizzo (via, piazza, ecc.)'), { target: { value: 'Piazza Padel 7' } });
+    fireEvent.change(screen.getByLabelText('CAP'), { target: { value: '17100' } });
+    fireEvent.change(screen.getByLabelText('Citta'), { target: { value: 'Savona' } });
+    fireEvent.change(screen.getByLabelText('Provincia'), { target: { value: 'sv' } });
+    fireEvent.click(screen.getByLabelText('Community aperta a nuovi ingressi'));
+    fireEvent.change(screen.getByLabelText('Latitudine (opzionale)'), { target: { value: '44.30941' } });
+    fireEvent.change(screen.getByLabelText('Longitudine (opzionale)'), { target: { value: '8.47715' } });
+
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Salva impostazioni' }));
+
+    await waitFor(() => expect(updateAdminSettings).toHaveBeenCalledWith(expect.objectContaining({
+      public_name: 'Savona Centro',
+      public_address: 'Piazza Padel 7',
+      public_postal_code: '17100',
+      public_city: 'Savona',
+      public_province: 'sv',
+      public_latitude: 44.30941,
+      public_longitude: 8.47715,
+      is_community_open: true,
+    })));
+  });
+
+  it('saves community play deposit settings from the admin form', async () => {
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    fireEvent.click(screen.getByLabelText('Attiva caparra community online sul quarto player'));
+    fireEvent.change(screen.getByLabelText('Importo caparra community'), { target: { value: '12.5' } });
+    fireEvent.change(screen.getByLabelText('Timeout checkout community'), { target: { value: '45' } });
+
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Salva impostazioni' }));
+
+    await waitFor(() => expect(updateAdminSettings).toHaveBeenCalledWith(expect.objectContaining({
+      play_community_deposit_enabled: true,
+      play_community_deposit_amount: 12.5,
+      play_community_payment_timeout_minutes: 45,
+    })));
   });
 });

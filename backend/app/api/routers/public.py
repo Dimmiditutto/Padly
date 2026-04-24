@@ -1,17 +1,20 @@
+import math
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_club, get_current_club_enforced
 from app.core.db import get_db
-from app.models import Booking, BookingStatus, Club, PaymentProvider, PaymentStatus
+from app.models import Booking, BookingStatus, Club, Court, PaymentProvider, PaymentStatus, PlayLevel
 from app.schemas.common import SimpleMessage
 from app.schemas.public import (
     AvailabilityResponse,
     BookingStatusResponse,
     PaymentInitResponse,
+    PublicClubDetailResponse,
+    PublicClubDirectoryResponse,
     PublicCancellationResponse,
     PublicBookingCreateRequest,
     PublicBookingCreateResponse,
@@ -28,8 +31,103 @@ from app.services.payment_service import (
     start_payment_for_booking,
 )
 from app.services.settings_service import get_booking_rules, get_public_rate_card
+from app.services.play_service import PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS, list_public_open_matches
 
 router = APIRouter(prefix='/public', tags=['Public'])
+
+
+def _normalize_public_query(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _club_has_coordinates(club: Club) -> bool:
+    return club.public_latitude is not None and club.public_longitude is not None
+
+
+def _calculate_distance_km(*, latitude: float, longitude: float, club: Club) -> float | None:
+    if not _club_has_coordinates(club):
+        return None
+
+    club_latitude = float(club.public_latitude)
+    club_longitude = float(club.public_longitude)
+    earth_radius_km = 6371.0
+    latitude_delta = math.radians(club_latitude - latitude)
+    longitude_delta = math.radians(club_longitude - longitude)
+    latitude_a = math.radians(latitude)
+    latitude_b = math.radians(club_latitude)
+    haversine = (
+        math.sin(latitude_delta / 2) ** 2
+        + math.cos(latitude_a) * math.cos(latitude_b) * math.sin(longitude_delta / 2) ** 2
+    )
+    distance = 2 * earth_radius_km * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
+    return round(distance, 2)
+
+
+def _public_contact_email(club: Club) -> str | None:
+    return club.support_email or club.notification_email
+
+
+def _load_public_clubs(db: Session, *, search_query: str | None = None) -> list[Club]:
+    stmt = select(Club).where(Club.is_active.is_(True))
+    if search_query:
+        lookup_value = f'%{search_query.lower()}%'
+        stmt = stmt.where(
+            or_(
+                func.lower(func.coalesce(Club.public_city, '')).like(lookup_value),
+                func.lower(func.coalesce(Club.public_province, '')).like(lookup_value),
+                func.lower(func.coalesce(Club.public_postal_code, '')).like(lookup_value),
+            )
+        )
+
+    return db.scalars(stmt.order_by(func.lower(Club.public_name).asc(), Club.created_at.asc())).all()
+
+
+def _load_court_counts(db: Session, *, club_ids: list[str]) -> dict[str, int]:
+    if not club_ids:
+        return {}
+    rows = db.execute(
+        select(Court.club_id, func.count(Court.id))
+        .where(Court.club_id.in_(club_ids), Court.is_active.is_(True))
+        .group_by(Court.club_id)
+    ).all()
+    return {club_id: count for club_id, count in rows}
+
+
+def _serialize_public_club(club: Club, *, court_counts: dict[str, int], distance_km: float | None = None) -> dict:
+    has_coordinates = _club_has_coordinates(club)
+    return {
+        'club_id': club.id,
+        'club_slug': club.slug,
+        'public_name': club.public_name,
+        'public_address': club.public_address,
+        'public_postal_code': club.public_postal_code,
+        'public_city': club.public_city,
+        'public_province': club.public_province,
+        'public_latitude': float(club.public_latitude) if club.public_latitude is not None else None,
+        'public_longitude': float(club.public_longitude) if club.public_longitude is not None else None,
+        'has_coordinates': has_coordinates,
+        'distance_km': distance_km,
+        'courts_count': int(court_counts.get(club.id, 0)),
+        'contact_email': _public_contact_email(club),
+        'support_phone': club.support_phone,
+        'is_community_open': club.is_community_open,
+    }
+
+
+def _sort_public_clubs_by_distance(clubs: list[Club], *, latitude: float, longitude: float) -> list[tuple[Club, float | None]]:
+    distances = [(club, _calculate_distance_km(latitude=latitude, longitude=longitude, club=club)) for club in clubs]
+    return sorted(
+        distances,
+        key=lambda item: (
+            item[1] is None,
+            item[1] if item[1] is not None else float('inf'),
+            item[0].public_name.lower(),
+            item[0].slug.lower(),
+        ),
+    )
 
 
 def _public_cancellation_reason(booking: Booking) -> str | None:
@@ -94,6 +192,70 @@ def get_public_config(current_club: Club = Depends(get_current_club), db: Sessio
         non_member_ninety_minute_rate=public_rate_card['non_member_ninety_minute_rate'],
         stripe_enabled=is_stripe_checkout_available(),
         paypal_enabled=is_paypal_checkout_available(),
+    )
+
+
+@router.get('/clubs', response_model=PublicClubDirectoryResponse)
+def list_public_clubs(
+    query: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> PublicClubDirectoryResponse:
+    normalized_query = _normalize_public_query(query)
+    clubs = _load_public_clubs(db, search_query=normalized_query)
+    court_counts = _load_court_counts(db, club_ids=[club.id for club in clubs])
+    return PublicClubDirectoryResponse(
+        query=normalized_query,
+        items=[_serialize_public_club(club, court_counts=court_counts) for club in clubs],
+    )
+
+
+@router.get('/clubs/nearby', response_model=PublicClubDirectoryResponse)
+def list_public_clubs_nearby(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    query: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> PublicClubDirectoryResponse:
+    normalized_query = _normalize_public_query(query)
+    clubs = _load_public_clubs(db, search_query=normalized_query)
+    court_counts = _load_court_counts(db, club_ids=[club.id for club in clubs])
+    sorted_clubs = _sort_public_clubs_by_distance(clubs, latitude=latitude, longitude=longitude)
+    return PublicClubDirectoryResponse(
+        query=normalized_query,
+        items=[
+            _serialize_public_club(club, court_counts=court_counts, distance_km=distance_km)
+            for club, distance_km in sorted_clubs
+        ],
+    )
+
+
+@router.get('/clubs/{club_slug}', response_model=PublicClubDetailResponse)
+def get_public_club_detail(
+    club_slug: str,
+    level: PlayLevel | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> PublicClubDetailResponse:
+    club = db.scalar(
+        select(Club)
+        .where(func.lower(Club.slug) == club_slug.strip().lower(), Club.is_active.is_(True))
+        .limit(1)
+    )
+    if not club:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Club pubblico non trovato')
+
+    court_counts = _load_court_counts(db, club_ids=[club.id])
+    return PublicClubDetailResponse(
+        club=_serialize_public_club(club, court_counts=court_counts),
+        timezone=club.timezone,
+        support_email=club.support_email,
+        support_phone=club.support_phone,
+        public_match_window_days=PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
+        open_matches=list_public_open_matches(
+            db,
+            club_id=club.id,
+            level_requested=level,
+            lookahead_days=PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
+        ),
     )
 
 

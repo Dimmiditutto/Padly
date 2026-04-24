@@ -326,6 +326,15 @@ def is_checkout_available(provider: PaymentProvider) -> bool:
     return is_paypal_checkout_available()
 
 
+def list_available_checkout_providers() -> list[PaymentProvider]:
+    providers: list[PaymentProvider] = []
+    if is_stripe_checkout_available():
+        providers.append(PaymentProvider.STRIPE)
+    if is_paypal_checkout_available():
+        providers.append(PaymentProvider.PAYPAL)
+    return providers
+
+
 def assert_checkout_available(provider: PaymentProvider) -> None:
     if not is_checkout_available(provider):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(provider))
@@ -391,8 +400,14 @@ def _parse_provider_datetime(value: str | None) -> datetime | None:
 
 
 def _expected_booking_amount(booking: Booking) -> Decimal:
-    expected = _to_decimal(calculate_deposit(booking.duration_minutes))
     current = _to_decimal(booking.deposit_amount)
+    if current is None or current <= Decimal('0.00'):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Importo caparra non disponibile per questa prenotazione')
+
+    if str(booking.created_by or '').startswith('play:'):
+        return current
+
+    expected = _to_decimal(calculate_deposit(booking.duration_minutes))
     if current != expected:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Importo caparra non coerente con la durata prenotata')
     return expected

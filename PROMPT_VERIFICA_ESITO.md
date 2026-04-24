@@ -1,54 +1,145 @@
-# VERIFICA PLAY FASE 4
+# VERIFICA RECENTE FASI PLAY 5 E PLAY 6
 
 ## 1. Esito sintetico generale
 
 PASS
 
-La Fase 4 `/play` e ora chiusa anche sui tre difetti emersi nella review precedente. I fix applicati sono rimasti locali, non hanno riaperto la logica di business del dominio e hanno mantenuto il perimetro previsto della fase.
+I fix richiesti dal prompt operativo sono stati implementati e verificati sul repository corrente. Il checkout caparra `/play` e ora allineato al percorso pubblico sui guardrail minimi di stato e lock, i retry del payer riusano il checkout gia iniziato senza cambiare provider, e [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx) recupera la caparra community pending anche dopo refresh tramite il payload di `GET /api/play/matches`.
+
+Nota di contesto importante:
+
+- il file [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) punta ancora a riferimenti SaaS generici come `prompts SaaS/prompt_master.md` e `prompts SaaS/STATO_FASE_1.MD`
+- per questa verifica il perimetro reale usato e quello davvero modificato di recente nel repo: [STATO_PLAY_5.md](STATO_PLAY_5.md), [STATO_PLAY_6.md](STATO_PLAY_6.md), [play_7.md](play_7.md) e i file backend/frontend toccati dalle Fasi 5 e 6
 
 Validazioni reali eseguite dopo i fix:
 
-- frontend: `npm run test:run -- src/pages/PlayPage.test.tsx` -> PASS, `17 passed`
-- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase3.py -k "leave or cancel"` -> PASS, `4 passed`
-- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase4.py -k "notification_dispatch"` -> PASS, `3 passed`
-- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase4_migration.py` -> PASS, `1 passed`
-- controllo statico sui file toccati con `get_errors` -> nessun errore rilevato
+- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase3.py -k "checkout or mock_payment_confirms or expiry_marks" -q` -> PASS, `3 passed`
+- frontend: `npm run test:run -- src/pages/PlayPage.test.tsx` -> PASS, `19 passed`
+- frontend: `npm run build` -> PASS
 
-Nota di perimetro confermata:
+## 2. Verifica per area
 
-- il delivery server-side delle web push resta `SIMULATED` in v1; questa chiusura riguarda coerenza del flusso, timezone tenant-aware e idempotenza del dispatch, non l invio reale a provider esterni
+### Coerenza complessiva del codice
 
-## 2. Fix chiusi
+Esito: PASS
 
-### 1. Semantica push e revoca UI rese coerenti
+Problemi trovati:
 
-- La UI non presenta piu lo stato aggregato del profilo come se fosse necessariamente lo stato del browser corrente.
-- Il path `Disattiva web push` non invia piu una revoca globale quando il browser locale non restituisce un endpoint valido.
-- Il backend mantiene il contratto esistente, ma il percorso utente corrente non puo piu azzerare involontariamente le subscription di altri device.
+- nessun problema bloccante residuo emerso nel perimetro verificato
+- il checkout `/play` e ora coerente con il checkout pubblico sui guardrail minimi richiesti dal prompt operativo
 
-Esito: CHIUSO
+Gravita:
 
-### 2. Timezone del club propagata nei flow leave/cancel
+- nessuna
 
-- I router `/play` ora inoltrano `current_club.timezone` anche ai service `leave_play_match()` e `cancel_play_match()`.
-- `record_player_activity()` e il dispatch del match riaperto usano la timezone reale del tenant anche in questi branch.
-- Il fallback implicito a `Europe/Rome` non rientra piu da questi path.
+Impatto reale:
 
-Esito: CHIUSO
+- l architettura resta consistente tra backend, contratti e frontend sul flusso community con caparra
 
-### 3. Dispatch notifiche reso idempotente sotto concorrenza
+### Coerenza tra file modificati
 
-- `NotificationLog` e ora blindato da un vincolo DB-level per campagna su `club_id + player_id + match_id + channel + kind`.
-- Il dispatcher usa insert race-safe con savepoint locale e degrada a no-op su duplicate insert, senza far fallire il job o la request concorrente.
-- E stata aggiunta una migration dedicata che ripulisce eventuali duplicati storici prima di creare il vincolo.
+Esito: PASS
 
-Esito: CHIUSO
+Problemi trovati:
 
-## 3. Verdetto finale
+- backend, contratti Pydantic e tipi frontend sono ora allineati anche sul nuovo payload `pending_payment`
+- la CTA caparra non dipende piu solo dalla risposta del join ma e recuperabile al reload
 
-La review precedente e superata. Il modulo `/play` Fase 4 resta con web push server-side simulata in v1, ma non ha piu criticita aperte nel perimetro verificato di semantica push, propagazione timezone e idempotenza del dispatch.
+Gravita:
 
-## 4. Rischi residui reali
+- nessuna
 
-- nessuna criticita bloccante residua emersa nel perimetro corretto in questa chiusura
-- backlog volutamente fuori scope e gia separati: `revoca_token.md` e `kpi.md`
+Impatto reale:
+
+- il payer puo riprendere il checkout community senza perdere il contesto del pagamento pending
+
+### Conflitti o blocchi introdotti dai file modificati
+
+Esito: PASS
+
+Problemi trovati:
+
+- nessun conflitto bloccante residuo nel percorso `/api/play/bookings/{booking_id}/checkout`
+- il route ora usa lock e il service rifiuta booking non piu `PENDING_PAYMENT`
+
+Gravita:
+
+- nessuna
+
+Impatto reale:
+
+- i retry leciti del payer riusano il checkout gia iniziato, mentre i casi fuori stato valido vengono rifiutati
+
+### Criticita del progetto nel suo insieme
+
+Esito: PASS
+
+Problemi trovati:
+
+- non sono emerse regressioni sui file e sui test toccati dal fix
+- la copertura aggiunta ora include retry sul checkout gia iniziato, blocco post-pagamento e recovery UI dopo refresh
+
+Gravita:
+
+- nessuna
+
+Impatto reale:
+
+- il perimetro corretto dal prompt operativo e ora coperto da test reali e build verde
+
+### Rispetto della logica di business
+
+Esito: PASS
+
+Problemi trovati:
+
+- la regola di business resta rispettata: paga solo il quarto player che completa il `4/4`
+- il controllo di stato ora impedisce di riaprire il checkout quando la booking non e piu pagabile
+
+Gravita:
+
+- nessuna
+
+Impatto reale:
+
+- la semantica di pagamento unico e ora blindata nel perimetro verificato
+
+## 3. Elenco criticita
+
+Nessuna criticita bloccante aperta nel perimetro verificato.
+
+Criticita chiuse con questa esecuzione:
+
+- il checkout `/play` non puo piu essere avviato fuori dallo stato `PENDING_PAYMENT`
+- il route `/play` usa ora un lock coerente con il checkout pubblico
+- il payer puo recuperare la caparra community pending anche dopo refresh tramite `pending_payment` in `GET /api/play/matches`
+
+## 4. Prioritizzazione finale
+
+### Da correggere prima del rilascio
+
+- nessuna azione bloccante residua emersa nel perimetro verificato
+
+### Da correggere prima della beta pubblica
+
+- nessuna azione obbligatoria residua emersa sul perimetro corretto da questo prompt
+
+### Miglioramenti differibili
+
+- se in futuro il prodotto vorra gestire piu caparre community pending simultanee dello stesso payer, la UI potra essere estesa oltre il primo `pending_payment` recuperato
+
+## 5. Verdetto finale
+
+Il codice e pronto nel perimetro verificato del flusso caparra community `/play`.
+
+La discovery pubblica della Fase 6 resta intatta, mentre il percorso di checkout community della Fase 5 e ora chiuso sui tre punti richiesti dalla verifica: stato valido, retry idempotente e recovery dopo refresh.
+
+## 6. Prompt operativo per i fix
+
+Nessun prompt operativo di fix ulteriore e richiesto nel perimetro verificato.
+
+Le verifiche finali realmente eseguite e passate sono:
+
+- [backend/tests/test_play_phase3.py](backend/tests/test_play_phase3.py) sul blocco `checkout or mock_payment_confirms or expiry_marks`
+- [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx)
+- build frontend con `npm run build`

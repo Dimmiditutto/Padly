@@ -29,7 +29,7 @@ SECURITY_HEADERS = {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()'
+    'Permissions-Policy': 'camera=(), geolocation=(self), microphone=()'
 }
 logger = logging.getLogger(__name__)
 ADMIN_AUTH_RATE_LIMIT_SUFFIXES = (
