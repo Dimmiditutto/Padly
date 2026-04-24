@@ -1,6 +1,6 @@
 # PROMPT FASE 4 - NOTIFICHE V1, WEB PUSH FOUNDATION E PROFILO PROBABILISTICO
 
-Usa `play_master.md` come contesto fisso.
+Usa `play_master.md` come contesto fisso. NON modificare la logica di business. Mantieni il codice coerente.
 
 Prima di iniziare devi leggere obbligatoriamente:
 - `play_master.md`

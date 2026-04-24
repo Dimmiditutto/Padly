@@ -350,3 +350,80 @@ export interface SubscriptionStatusBanner {
   current_period_end?: string | null;
   is_access_blocked: boolean;
 }
+
+export type PlayLevel = 'NO_PREFERENCE' | 'BEGINNER' | 'INTERMEDIATE_LOW' | 'INTERMEDIATE_MEDIUM' | 'INTERMEDIATE_HIGH' | 'ADVANCED';
+export type PlayMatchStatus = 'OPEN' | 'FULL' | 'CANCELLED';
+
+export interface PlayPlayerSummary {
+  id: string;
+  profile_name: string;
+  phone: string;
+  declared_level: PlayLevel;
+  effective_level?: PlayLevel | null;
+  privacy_accepted_at: string;
+  created_at: string;
+}
+
+export interface MatchParticipantSummary {
+  player_id: string;
+  profile_name: string;
+  declared_level: PlayLevel;
+  effective_level?: PlayLevel | null;
+}
+
+export interface PlayMatchSummary {
+  id: string;
+  court_id: string;
+  court_name?: string | null;
+  court_badge_label?: string | null;
+  created_by_player_id: string;
+  creator_profile_name?: string | null;
+  start_at: string;
+  end_at: string;
+  duration_minutes: number;
+  status: PlayMatchStatus;
+  level_requested: PlayLevel;
+  note?: string | null;
+  participant_count: number;
+  available_spots: number;
+  joined_by_current_player: boolean;
+  created_at: string;
+  participants: MatchParticipantSummary[];
+}
+
+export interface PlaySessionResponse {
+  player?: PlayPlayerSummary | null;
+}
+
+export interface PlayIdentifyPayload {
+  profile_name: string;
+  phone: string;
+  declared_level: PlayLevel;
+  privacy_accepted: boolean;
+}
+
+export interface PlayIdentifyResponse {
+  message: string;
+  player: PlayPlayerSummary;
+}
+
+export interface CommunityInviteAcceptPayload {
+  declared_level: PlayLevel;
+  privacy_accepted: boolean;
+}
+
+export interface CommunityInviteAcceptResponse {
+  message: string;
+  player: PlayPlayerSummary;
+}
+
+export interface PlayMatchesResponse {
+  player?: PlayPlayerSummary | null;
+  open_matches: PlayMatchSummary[];
+  my_matches: PlayMatchSummary[];
+}
+
+export interface PlayMatchDetailResponse {
+  player?: PlayPlayerSummary | null;
+  match: PlayMatchSummary;
+}

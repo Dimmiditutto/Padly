@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosResponse } from 'axios';
-import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
+import { resolveTenantSlugFromLocation, withTenantPath } from '../utils/tenantContext';
 
 const rawBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '/api';
 const API_BASE_URL = rawBase.replace(/\/+$/, '');
@@ -16,7 +16,7 @@ function getWindowTenantSlug(): string | null {
     return null;
   }
 
-  return getTenantSlugFromSearchParams(new URLSearchParams(window.location.search));
+  return resolveTenantSlugFromLocation(window.location);
 }
 
 
