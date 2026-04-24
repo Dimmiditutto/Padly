@@ -24,6 +24,32 @@ La scelta corretta per questo progetto è:
 
 La pagina `/play` deve essere la pagina pubblica dove si gestisce tutto il flusso partite.
 
+### Pagina club-specifica
+La pagina `/play` deve essere specifica del club.
+
+La forma corretta, in prospettiva, è:
+- `/c/{club_slug}/play`
+
+Questo è necessario perché:
+- la community è chiusa nel singolo club
+- partite, inviti, notifiche e utenti appartengono a un club preciso
+- possono esistere club con lo stesso nome
+
+Quindi il sistema deve usare:
+- `club_id` come chiave interna
+- `club_slug` come identificatore pubblico univoco
+- nome club come etichetta mostrata all’utente
+
+Se due club hanno lo stesso nome, lo slug deve restare univoco.
+
+Esempi corretti:
+- `padel-savona-rocca`
+- `padel-savona-centro`
+- `sporting-club-savona`
+- `sporting-club-savona-2`
+
+In v1, se c’è un solo club, `/play` può esistere solo come alias o redirect verso `/c/{club_slug}/play`, ma il percorso canonico resta club-specifico.
+
 ### Obiettivo reale della pagina
 Non deve essere solo una pagina “crea partita”.
 
@@ -153,13 +179,62 @@ La soluzione corretta è una **identità leggera persistente**.
 
 ### Primo accesso
 La prima volta che l’utente entra davvero nel flusso:
-- viene identificato con **nome + telefono**
+- viene identificato con **nome + telefono + livello dichiarato**
 - opzionalmente in futuro anche email, ma il canale principale che abbiamo deciso è il telefono perché il flusso nasce da WhatsApp
 
 Il backend:
 - crea o recupera il `Player`
 - genera un **player access token**
 - salva **solo l’hash** del token
+
+### Livello chiesto subito in onboarding
+Abbiamo deciso di usare **5 livelli reali di gioco**:
+- `Principiante`
+- `Intermedio basso`
+- `Intermedio medio`
+- `Intermedio alto`
+- `Avanzato`
+
+In onboarding va aggiunta anche una opzione iniziale:
+- `Nessuna preferenza`
+
+`Nessuna preferenza` non è un sesto livello reale di gioco.
+
+È uno stato iniziale utile quando l’utente:
+- non sa valutarsi bene
+- non vuole scegliere subito
+- preferisce lasciare che il sistema capisca progressivamente il livello più probabile
+
+Il livello va chiesto subito perché serve da subito per:
+- mostrare partite più adatte
+- ordinare meglio le proposte
+- inviare notifiche più pertinenti
+- ridurre partite sbilanciate
+
+Il campo deve essere una selezione rapida e deve poter essere modificato in seguito.
+
+### Nome utente
+Il nome scelto dall’utente deve essere:
+- modificabile dall’utente
+- moderabile dall’admin
+
+Regole corrette:
+- l’utente può aggiornare il proprio nome profilo
+- l’admin può correggerlo, normalizzarlo e bloccare nomi inappropriati
+- il sistema deve poter sostituire nomi offensivi, promozionali o inutilizzabili
+
+Regole minime sul nome:
+- lunghezza minima e massima
+- niente caratteri strani inutili
+- niente contenuti offensivi
+- niente spam o nomi promozionali
+
+Uso del nome nel prodotto:
+- card compatta: preview leggera tipo `Luca, Marco, Andrea`
+- dettaglio partita: lista completa
+- push: nessun nome
+
+In v1 il backend può continuare a persistere internamente `first_name` e `last_name` come dettaglio implementativo, ma il modello di prodotto e l’interfaccia devono ragionare in termini di **nome profilo utente**.
 
 ### Accessi successivi
 Quando l’utente torna su `/play`:
@@ -208,12 +283,16 @@ Serve per riconoscere l’utente nelle visite successive.
 
 Caratteristiche:
 - persistente
+- token opaco e casuale
 - usato da `/api/play/me`
 - il backend salva solo l’hash
+- non JWT come scelta principale
 
 ### Dove salvare il player access token
 Decisione esplicita:
-- **cookie `httpOnly`, `secure`, `SameSite=Lax`** come default
+- **cookie `httpOnly`, `secure`, `SameSite=Lax`**
+- scadenza **90 giorni**
+- cookie **host-only** come default
 - **non** `localStorage` come soluzione principale
 
 ### Motivazione
@@ -224,11 +303,28 @@ Il cookie httpOnly è:
 
 Il cross-device non si risolve col token:
 - si risolve con nuovo onboarding
-- oppure con recovery futuro
+- **non** si introduce recovery nella v1
 
 Quindi:
 - **invite token** nel link
-- **player access token** in cookie httpOnly
+- **player access token** in cookie httpOnly persistente
+- token opaco con hash salvato lato server
+
+### Protezione dei POST sensibili autenticati via cookie
+
+Decisione esplicita:
+- in v1 usare controllo **`Origin` / `Referer`**
+- applicarlo a `POST`, `PATCH`, `PUT`, `DELETE` autenticati via cookie
+- escludere webhook e endpoint machine-to-machine
+- confrontare l’origine con il tenant corrente o con una allowlist server-side
+
+### Decisione tecnica
+In v1 non serve introdurre subito una CSRF protection completa con token dedicato.
+
+La combinazione corretta è:
+- cookie `httpOnly`
+- `SameSite=Lax`
+- controllo `Origin` / `Referer`
 
 ---
 
@@ -253,10 +349,15 @@ Questo è uno dei punti principali decisi.
 6. vede una pagina semplice con:
    - nome club
    - proprio nome
+   - selezione rapida del livello dichiarato
+   - checkbox `Dichiaro di aver letto l’informativa privacy`
+   - link alla pagina privacy
    - bottone `Accetta ed entra nella community`
 
 7. quando clicca:
+   - il frontend chiama `POST /api/public/community-invites/{token}/accept`
    - il backend valida l’invito
+   - salva almeno `privacy_accepted_at`, `privacy_policy_version`, `invite_accepted_at`
    - crea o recupera il `Player`
    - genera il `player access token`
    - marca l’invito come usato
@@ -268,6 +369,23 @@ Questo flusso deve essere **100% deterministico**.
 Niente LLM.  
 Niente parsing.  
 Niente automazioni intelligenti.
+
+### Accettazione privacy obbligatoria
+L’accettazione privacy è obbligatoria prima di:
+- creare o recuperare il `Player`
+- generare il `player access token`
+- completare l’ingresso nella community
+
+La privacy policy deve coprire almeno:
+- titolare
+- finalità del trattamento
+- dati raccolti
+- uso di nome, telefono e livello
+- notifiche push
+- visibilità del nome nelle partite
+- tempi di conservazione
+- diritti utente
+- contatti
 
 ---
 
@@ -408,6 +526,58 @@ Da qui il sistema può inviare notifiche mirate tipo:
 ### Decisione tecnica
 Tutto questo deve essere **deterministico**, senza AI, senza ML vero.
 
+### Livello dichiarato, livello osservato e livello effettivo
+Abbiamo deciso che il livello scelto dall’utente non basta da solo.
+
+La regola corretta è:
+- livello dichiarato = quello scelto in onboarding
+- livello osservato = quello che emerge dal comportamento reale nel tempo
+- livello effettivo = quello usato dal sistema per notifiche, ranking e matching
+
+Quindi:
+- il livello dichiarato è il punto di partenza
+- la memoria del sistema diventa progressivamente più importante
+- il sistema deve poter correggere il profilo utente nel tempo
+
+### Matrice di compatibilità v1
+Abbiamo deciso di usare questa matrice come regola ufficiale v1:
+- `Principiante` -> `Principiante`, `Intermedio basso`
+- `Intermedio basso` -> `Intermedio basso`, `Intermedio medio`
+- `Intermedio medio` -> `Intermedio medio`, `Intermedio alto`
+- `Intermedio alto` -> `Intermedio alto`, `Avanzato`
+- `Avanzato` -> `Avanzato`, `Intermedio alto`
+
+Questa matrice è rigida e semplice ed è stata scelta perché:
+- i giocatori tendono a sopravvalutarsi
+- preferiscono giocare con persone leggermente più forti
+- è meglio evitare incroci troppo ampi che creano partite sbilanciate
+
+### Come usare la matrice nel prodotto
+In v1 la matrice va usata come base per:
+- notifiche push
+- ordinamento delle partite
+- suggerimenti di join
+- suggerimenti prima di creare una nuova partita
+
+La regola corretta è questa:
+- all’inizio prevale il livello dichiarato
+- dopo abbastanza dati prevale progressivamente il comportamento osservato
+- il sistema continua a usare la matrice come base, ma la applica sul livello effettivo, non solo su quello dichiarato
+
+### Nessuna preferenza
+Se l’utente seleziona `Nessuna preferenza`:
+- il sistema non assume un livello iniziale forte
+- parte senza bias rigido
+- osserva i comportamenti reali
+- costruisce il livello osservato
+- usa poi il livello effettivo per matching e notifiche
+
+In questa fase iniziale il sistema deve basarsi soprattutto su:
+- giorno e fascia oraria
+- livello delle partite effettivamente scelte
+- frequenza di join su determinati tipi di match
+- risposta alle notifiche
+
 ---
 
 ## 12. Profilazione: da fare subito
@@ -431,12 +601,29 @@ Quindi in v1 fai entrambe le cose:
 - **memoria/profilazione attiva**
 - **notifiche iniziali semplici e deterministiche**
 
-### Quando attivare notifiche mirate
-Non solo dopo N giorni, ma con doppia soglia:
+### Scelta operativa v1 sul livello
+Abbiamo deciso di non trasformare subito la matrice in un blocco rigido lato utente, ma di usarla come regola standard di matching e priorità.
 
-Attiva notifiche mirate quando c’è almeno una di queste condizioni:
-- almeno **14–21 giorni** di dati
-- oppure almeno **5–8 eventi utili** per utente
+In pratica:
+- la piattaforma propone e notifica secondo questa matrice
+- questa diventa la base ufficiale della logica di compatibilità
+- la memoria comportamentale del sistema inizia subito a raccogliere dati
+- il livello effettivo dell’utente viene corretto progressivamente
+- eventuali aperture più elastiche si valuteranno solo più avanti, non ora
+
+### Quando attivare notifiche mirate
+Attiva notifiche mirate quando l’utente ha accumulato almeno **5 eventi utili**.
+
+Questa è la soglia operativa v1 perché è più semplice da applicare, più rapida da attivare e più coerente con il fatto che il sistema deve imparare dal comportamento reale prima che dal tempo trascorso.
+
+### Regola operativa della memoria
+La memoria del sistema è più importante della sola autovalutazione, ma non deve correggere il livello troppo in fretta.
+
+Quindi:
+- un singolo join fuori livello non basta
+- servono più eventi coerenti
+- la correzione deve essere graduale
+- le notifiche possono allargarsi prima del livello ufficiale visibile
 
 ---
 
@@ -468,9 +655,9 @@ Tabella essenziale con eventi utili, ad esempio:
 - fascia oraria
 
 Retention:
-- 60 o 90 giorni massimo
+- **90 giorni** massimo
 
-Poi purge o archiviazione leggera.
+Poi **purge automatica**.
 
 #### B. Profilo aggregato compatto
 Una riga per utente con punteggi tipo:
@@ -483,10 +670,9 @@ Una riga per utente con punteggi tipo:
 ### Decisione importante
 Non si deve ricalcolare ogni volta tutto lo storico.
 
-Si deve usare:
-- aggiornamento incrementale
-oppure
-- job periodico leggero
+La soluzione corretta è:
+- **aggiornamento incrementale** come meccanismo principale
+- job periodico leggero solo per decay, manutenzione e purge
 
 In più:
 - i dati vecchi devono decadere
@@ -528,6 +714,19 @@ Dopo soglia minima di dati:
 - notifica solo gli utenti con alta compatibilità
 - sempre con frequency cap e rate limit
 
+### Visibilità del livello
+Il livello della partita deve essere sempre visibile:
+- nelle notifiche
+- nelle card su `/play`
+- nel dettaglio partita
+
+Invece non vanno mostrati pubblicamente:
+- livello dichiarato dell’utente
+- livello osservato del sistema
+- livello effettivo interno del profilo
+
+Questi restano interni alla logica della piattaforma.
+
 ---
 
 ## 15. Con 4 campi e 400/500 utenti
@@ -556,7 +755,8 @@ A patto di usare:
 ### Identità e onboarding
 - `GET /api/play/me`
 - `POST /api/play/identify`
-- `POST /api/play/invite/{token}/accept` oppure equivalente
+- `PATCH /api/play/me`
+- `POST /api/public/community-invites/{token}/accept`
 
 ### Pagina play
 - `GET /api/play/matches`
@@ -583,12 +783,15 @@ La direzione consolidata è questa:
 
 ### Cuore del prodotto
 - **pagina `/play`**
+- forma target **`/c/{club_slug}/play`**
 - **100% deterministica**
 
 ### Onboarding community
 - **invito WhatsApp dal club**
 - **invite token**
 - **accettazione community**
+- **privacy obbligatoria prima dell’ingresso**
+- **livello dichiarato chiesto subito**
 - **creazione player**
 - **player token persistente in cookie httpOnly**
 
@@ -602,6 +805,7 @@ La direzione consolidata è questa:
 - **web push**
 - notifiche iniziali semplici
 - profilo probabilistico attivo da subito
+- livello effettivo corretto progressivamente
 - notifiche mirate in seconda fase
 
 ### Da NON mettere al centro adesso
@@ -617,11 +821,14 @@ La direzione consolidata è questa:
 Abbiamo deciso di costruire un sistema così:
 
 - una **pagina `/play` deterministica** dove gli utenti vedono partite aperte, si uniscono e ne creano di nuove
+- la pagina è progettata come **club-specifica**, con forma target `/c/{club_slug}/play`
 - il club fa entrare gli utenti nella community tramite **link WhatsApp con invite token**
+- nell’onboarding l’utente conferma privacy e sceglie anche il **livello dichiarato** oppure `Nessuna preferenza`
 - quando l’utente accetta, il backend crea o recupera il `Player` e genera un **player access token persistente in cookie httpOnly**
 - ogni partita può essere condivisa dagli utenti via **WhatsApp** con link pubblico controllato
 - chi apre il link e non è riconosciuto può fare **self-service onboarding** ed entrare nella community
 - il sistema usa una **memoria leggera e aggregata** per capire quando l’utente gioca più spesso
+- il sistema usa **livello dichiarato, livello osservato e livello effettivo** per matching e notifiche
 - la **profilazione parte subito**, così la memoria si costruisce da v1
 - in v1 le notifiche sono **semplici e deterministiche**
 - in v2 le notifiche diventano **mirate**
@@ -632,13 +839,13 @@ Abbiamo deciso di costruire un sistema così:
 
 ### Database / modelli
 - `Club`
-- `Player`
+- `Player` con nome profilo, livello dichiarato e livello effettivo
 - `Match`
 - `MatchPlayer`
-- `CommunityInviteToken`
-- `PlayerAccessToken` oppure `player_auth_tokens`
+- `CommunityInviteToken` con audit accettazione e versione privacy
+- `PlayerAccessToken` con tabella `player_access_tokens`
 - `PlayerActivityEvent`
-- `PlayerPlayProfile`
+- `PlayerPlayProfile` con livello osservato e punteggi di compatibilità
 - `PlayerPushSubscription`
 - `PlayerNotificationPreference`
 - `NotificationLog`
@@ -654,18 +861,19 @@ Abbiamo deciso di costruire un sistema così:
 - `PlayerProfileService`
 
 ### Frontend principali
-- `PlayPage`
+- `PlayPage` su `/c/{club_slug}/play`
 - `MatchBoard`
 - `MatchCard`
 - `CreateMatchForm`
 - `MyMatches`
 - `JoinConfirmModal`
-- `InviteAcceptPage`
+- `InviteAcceptPage` con livello e privacy
 - `SharedMatchPage`
+- `PlayerProfileSheet`
 
 ### Priorità di implementazione
-1. `/play` deterministica
-2. invito community via WhatsApp
+1. `/play` deterministica e club-specifica
+2. invito community via WhatsApp con privacy e livello dichiarato
 3. token player persistente in cookie httpOnly
 4. join / create / complete match con lock corretto
 5. share match via WhatsApp
