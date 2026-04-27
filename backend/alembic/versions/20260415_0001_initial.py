@@ -7,6 +7,7 @@ Create Date: 2026-04-15 00:00:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = '20260415_0001'
 down_revision = None
@@ -14,11 +15,17 @@ branch_labels = None
 depends_on = None
 
 
-booking_status = sa.Enum('PENDING_PAYMENT', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW', 'EXPIRED', name='bookingstatus')
-payment_provider = sa.Enum('STRIPE', 'PAYPAL', 'NONE', name='paymentprovider')
-payment_status = sa.Enum('UNPAID', 'INITIATED', 'PAID', 'FAILED', 'CANCELLED', 'EXPIRED', name='paymentstatus')
-booking_source = sa.Enum('PUBLIC', 'ADMIN_MANUAL', 'ADMIN_RECURRING', name='bookingsource')
-admin_role = sa.Enum('SUPERADMIN', name='adminrole')
+BOOKING_STATUS_VALUES = ('PENDING_PAYMENT', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW', 'EXPIRED')
+PAYMENT_PROVIDER_VALUES = ('STRIPE', 'PAYPAL', 'NONE')
+PAYMENT_STATUS_VALUES = ('UNPAID', 'INITIATED', 'PAID', 'FAILED', 'CANCELLED', 'EXPIRED')
+BOOKING_SOURCE_VALUES = ('PUBLIC', 'ADMIN_MANUAL', 'ADMIN_RECURRING')
+ADMIN_ROLE_VALUES = ('SUPERADMIN',)
+
+
+def _enum_type(values: tuple[str, ...], name: str, *, is_postgresql: bool, create_type: bool = True) -> sa.Enum:
+    if is_postgresql:
+        return postgresql.ENUM(*values, name=name, create_type=create_type)
+    return sa.Enum(*values, name=name)
 
 
 def upgrade() -> None:
@@ -27,11 +34,18 @@ def upgrade() -> None:
     if is_postgresql:
         op.execute('CREATE EXTENSION IF NOT EXISTS btree_gist')
 
-    admin_role.create(bind, checkfirst=True)
-    booking_status.create(bind, checkfirst=True)
-    payment_provider.create(bind, checkfirst=True)
-    payment_status.create(bind, checkfirst=True)
-    booking_source.create(bind, checkfirst=True)
+    admin_role = _enum_type(ADMIN_ROLE_VALUES, 'adminrole', is_postgresql=is_postgresql, create_type=False)
+    booking_status = _enum_type(BOOKING_STATUS_VALUES, 'bookingstatus', is_postgresql=is_postgresql, create_type=False)
+    payment_provider = _enum_type(PAYMENT_PROVIDER_VALUES, 'paymentprovider', is_postgresql=is_postgresql, create_type=False)
+    payment_status = _enum_type(PAYMENT_STATUS_VALUES, 'paymentstatus', is_postgresql=is_postgresql, create_type=False)
+    booking_source = _enum_type(BOOKING_SOURCE_VALUES, 'bookingsource', is_postgresql=is_postgresql, create_type=False)
+
+    if is_postgresql:
+        _enum_type(ADMIN_ROLE_VALUES, 'adminrole', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(BOOKING_STATUS_VALUES, 'bookingstatus', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(PAYMENT_PROVIDER_VALUES, 'paymentprovider', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(PAYMENT_STATUS_VALUES, 'paymentstatus', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(BOOKING_SOURCE_VALUES, 'bookingsource', is_postgresql=True).create(bind, checkfirst=True)
 
     op.create_table(
         'admins',
@@ -40,7 +54,7 @@ def upgrade() -> None:
         sa.Column('full_name', sa.String(length=120), nullable=False),
         sa.Column('password_hash', sa.String(length=255), nullable=False),
         sa.Column('role', admin_role, nullable=False),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     )
@@ -158,7 +172,7 @@ def upgrade() -> None:
         sa.Column('reason', sa.Text(), nullable=True),
         sa.Column('start_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('end_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_by', sa.String(length=120), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     )
@@ -232,8 +246,9 @@ def downgrade() -> None:
     op.drop_table('customers')
     op.drop_table('admins')
 
-    booking_source.drop(bind, checkfirst=True)
-    payment_status.drop(bind, checkfirst=True)
-    payment_provider.drop(bind, checkfirst=True)
-    booking_status.drop(bind, checkfirst=True)
-    admin_role.drop(bind, checkfirst=True)
+    if is_postgresql:
+        op.execute(sa.text('DROP TYPE IF EXISTS bookingsource'))
+        op.execute(sa.text('DROP TYPE IF EXISTS paymentstatus'))
+        op.execute(sa.text('DROP TYPE IF EXISTS paymentprovider'))
+        op.execute(sa.text('DROP TYPE IF EXISTS bookingstatus'))
+        op.execute(sa.text('DROP TYPE IF EXISTS adminrole'))

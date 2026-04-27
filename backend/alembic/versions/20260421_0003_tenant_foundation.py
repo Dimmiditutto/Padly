@@ -56,7 +56,7 @@ def upgrade() -> None:
         sa.Column('support_phone', sa.String(length=50), nullable=True),
         sa.Column('timezone', sa.String(length=64), nullable=False),
         sa.Column('currency', sa.String(length=3), nullable=False),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     )
@@ -68,8 +68,8 @@ def upgrade() -> None:
         sa.Column('id', sa.String(length=36), primary_key=True),
         sa.Column('club_id', sa.String(length=36), sa.ForeignKey('clubs.id'), nullable=False),
         sa.Column('host', sa.String(length=255), nullable=False),
-        sa.Column('is_primary', sa.Boolean(), nullable=False, server_default=sa.text('0')),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_primary', sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index('ix_club_domains_club_id', 'club_domains', ['club_id'], unique=False)

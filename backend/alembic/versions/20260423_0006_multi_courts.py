@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column('club_id', sa.String(length=36), sa.ForeignKey('clubs.id'), nullable=False),
         sa.Column('name', sa.String(length=140), nullable=False),
         sa.Column('sort_order', sa.Integer(), nullable=False, server_default='1'),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint('club_id', 'name', name='uq_courts_club_name'),
