@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = '20260421_0003'
 down_revision = '20260417_0002'
@@ -19,6 +20,7 @@ DEFAULT_CLUB_ID = '00000000-0000-0000-0000-000000000001'
 DEFAULT_CLUB_SLUG = 'default-club'
 DEFAULT_CLUB_HOST = 'default.local'
 DEFAULT_CURRENCY = 'EUR'
+ADMIN_ROLE_VALUES = ('SUPERADMIN',)
 
 
 def _club_default() -> sa.TextClause:
@@ -37,6 +39,22 @@ def _add_club_scope(table_name: str, *, recreate: str = 'auto') -> None:
         batch_op.create_index(f'ix_{table_name}_club_id', ['club_id'], unique=False)
         batch_op.create_foreign_key(f'fk_{table_name}_club_id_clubs', 'clubs', ['club_id'], ['id'])
     _backfill_club_id(table_name)
+
+
+def _admins_batch_kwargs(*, is_postgresql: bool) -> dict[str, object]:
+    if not is_postgresql:
+        return {'recreate': 'always'}
+
+    return {
+        'recreate': 'always',
+        'reflect_args': [
+            sa.Column(
+                'role',
+                postgresql.ENUM(*ADMIN_ROLE_VALUES, name='adminrole', create_type=False),
+                nullable=False,
+            )
+        ],
+    }
 
 
 def upgrade() -> None:
@@ -138,7 +156,7 @@ def upgrade() -> None:
         )
     )
 
-    with op.batch_alter_table('admins', recreate='always') as batch_op:
+    with op.batch_alter_table('admins', **_admins_batch_kwargs(is_postgresql=is_postgresql)) as batch_op:
         batch_op.add_column(sa.Column('club_id', sa.String(length=36), nullable=False, server_default=_club_default()))
         batch_op.drop_index('ix_admins_email')
         batch_op.create_index('ix_admins_club_id', ['club_id'], unique=False)
@@ -223,7 +241,7 @@ def downgrade() -> None:
             batch_op.drop_index(f'ix_{table_name}_club_id')
             batch_op.drop_column('club_id')
 
-    with op.batch_alter_table('admins', recreate='always') as batch_op:
+    with op.batch_alter_table('admins', **_admins_batch_kwargs(is_postgresql=is_postgresql)) as batch_op:
         batch_op.drop_constraint('uq_admin_club_email', type_='unique')
         batch_op.drop_constraint('fk_admins_club_id_clubs', type_='foreignkey')
         batch_op.drop_index('ix_admins_club_id')
