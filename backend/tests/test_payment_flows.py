@@ -770,6 +770,20 @@ def test_production_bootstrap_fails_fast_with_insecure_security_defaults(monkeyp
             pass
 
 
+def test_production_runtime_does_not_require_stripe_billing_webhook_secret(monkeypatch):
+    monkeypatch.setattr(settings, 'app_env', 'production')
+    monkeypatch.setattr(settings, 'secret_key', 'prod-secret-key-1234567890')
+    monkeypatch.setattr(settings, 'admin_email', 'ops@padelbooking.app')
+    monkeypatch.setattr(settings, 'admin_password', 'ProdAdminPassword123!')
+    monkeypatch.setattr(settings, 'platform_api_key', 'prod-platform-key')
+    monkeypatch.setattr(settings, 'stripe_billing_webhook_secret', None)
+
+    issues = settings.insecure_production_settings()
+
+    assert 'STRIPE_BILLING_WEBHOOK_SECRET mancante' not in issues
+    settings.assert_production_runtime_safe()
+
+
 def test_expire_pending_job_waits_for_single_court_lock(client):
     _, booking = create_booking_without_checkout(
         client,

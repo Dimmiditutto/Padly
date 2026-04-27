@@ -160,8 +160,6 @@ class Settings(BaseSettings):
             issues.append('ADMIN_EMAIL mancante o placeholder')
         if self._is_blank(admin_password) or admin_password in INSECURE_ADMIN_PASSWORDS:
             issues.append('ADMIN_PASSWORD mancante o placeholder')
-        if self._is_blank(self.stripe_billing_webhook_secret):
-            issues.append('STRIPE_BILLING_WEBHOOK_SECRET mancante')
         if self._is_blank(self.platform_api_key):
             issues.append('PLATFORM_API_KEY mancante')
 
