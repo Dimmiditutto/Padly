@@ -5,7 +5,7 @@ Revises: 20260421_0003
 Create Date: 2026-04-22 00:00:00
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from alembic import op
@@ -109,52 +109,71 @@ def upgrade() -> None:
     op.create_index('ix_billing_webhook_events_club_id', 'billing_webhook_events', ['club_id'], unique=False)
 
     # --- seed default trial plan ---
-    from datetime import timedelta
+    plans_seed_table = sa.table(
+        'plans',
+        sa.column('id', sa.String(length=36)),
+        sa.column('code', sa.String(length=80)),
+        sa.column('name', sa.String(length=140)),
+        sa.column('price_amount', sa.Numeric(10, 2)),
+        sa.column('billing_interval', billing_interval),
+        sa.column('is_active', sa.Boolean()),
+        sa.column('feature_flags', sa.JSON()),
+        sa.column('created_at', sa.DateTime(timezone=True)),
+        sa.column('updated_at', sa.DateTime(timezone=True)),
+    )
 
-    op.execute(
-        sa.text(
-            'INSERT INTO plans (id, code, name, price_amount, billing_interval, is_active, feature_flags, created_at, updated_at) '
-            'VALUES (:id, :code, :name, :price, :interval, :active, :flags, :created, :updated)'
-        ).bindparams(
-            id=DEFAULT_PLAN_ID,
-            code='trial',
-            name='Trial',
-            price=str(Decimal('0.00')),
-            interval='MONTHLY',
-            active=True,
-            flags=None,
-            created=now.isoformat(),
-            updated=now.isoformat(),
-        )
+    op.bulk_insert(
+        plans_seed_table,
+        [
+            {
+                'id': DEFAULT_PLAN_ID,
+                'code': 'trial',
+                'name': 'Trial',
+                'price_amount': Decimal('0.00'),
+                'billing_interval': 'MONTHLY',
+                'is_active': True,
+                'feature_flags': None,
+                'created_at': now,
+                'updated_at': now,
+            }
+        ],
     )
 
     # --- seed default-club subscription if default club already exists ---
+    club_subscriptions_seed_table = sa.table(
+        'club_subscriptions',
+        sa.column('id', sa.String(length=36)),
+        sa.column('club_id', sa.String(length=36)),
+        sa.column('plan_id', sa.String(length=36)),
+        sa.column('provider', sa.String(length=40)),
+        sa.column('status', subscription_status),
+        sa.column('trial_ends_at', sa.DateTime(timezone=True)),
+        sa.column('created_at', sa.DateTime(timezone=True)),
+        sa.column('updated_at', sa.DateTime(timezone=True)),
+    )
+
     import uuid
 
-    trial_ends_at = (now + sa.timedelta(days=TRIAL_DAYS)).isoformat() if hasattr(sa, 'timedelta') else None
-    from datetime import timedelta as dt_timedelta
-
-    trial_ends_at = (now + dt_timedelta(days=TRIAL_DAYS)).isoformat()
+    trial_ends_at = now + timedelta(days=TRIAL_DAYS)
 
     result = bind.execute(sa.text('SELECT id FROM clubs WHERE id = :club_id').bindparams(club_id=DEFAULT_CLUB_ID))
     row = result.fetchone()
     if row:
         sub_id = str(uuid.uuid4())
-        op.execute(
-            sa.text(
-                'INSERT INTO club_subscriptions '
-                '(id, club_id, plan_id, provider, status, trial_ends_at, created_at, updated_at) '
-                'VALUES (:id, :club_id, :plan_id, :provider, :status, :trial_ends_at, :created, :updated)'
-            ).bindparams(
-                id=sub_id,
-                club_id=DEFAULT_CLUB_ID,
-                plan_id=DEFAULT_PLAN_ID,
-                provider='none',
-                status='TRIALING',
-                trial_ends_at=trial_ends_at,
-                created=now.isoformat(),
-                updated=now.isoformat(),
-            )
+        op.bulk_insert(
+            club_subscriptions_seed_table,
+            [
+                {
+                    'id': sub_id,
+                    'club_id': DEFAULT_CLUB_ID,
+                    'plan_id': DEFAULT_PLAN_ID,
+                    'provider': 'none',
+                    'status': 'TRIALING',
+                    'trial_ends_at': trial_ends_at,
+                    'created_at': now,
+                    'updated_at': now,
+                }
+            ],
         )
 
 
