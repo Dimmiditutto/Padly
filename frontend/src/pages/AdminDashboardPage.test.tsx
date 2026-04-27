@@ -7,6 +7,7 @@ vi.mock('../services/adminApi', () => ({
   createAdminCourt: vi.fn(),
   createAdminBooking: vi.fn(),
   createBlackout: vi.fn(),
+  createAdminCommunityInvite: vi.fn(),
   createRecurring: vi.fn(),
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
@@ -25,6 +26,7 @@ import {
   createAdminCourt,
   createAdminBooking,
   createBlackout,
+  createAdminCommunityInvite,
   createRecurring,
   getAdminSession,
   getAdminSettings,
@@ -103,6 +105,16 @@ describe('AdminDashboardPage', () => {
     vi.mocked(createAdminBooking).mockResolvedValue({} as never);
     vi.mocked(createAdminCourt).mockResolvedValue({ id: 'court-2', name: 'Campo 2', badge_label: null, sort_order: 2, is_active: true } as never);
     vi.mocked(createBlackout).mockResolvedValue({ id: 'blackout-1', message: 'ok' });
+    vi.mocked(createAdminCommunityInvite).mockResolvedValue({
+      message: 'Invito community creato.',
+      invite_id: 'invite-1',
+      invite_token: 'invite-token-123',
+      invite_path: '/c/default-club/play/invite/invite-token-123',
+      profile_name: 'Giulia Spin',
+      phone: '+393331112222',
+      invited_level: 'INTERMEDIATE_MEDIUM',
+      expires_at: '2026-05-04T10:30:00Z',
+    });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
     vi.mocked(listAdminCourts).mockResolvedValue({ items: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
@@ -445,5 +457,35 @@ describe('AdminDashboardPage', () => {
       play_community_deposit_amount: 12.5,
       play_community_payment_timeout_minutes: 45,
     })));
+  });
+
+  it('creates and exposes a shareable community invite from the admin section', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    fireEvent.change(screen.getByLabelText('Nome profilo invito community'), { target: { value: 'Giulia Spin' } });
+    fireEvent.change(screen.getByLabelText('Telefono invito community'), { target: { value: '+39 333 111 2222' } });
+    fireEvent.change(screen.getByLabelText('Livello iniziale'), { target: { value: 'INTERMEDIATE_MEDIUM' } });
+
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Genera link invito community' }));
+
+    await waitFor(() => expect(createAdminCommunityInvite).toHaveBeenCalledWith({
+      profile_name: 'Giulia Spin',
+      phone: '+39 333 111 2222',
+      invited_level: 'INTERMEDIATE_MEDIUM',
+    }));
+    const expectedInviteUrl = `${window.location.origin}/c/default-club/play/invite/invite-token-123`;
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedInviteUrl));
+    expect(within(settingsSection as HTMLElement).getByDisplayValue(expectedInviteUrl)).toBeInTheDocument();
+    expect(within(settingsSection as HTMLElement).getByText('Link accesso community copiato negli appunti.')).toBeInTheDocument();
   });
 });

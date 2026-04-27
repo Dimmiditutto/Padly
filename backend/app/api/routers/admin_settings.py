@@ -5,7 +5,9 @@ from app.api.deps import get_current_admin_enforced
 from app.core.db import get_db
 from app.models import Admin
 from app.schemas.admin import AdminSettingsResponse, AdminSettingsUpdateRequest
+from app.schemas.play import AdminCommunityInviteCreateRequest, AdminCommunityInviteCreateResponse
 from app.services.payment_service import is_paypal_checkout_available, is_stripe_checkout_available, list_available_checkout_providers
+from app.services.play_service import create_community_invite
 from app.services.settings_service import get_tenant_settings, update_tenant_settings
 
 router = APIRouter(prefix='/admin/settings', tags=['Admin Settings'])
@@ -62,4 +64,30 @@ def update_settings_payload(
         stripe_enabled=is_stripe_checkout_available(),
         paypal_enabled=is_paypal_checkout_available(),
         **settings_payload,
+    )
+
+
+@router.post('/community-invites', response_model=AdminCommunityInviteCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_settings_community_invite(
+    payload: AdminCommunityInviteCreateRequest,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminCommunityInviteCreateResponse:
+    invite, raw_token = create_community_invite(
+        db,
+        club_id=admin.club_id,
+        profile_name=payload.profile_name,
+        phone=payload.phone,
+        invited_level=payload.invited_level,
+    )
+    db.commit()
+    return AdminCommunityInviteCreateResponse(
+        message='Invito community creato.',
+        invite_id=invite.id,
+        invite_token=raw_token,
+        invite_path=f'/c/{admin.club.slug}/play/invite/{raw_token}',
+        profile_name=invite.profile_name,
+        phone=invite.phone,
+        invited_level=invite.invited_level,
+        expires_at=invite.expires_at,
     )

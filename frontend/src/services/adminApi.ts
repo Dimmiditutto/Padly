@@ -2,6 +2,8 @@ import { api } from './api';
 import type {
   AdminBookingStatusPayload,
   AdminBookingUpdatePayload,
+  AdminCommunityInvitePayload,
+  AdminCommunityInviteResponse,
   AdminDashboardFilters,
   AdminEvent,
   AdminManualBookingPayload,
@@ -167,6 +169,11 @@ export async function getAdminSettings() {
 
 export async function updateAdminSettings(payload: AdminSettingsUpdatePayload) {
   const response = await api.put<AdminSettings>('/admin/settings', payload);
+  return response.data;
+}
+
+export async function createAdminCommunityInvite(payload: AdminCommunityInvitePayload) {
+  const response = await api.post<AdminCommunityInviteResponse>('/admin/settings/community-invites', payload);
   return response.data;
 }
 

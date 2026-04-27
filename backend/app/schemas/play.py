@@ -56,6 +56,22 @@ class CommunityInviteAcceptRequest(BaseModel):
         return value
 
 
+class AdminCommunityInviteCreateRequest(BaseModel):
+    profile_name: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=6, max_length=50)
+    invited_level: PlayLevel = PlayLevel.NO_PREFERENCE
+
+    @field_validator('profile_name', mode='before')
+    @classmethod
+    def normalize_profile_name(cls, value: str) -> str:
+        return _normalize_profile_name(value)
+
+    @field_validator('phone', mode='before')
+    @classmethod
+    def normalize_phone(cls, value: str) -> str:
+        return _normalize_phone(value)
+
+
 class PlayPlayerSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -144,6 +160,17 @@ class PlayerIdentifyResponse(BaseModel):
 class CommunityInviteAcceptResponse(BaseModel):
     message: str
     player: PlayPlayerSummary
+
+
+class AdminCommunityInviteCreateResponse(BaseModel):
+    message: str
+    invite_id: str
+    invite_token: str
+    invite_path: str
+    profile_name: str
+    phone: str
+    invited_level: PlayLevel
+    expires_at: datetime
 
 
 class PlayMatchesResponse(BaseModel):

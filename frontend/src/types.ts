@@ -490,6 +490,23 @@ export interface AdminSettingsUpdatePayload {
   play_community_payment_timeout_minutes: number;
 }
 
+export interface AdminCommunityInvitePayload {
+  profile_name: string;
+  phone: string;
+  invited_level: PlayLevel;
+}
+
+export interface AdminCommunityInviteResponse {
+  message: string;
+  invite_id: string;
+  invite_token: string;
+  invite_path: string;
+  profile_name: string;
+  phone: string;
+  invited_level: PlayLevel;
+  expires_at: string;
+}
+
 export interface AdminDashboardData {
   bookings: BookingSummary[];
   report: ReportResponse;

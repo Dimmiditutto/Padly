@@ -12,6 +12,7 @@ import {
   createAdminCourt,
   createAdminBooking,
   createBlackout,
+  createAdminCommunityInvite,
   createRecurring,
   getAdminReport,
   getAdminSession,
@@ -24,9 +25,22 @@ import {
   updateAdminCourt,
   updateAdminSettings,
 } from '../services/adminApi';
-import type { AdminManualBookingPayload, AdminSession, AdminSettings, BlackoutItem, CourtSummary, RecurringOccurrence, RecurringSeriesPayload, ReportResponse, SubscriptionStatusBanner } from '../types';
+import type {
+  AdminCommunityInvitePayload,
+  AdminCommunityInviteResponse,
+  AdminManualBookingPayload,
+  AdminSession,
+  AdminSettings,
+  BlackoutItem,
+  CourtSummary,
+  RecurringOccurrence,
+  RecurringSeriesPayload,
+  ReportResponse,
+  SubscriptionStatusBanner,
+} from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateInputValue } from '../utils/format';
+import { PLAY_LEVEL_OPTIONS, formatPlayLevel } from '../utils/play';
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -79,9 +93,16 @@ export function AdminDashboardPage() {
   const [blackoutFeedback, setBlackoutFeedback] = useState<FeedbackState>(null);
   const [settingsFeedback, setSettingsFeedback] = useState<FeedbackState>(null);
   const [courtsFeedback, setCourtsFeedback] = useState<FeedbackState>(null);
+  const [communityInviteFeedback, setCommunityInviteFeedback] = useState<FeedbackState>(null);
+  const [latestCommunityInvite, setLatestCommunityInvite] = useState<AdminCommunityInviteResponse | null>(null);
   const [courtDrafts, setCourtDrafts] = useState<Record<string, CourtDraftState>>({});
   const [newCourtName, setNewCourtName] = useState('Campo 2');
   const [newCourtBadgeLabel, setNewCourtBadgeLabel] = useState('');
+  const [communityInviteForm, setCommunityInviteForm] = useState<AdminCommunityInvitePayload>({
+    profile_name: '',
+    phone: '',
+    invited_level: 'NO_PREFERENCE',
+  });
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
     last_name: 'Rossi',
@@ -358,6 +379,32 @@ export function AdminDashboardPage() {
       setCourtsFeedback({ tone: 'success', message: 'Nome campo aggiornato.' });
     } catch (error: any) {
       setCourtsFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Aggiornamento campo non riuscito.' });
+    }
+  }
+
+  function buildAbsoluteCommunityInviteUrl(invite: AdminCommunityInviteResponse) {
+    return typeof window !== 'undefined' ? `${window.location.origin}${invite.invite_path}` : invite.invite_path;
+  }
+
+  async function copyCommunityInviteLink(invite: AdminCommunityInviteResponse) {
+    const absoluteUrl = buildAbsoluteCommunityInviteUrl(invite);
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      setCommunityInviteFeedback({ tone: 'success', message: 'Link accesso community copiato negli appunti.' });
+    } catch {
+      setCommunityInviteFeedback({ tone: 'success', message: 'Invito creato. Copia manualmente il link qui sotto.' });
+    }
+  }
+
+  async function createCommunityInvite() {
+    setCommunityInviteFeedback(null);
+    try {
+      const response = await createAdminCommunityInvite(communityInviteForm);
+      setLatestCommunityInvite(response);
+      setCommunityInviteForm({ profile_name: '', phone: '', invited_level: 'NO_PREFERENCE' });
+      await copyCommunityInviteLink(response);
+    } catch (error: any) {
+      setCommunityInviteFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione invito community non riuscita.' });
     }
   }
 
@@ -800,6 +847,65 @@ export function AdminDashboardPage() {
                       </div>
                     </div>
                     <p className='mt-3 text-sm text-slate-600'>Provider online disponibili ora: Stripe <strong>{settings.stripe_enabled ? 'attivo' : 'non disponibile'}</strong> • PayPal <strong>{settings.paypal_enabled ? 'attivo' : 'non disponibile'}</strong>.</p>
+                  </div>
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className='text-sm font-semibold text-slate-900'>Inviti accesso community</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Genera un link personale per far entrare un giocatore nella community privata del club. Funziona anche se la community pubblica resta chiusa.</p>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-community-invite-profile-name'>Nome profilo invito community</label>
+                        <input
+                          id='admin-community-invite-profile-name'
+                          className='text-input'
+                          value={communityInviteForm.profile_name}
+                          onChange={(event) => setCommunityInviteForm((prev) => ({ ...prev, profile_name: event.target.value }))}
+                          placeholder='Giulia Spin'
+                        />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-community-invite-phone'>Telefono invito community</label>
+                        <input
+                          id='admin-community-invite-phone'
+                          className='text-input'
+                          value={communityInviteForm.phone}
+                          onChange={(event) => setCommunityInviteForm((prev) => ({ ...prev, phone: event.target.value }))}
+                          placeholder='+39 333 111 2222'
+                        />
+                      </div>
+                    </div>
+                    <div className='mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-community-invite-level'>Livello iniziale</label>
+                        <select
+                          id='admin-community-invite-level'
+                          className='text-input'
+                          value={communityInviteForm.invited_level}
+                          onChange={(event) => setCommunityInviteForm((prev) => ({ ...prev, invited_level: event.target.value as AdminCommunityInvitePayload['invited_level'] }))}
+                        >
+                          {PLAY_LEVEL_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button className='btn-secondary sm:w-auto' type='button' onClick={() => void createCommunityInvite()}>
+                        Genera link invito community
+                      </button>
+                    </div>
+                    {communityInviteFeedback ? <div className='mt-4'><AlertBanner tone={communityInviteFeedback.tone}>{communityInviteFeedback.message}</AlertBanner></div> : null}
+                    {latestCommunityInvite ? (
+                      <div className='mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700'>
+                        <p><strong className='text-slate-900'>Giocatore invitato:</strong> {latestCommunityInvite.profile_name}</p>
+                        <p className='mt-1'><strong className='text-slate-900'>Telefono:</strong> {latestCommunityInvite.phone}</p>
+                        <p className='mt-1'><strong className='text-slate-900'>Livello iniziale:</strong> {formatPlayLevel(latestCommunityInvite.invited_level)}</p>
+                        <p className='mt-1'><strong className='text-slate-900'>Scadenza:</strong> {formatDateTime(latestCommunityInvite.expires_at, adminTimezone)}</p>
+                        <div className='mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
+                          <input className='text-input' readOnly value={buildAbsoluteCommunityInviteUrl(latestCommunityInvite)} aria-label='Link accesso community generato' />
+                          <button className='btn-secondary sm:w-auto' type='button' onClick={() => void copyCommunityInviteLink(latestCommunityInvite)}>
+                            Copia link
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>

@@ -243,6 +243,38 @@ def test_community_invite_accept_supports_valid_expired_and_used_tokens(client):
         assert invite.accepted_player_id == player.id
 
 
+def test_admin_can_create_community_invite_and_receive_share_path(client):
+    login_response = client.post(
+        '/api/admin/auth/login',
+        json={'email': 'admin@padelbooking.app', 'password': 'ChangeMe123!'},
+    )
+    assert login_response.status_code == 200
+
+    response = client.post(
+        '/api/admin/settings/community-invites',
+        json={
+            'profile_name': 'Giulia Spin',
+            'phone': '+39 333 111 2222',
+            'invited_level': 'INTERMEDIATE_MEDIUM',
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload['message'] == 'Invito community creato.'
+    assert payload['profile_name'] == 'Giulia Spin'
+    assert payload['phone'] == '+393331112222'
+    assert payload['invited_level'] == 'INTERMEDIATE_MEDIUM'
+    assert payload['invite_path'].startswith('/c/default-club/play/invite/')
+    assert payload['invite_token']
+
+    with SessionLocal() as db:
+        invite = db.get(CommunityInviteToken, payload['invite_id'])
+        assert invite is not None
+        assert invite.club_id == DEFAULT_CLUB_ID
+        assert invite.token_hash == hash_play_token(payload['invite_token'])
+
+
 def test_play_cookie_is_not_valid_across_tenants(client):
     secondary = create_secondary_tenant(slug='play-milano', host='play-milano.example.test')
 
