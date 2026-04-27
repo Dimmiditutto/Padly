@@ -236,9 +236,22 @@ Vincoli operativi:
 ## 8. Smoke checklist go-live
 
 - `GET /api/health`
+- `GET /`
+- `GET /api/platform/ops/status` con `X-Platform-Key`
 - `GET /api/public/config` tenant default
 - `POST /api/public/bookings` tenant default
 - login admin tenant default
 - `GET /api/admin/settings` tenant default
 - `GET /api/admin/billing/status` tenant default
+- route privata `/c/:clubSlug/play` tenant default con identify o riconoscimento player
+- join di un match open su `/c/:clubSlug/play` tenant default
+- create match su `/c/:clubSlug/play` con suggerimenti anti-frammentazione
+- completamento `4/4` con verifica del comportamento caparra `OFF` o `ON`
+- feed notifiche `/play` con unread count, fallback in-app e stato push coerente
+- `GET /api/public/clubs`
+- `GET /api/public/clubs/nearby` con fallback coerente se geolocalizzazione assente o negata
+- `GET /api/public/clubs/{club_slug}`
+- follow/unfollow watchlist discovery
+- `POST /api/public/clubs/{club_slug}/contact-request`
+- conferma che la pagina pubblica club non abiliti join diretto alla community privata
 - stessa triade `public config` + login admin + billing status su un tenant secondario
