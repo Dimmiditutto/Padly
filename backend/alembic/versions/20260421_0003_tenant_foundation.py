@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = '20260421_0003'
 down_revision = '20260417_0002'
@@ -20,7 +19,6 @@ DEFAULT_CLUB_ID = '00000000-0000-0000-0000-000000000001'
 DEFAULT_CLUB_SLUG = 'default-club'
 DEFAULT_CLUB_HOST = 'default.local'
 DEFAULT_CURRENCY = 'EUR'
-ADMIN_ROLE_VALUES = ('SUPERADMIN',)
 
 
 def _club_default() -> sa.TextClause:
@@ -41,20 +39,42 @@ def _add_club_scope(table_name: str, *, recreate: str = 'auto') -> None:
     _backfill_club_id(table_name)
 
 
-def _admins_batch_kwargs(*, is_postgresql: bool) -> dict[str, object]:
-    if not is_postgresql:
-        return {'recreate': 'always'}
+def _add_admin_club_scope(*, is_postgresql: bool) -> None:
+    if is_postgresql:
+        op.add_column('admins', sa.Column('club_id', sa.String(length=36), nullable=False, server_default=_club_default()))
+        op.drop_index('ix_admins_email', table_name='admins')
+        op.create_index('ix_admins_club_id', 'admins', ['club_id'], unique=False)
+        op.create_index('ix_admins_email', 'admins', ['email'], unique=False)
+        op.create_unique_constraint('uq_admin_club_email', 'admins', ['club_id', 'email'])
+        op.create_foreign_key('fk_admins_club_id_clubs', 'admins', 'clubs', ['club_id'], ['id'])
+        return
 
-    return {
-        'recreate': 'always',
-        'reflect_args': [
-            sa.Column(
-                'role',
-                postgresql.ENUM(*ADMIN_ROLE_VALUES, name='adminrole', create_type=False),
-                nullable=False,
-            )
-        ],
-    }
+    with op.batch_alter_table('admins', recreate='always') as batch_op:
+        batch_op.add_column(sa.Column('club_id', sa.String(length=36), nullable=False, server_default=_club_default()))
+        batch_op.drop_index('ix_admins_email')
+        batch_op.create_index('ix_admins_club_id', ['club_id'], unique=False)
+        batch_op.create_index('ix_admins_email', ['email'], unique=False)
+        batch_op.create_unique_constraint('uq_admin_club_email', ['club_id', 'email'])
+        batch_op.create_foreign_key('fk_admins_club_id_clubs', 'clubs', ['club_id'], ['id'])
+
+
+def _remove_admin_club_scope(*, is_postgresql: bool) -> None:
+    if is_postgresql:
+        op.drop_constraint('uq_admin_club_email', 'admins', type_='unique')
+        op.drop_constraint('fk_admins_club_id_clubs', 'admins', type_='foreignkey')
+        op.drop_index('ix_admins_club_id', table_name='admins')
+        op.drop_index('ix_admins_email', table_name='admins')
+        op.create_index('ix_admins_email', 'admins', ['email'], unique=True)
+        op.drop_column('admins', 'club_id')
+        return
+
+    with op.batch_alter_table('admins', recreate='always') as batch_op:
+        batch_op.drop_constraint('uq_admin_club_email', type_='unique')
+        batch_op.drop_constraint('fk_admins_club_id_clubs', type_='foreignkey')
+        batch_op.drop_index('ix_admins_club_id')
+        batch_op.drop_index('ix_admins_email')
+        batch_op.create_index('ix_admins_email', ['email'], unique=True)
+        batch_op.drop_column('club_id')
 
 
 def upgrade() -> None:
@@ -156,13 +176,7 @@ def upgrade() -> None:
         )
     )
 
-    with op.batch_alter_table('admins', **_admins_batch_kwargs(is_postgresql=is_postgresql)) as batch_op:
-        batch_op.add_column(sa.Column('club_id', sa.String(length=36), nullable=False, server_default=_club_default()))
-        batch_op.drop_index('ix_admins_email')
-        batch_op.create_index('ix_admins_club_id', ['club_id'], unique=False)
-        batch_op.create_index('ix_admins_email', ['email'], unique=False)
-        batch_op.create_unique_constraint('uq_admin_club_email', ['club_id', 'email'])
-        batch_op.create_foreign_key('fk_admins_club_id_clubs', 'clubs', ['club_id'], ['id'])
+    _add_admin_club_scope(is_postgresql=is_postgresql)
     _backfill_club_id('admins')
 
     _add_club_scope('customers')
@@ -241,13 +255,7 @@ def downgrade() -> None:
             batch_op.drop_index(f'ix_{table_name}_club_id')
             batch_op.drop_column('club_id')
 
-    with op.batch_alter_table('admins', **_admins_batch_kwargs(is_postgresql=is_postgresql)) as batch_op:
-        batch_op.drop_constraint('uq_admin_club_email', type_='unique')
-        batch_op.drop_constraint('fk_admins_club_id_clubs', type_='foreignkey')
-        batch_op.drop_index('ix_admins_club_id')
-        batch_op.drop_index('ix_admins_email')
-        batch_op.create_index('ix_admins_email', ['email'], unique=True)
-        batch_op.drop_column('club_id')
+    _remove_admin_club_scope(is_postgresql=is_postgresql)
 
     op.drop_index('ix_club_domains_is_active', table_name='club_domains')
     op.drop_index('ix_club_domains_host', table_name='club_domains')
