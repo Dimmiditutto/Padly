@@ -16,6 +16,7 @@ import {
   getPlaySession,
   joinPlayMatch,
   leavePlayMatch,
+  markPlayNotificationRead,
   registerPlayPushSubscription,
   revokePlayPushSubscription,
   startPlayBookingCheckout,
@@ -80,6 +81,7 @@ export function PlayPage() {
   const [notificationDraft, setNotificationDraft] = useState<PlayNotificationPreferenceSummary | null>(null);
   const [savingNotificationPreferences, setSavingNotificationPreferences] = useState(false);
   const [updatingPushSubscription, setUpdatingPushSubscription] = useState(false);
+  const [readingNotificationId, setReadingNotificationId] = useState<string | null>(null);
   const browserSupportsPush = useMemo(() => isPlayPushSupported(), []);
 
   useEffect(() => {
@@ -419,6 +421,26 @@ export function PlayPage() {
     }
   }
 
+  async function handleMarkNotificationRead(notificationId: string) {
+    if (!tenantSlug || !currentPlayer || readingNotificationId) {
+      return;
+    }
+
+    setReadingNotificationId(notificationId);
+    try {
+      const response = await markPlayNotificationRead(notificationId, tenantSlug);
+      applyNotificationSettings(response.settings);
+      setFeedback({ tone: 'success', message: response.message });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco a marcare la notifica come letta.',
+      });
+    } finally {
+      setReadingNotificationId(null);
+    }
+  }
+
   async function handleDisablePush() {
     if (!tenantSlug || !currentPlayer || !notificationSettings || updatingPushSubscription) {
       return;
@@ -461,6 +483,15 @@ export function PlayPage() {
       </div>
     );
   }
+
+  const pushStatusTone: FeedbackTone = notificationSettings?.push.has_active_subscription
+    ? (notificationSettings.push.push_supported ? 'success' : 'warning')
+    : 'info';
+  const pushStatusMessage = notificationSettings?.push.has_active_subscription
+    ? notificationSettings.push.push_supported
+      ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'browser o dispositivo collegato al tuo profilo play' : 'browser o dispositivi collegati al tuo profilo play'}. Le notifiche in-app restano comunque disponibili nella pagina.`
+      : `Il tuo profilo risulta associato a ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'subscription web push' : 'subscription web push'}, ma questo ambiente server non puo consegnarle davvero. Il feed in-app resta disponibile finche la configurazione VAPID non viene completata.`
+    : 'Nessuna web push attiva sul tuo profilo play. Le notifiche in-app restano sempre nel feed locale della pagina.';
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -551,13 +582,18 @@ export function PlayPage() {
                   description='Preferenze essenziali, stato web push e feed in-app delle segnalazioni determinate del club.'
                 >
                   <div className='space-y-4'>
+                    <div className='flex flex-wrap items-center gap-3 text-sm'>
+                      <span className={`rounded-full px-3 py-1 font-semibold ${notificationSettings.unread_notifications_count > 0 ? 'bg-cyan-100 text-cyan-900' : 'bg-slate-200 text-slate-700'}`}>
+                        Non lette: {notificationSettings.unread_notifications_count}
+                      </span>
+                      <span className='text-slate-600'>Il feed in-app resta il fallback affidabile anche quando il browser non riceve push.</span>
+                    </div>
+
                     <AlertBanner
-                      tone={notificationSettings.push.has_active_subscription ? 'success' : 'info'}
+                      tone={pushStatusTone}
                       title='Stato attivazione'
                     >
-                      {notificationSettings.push.has_active_subscription
-                        ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'browser o dispositivo collegato al tuo profilo play' : 'browser o dispositivi collegati al tuo profilo play'}. Le notifiche in-app restano comunque disponibili nella pagina.`
-                        : 'Nessuna web push attiva sul tuo profilo play. Le notifiche in-app restano sempre nel feed locale della pagina.'}
+                      {pushStatusMessage}
                     </AlertBanner>
 
                     <div className='grid gap-4 lg:grid-cols-2'>
@@ -631,7 +667,7 @@ export function PlayPage() {
                           <p className='mt-2 text-sm text-slate-600'>
                             {notificationSettings.push.push_supported
                               ? 'Il backend espone una chiave pubblica VAPID. Se il browser supporta Push API puoi registrare o revocare la subscription dal device corrente.'
-                              : 'Il backend non espone ancora una chiave pubblica VAPID: il feed in-app resta attivo, ma la subscription web push non puo essere completata da questo ambiente.'}
+                              : 'Le web push non sono configurate in modo completo lato server: il feed in-app resta attivo, ma la subscription web push non puo essere completata da questo ambiente.'}
                           </p>
                           {!browserSupportsPush ? (
                             <p className='mt-2 text-sm text-amber-700'>Il browser o l ambiente di test corrente non supportano Service Worker + Push API.</p>
@@ -671,12 +707,31 @@ export function PlayPage() {
                       ) : (
                         <div className='space-y-3'>
                           {notificationSettings.recent_notifications.map((item) => (
-                            <div key={item.id} className='rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+                            <div key={item.id} className={`rounded-2xl border px-4 py-3 ${item.read_at ? 'border-slate-200 bg-slate-50' : 'border-cyan-200 bg-cyan-50/70'}`}>
                               <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
                                 <p className='text-sm font-semibold text-slate-900'>{item.title}</p>
-                                <span className='text-xs uppercase tracking-wide text-slate-500'>{new Date(item.created_at).toLocaleString('it-IT')}</span>
+                                <div className='flex items-center gap-2'>
+                                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase tracking-wide ${item.read_at ? 'bg-slate-200 text-slate-600' : 'bg-cyan-100 text-cyan-900'}`}>
+                                    {item.read_at ? 'Letta' : 'Non letta'}
+                                  </span>
+                                  <span className='text-xs uppercase tracking-wide text-slate-500'>{new Date(item.created_at).toLocaleString('it-IT')}</span>
+                                </div>
                               </div>
                               <p className='mt-2 text-sm text-slate-600'>{item.message}</p>
+                              <div className='mt-3 flex flex-wrap items-center gap-3 text-sm'>
+                                {item.read_at ? (
+                                  <span className='text-slate-500'>Letta il {new Date(item.read_at).toLocaleString('it-IT')}</span>
+                                ) : (
+                                  <button
+                                    type='button'
+                                    className='btn-secondary'
+                                    disabled={readingNotificationId === item.id}
+                                    onClick={() => void handleMarkNotificationRead(item.id)}
+                                  >
+                                    {readingNotificationId === item.id ? 'Aggiornamento…' : 'Segna come letta'}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>

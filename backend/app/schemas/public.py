@@ -117,6 +117,9 @@ class PublicClubSummary(BaseModel):
     contact_email: str | None = None
     support_phone: str | None = None
     is_community_open: bool
+    public_activity_score: int = 0
+    recent_open_matches_count: int = 0
+    public_activity_label: str = 'Nessuna disponibilita recente'
 
 
 class PublicClubDirectoryResponse(BaseModel):

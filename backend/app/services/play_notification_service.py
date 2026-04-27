@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from pywebpush import WebPushException, webpush
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.models import (
     Match,
     MatchPlayer,
@@ -33,6 +36,7 @@ PLAY_MIN_USEFUL_EVENTS = 5
 PLAY_PROFILE_DECAY_INTERVAL_DAYS = 14
 PLAY_PROFILE_DECAY_FACTOR = 0.85
 PLAY_SERVICE_WORKER_PATH = '/play-service-worker.js'
+PERMANENT_WEB_PUSH_STATUS_CODES = {404, 410}
 
 
 def _utcnow() -> datetime:
@@ -305,9 +309,10 @@ def serialize_push_state(
     push_public_key: str | None,
 ) -> dict:
     active_subscriptions = _active_push_subscriptions_for_player(player)
+    push_supported = bool((push_public_key or '').strip() and (settings.play_push_vapid_private_key or '').strip())
     return {
-        'push_supported': bool(push_public_key),
-        'public_vapid_key': push_public_key,
+        'push_supported': push_supported,
+        'public_vapid_key': push_public_key if push_supported else None,
         'service_worker_path': PLAY_SERVICE_WORKER_PATH,
         'has_active_subscription': bool(active_subscriptions),
         'active_subscription_count': len(active_subscriptions),
@@ -322,10 +327,23 @@ def list_recent_in_app_notifications(db: Session, *, player: Player, limit: int 
             NotificationLog.player_id == player.id,
             NotificationLog.channel == NotificationChannel.IN_APP,
         )
-        .order_by(NotificationLog.created_at.desc())
+        .order_by(NotificationLog.created_at.desc(), NotificationLog.id.desc())
         .limit(limit)
     ).all()
     return [serialize_notification_log(item) for item in items]
+
+
+def count_unread_in_app_notifications(db: Session, *, player: Player) -> int:
+    unread_count = db.scalar(
+        select(func.count(NotificationLog.id))
+        .where(
+            NotificationLog.club_id == player.club_id,
+            NotificationLog.player_id == player.id,
+            NotificationLog.channel == NotificationChannel.IN_APP,
+            NotificationLog.read_at.is_(None),
+        )
+    )
+    return int(unread_count or 0)
 
 
 def get_player_notification_settings(
@@ -339,7 +357,32 @@ def get_player_notification_settings(
         'preferences': serialize_notification_preference(preference),
         'push': serialize_push_state(player=player, push_public_key=push_public_key),
         'recent_notifications': list_recent_in_app_notifications(db, player=player),
+        'unread_notifications_count': count_unread_in_app_notifications(db, player=player),
     }
+
+
+def mark_notification_as_read(
+    db: Session,
+    *,
+    player: Player,
+    notification_id: str,
+) -> NotificationLog:
+    notification = db.scalar(
+        select(NotificationLog)
+        .where(
+            NotificationLog.id == notification_id,
+            NotificationLog.club_id == player.club_id,
+            NotificationLog.player_id == player.id,
+            NotificationLog.channel == NotificationChannel.IN_APP,
+        )
+        .limit(1)
+    )
+    if notification is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Notifica play non trovata')
+    if notification.read_at is None:
+        notification.read_at = _utcnow()
+        db.flush()
+    return notification
 
 
 def update_player_notification_preference(
@@ -444,7 +487,13 @@ def revoke_push_subscription(
         PlayerPushSubscription.revoked_at.is_(None),
     )
     if endpoint:
-        stmt = stmt.where(PlayerPushSubscription.endpoint_hash == _hash_endpoint(endpoint.strip()))
+        normalized_endpoint = endpoint.strip()
+        stmt = stmt.where(
+            or_(
+                PlayerPushSubscription.endpoint_hash == _hash_endpoint(normalized_endpoint),
+                PlayerPushSubscription.endpoint == normalized_endpoint,
+            )
+        )
     subscriptions = db.scalars(stmt).all()
     for subscription in subscriptions:
         subscription.revoked_at = now
@@ -584,7 +633,7 @@ def _notification_copy_for_match(match: Match, *, kind: NotificationKind, partic
 
 
 def _build_notification_payload(match: Match, *, participant_count: int) -> dict:
-    return {
+    payload = {
         'match_id': match.id,
         'court_id': match.court_id,
         'court_name': match.court.name if match.court else None,
@@ -593,6 +642,9 @@ def _build_notification_payload(match: Match, *, participant_count: int) -> dict
         'end_at': match.end_at.isoformat(),
         'level_requested': match.level_requested.value,
     }
+    if match.club and match.club.slug:
+        payload['url'] = f'/c/{match.club.slug}/play'
+    return payload
 
 
 def _create_notification_log_if_absent(
@@ -631,6 +683,109 @@ def _create_notification_log_if_absent(
     return True
 
 
+def _push_dispatch_ready(*, push_public_key: str | None, push_private_key: str | None) -> bool:
+    return bool((push_public_key or '').strip() and (push_private_key or '').strip())
+
+
+def _web_push_status_code(exc: Exception) -> int | None:
+    response = getattr(exc, 'response', None)
+    status_code = getattr(response, 'status_code', None)
+    try:
+        return int(status_code) if status_code is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_permanent_web_push_error(exc: Exception) -> bool:
+    return _web_push_status_code(exc) in PERMANENT_WEB_PUSH_STATUS_CODES
+
+
+def _dispatch_web_push_notification(
+    subscription: PlayerPushSubscription,
+    *,
+    title: str,
+    message: str,
+    payload: dict | None,
+) -> None:
+    webpush(
+        subscription_info={
+            'endpoint': subscription.endpoint,
+            'keys': {
+                'p256dh': subscription.p256dh_key,
+                'auth': subscription.auth_key,
+            },
+        },
+        data=json.dumps(
+            {
+                'title': title,
+                'message': message,
+                'payload': payload or {},
+                'body': message,
+                'data': payload or {},
+            }
+        ),
+        vapid_private_key=settings.play_push_vapid_private_key,
+        vapid_claims={'sub': settings.play_push_subject},
+        ttl=300,
+    )
+
+
+def _deliver_web_push_notification(
+    db: Session,
+    *,
+    player: Player,
+    club_timezone: str | None,
+    title: str,
+    message: str,
+    payload: dict | None,
+) -> NotificationDeliveryStatus:
+    if not _push_dispatch_ready(
+        push_public_key=settings.play_push_vapid_public_key,
+        push_private_key=settings.play_push_vapid_private_key,
+    ):
+        return NotificationDeliveryStatus.SKIPPED
+
+    active_subscriptions = _active_push_subscriptions_for_player(player)
+    if not active_subscriptions:
+        return NotificationDeliveryStatus.SKIPPED
+
+    had_failure = False
+    delivered_count = 0
+    for subscription in active_subscriptions:
+        try:
+            _dispatch_web_push_notification(
+                subscription,
+                title=title,
+                message=message,
+                payload=payload,
+            )
+            delivered_count += 1
+        except WebPushException as exc:
+            had_failure = True
+            if _is_permanent_web_push_error(exc):
+                revoke_push_subscription(
+                    db,
+                    player=player,
+                    club_timezone=club_timezone,
+                    endpoint=subscription.endpoint,
+                )
+            continue
+        except Exception as exc:
+            had_failure = True
+            if _is_permanent_web_push_error(exc):
+                revoke_push_subscription(
+                    db,
+                    player=player,
+                    club_timezone=club_timezone,
+                    endpoint=subscription.endpoint,
+                )
+            continue
+
+    if delivered_count > 0:
+        return NotificationDeliveryStatus.SENT
+    return NotificationDeliveryStatus.FAILED if had_failure else NotificationDeliveryStatus.SKIPPED
+
+
 def dispatch_play_notifications_for_match(
     db: Session,
     *,
@@ -641,6 +796,7 @@ def dispatch_play_notifications_for_match(
     match = db.scalar(
         select(Match)
         .options(
+            selectinload(Match.club),
             selectinload(Match.court),
             selectinload(Match.participants).selectinload(MatchPlayer.player),
         )
@@ -738,6 +894,14 @@ def dispatch_play_notifications_for_match(
                 notifications_created += 1
 
         if (preference is None or preference.web_push_enabled) and _active_push_subscriptions_for_player(candidate):
+            web_push_status = _deliver_web_push_notification(
+                db,
+                player=candidate,
+                club_timezone=club_timezone,
+                title=title,
+                message=message,
+                payload=payload,
+            )
             if _create_notification_log_if_absent(
                 db,
                 club_id=club_id,
@@ -745,7 +909,7 @@ def dispatch_play_notifications_for_match(
                 match_id=match.id,
                 channel=NotificationChannel.WEB_PUSH,
                 kind=kind,
-                status=NotificationDeliveryStatus.SIMULATED,
+                status=web_push_status,
                 title=title,
                 message=message,
                 payload=payload,

@@ -133,6 +133,7 @@ class PlayNotificationSettings(BaseModel):
     preferences: PlayNotificationPreferenceSummary
     push: PlayPushState
     recent_notifications: list[PlayNotificationItem] = Field(default_factory=list)
+    unread_notifications_count: int = 0
 
 
 class PlayerIdentifyResponse(BaseModel):
@@ -271,6 +272,11 @@ class PlayNotificationPreferenceUpdateRequest(BaseModel):
 
 
 class PlayNotificationPreferenceUpdateResponse(BaseModel):
+    message: str
+    settings: PlayNotificationSettings
+
+
+class PlayNotificationReadResponse(BaseModel):
     message: str
     settings: PlayNotificationSettings
 

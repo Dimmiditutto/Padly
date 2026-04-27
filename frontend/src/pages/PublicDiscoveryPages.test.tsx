@@ -64,6 +64,9 @@ const directoryItems = [
     contact_email: 'desk@roma-club.example',
     support_phone: '+39061234567',
     is_community_open: true,
+    public_activity_score: 5,
+    recent_open_matches_count: 2,
+    public_activity_label: 'Buona disponibilita recente',
   },
   {
     club_id: 'club-2',
@@ -81,6 +84,9 @@ const directoryItems = [
     contact_email: 'desk@savona-club.example',
     support_phone: '+39019999999',
     is_community_open: false,
+    public_activity_score: 0,
+    recent_open_matches_count: 0,
+    public_activity_label: 'Nessuna disponibilita recente',
   },
 ];
 
@@ -189,6 +195,7 @@ describe('Public discovery routes', () => {
 
     await waitFor(() => expect(listPublicClubs).toHaveBeenLastCalledWith('savona'));
     expect(await screen.findByText('Savona Club')).toBeInTheDocument();
+    expect(screen.getByText('Nessuna disponibilita recente')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Apri pagina club' })).toHaveAttribute('href', '/c/savona-club');
   });
 
@@ -257,6 +264,8 @@ describe('Public discovery routes', () => {
 
     expect(await screen.findByRole('heading', { name: 'Roma Club' })).toBeInTheDocument();
     expect(screen.getByText('Manca 1 giocatore')).toBeInTheDocument();
+    expect(screen.getByText('Buona disponibilita recente')).toBeInTheDocument();
+    expect(screen.getByText('Score pubblico 5 calcolato su 2 match open visibili nei prossimi 7 giorni.')).toBeInTheDocument();
     expect(screen.queryByText('Mario Rossi')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Livello'), 'ADVANCED');

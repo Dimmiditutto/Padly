@@ -133,6 +133,9 @@ export interface PublicClubSummary {
   contact_email?: string | null;
   support_phone?: string | null;
   is_community_open: boolean;
+  public_activity_score: number;
+  recent_open_matches_count: number;
+  public_activity_label: string;
 }
 
 export interface PublicClubDirectoryResponse {
@@ -559,6 +562,7 @@ export interface PlayNotificationSettings {
   preferences: PlayNotificationPreferenceSummary;
   push: PlayPushState;
   recent_notifications: PlayNotificationItem[];
+  unread_notifications_count: number;
 }
 
 export interface PlayMatchSummary {
@@ -707,6 +711,11 @@ export interface PlayNotificationPreferenceUpdatePayload {
 }
 
 export interface PlayNotificationPreferenceUpdateResponse {
+  message: string;
+  settings: PlayNotificationSettings;
+}
+
+export interface PlayNotificationReadResponse {
   message: string;
   settings: PlayNotificationSettings;
 }

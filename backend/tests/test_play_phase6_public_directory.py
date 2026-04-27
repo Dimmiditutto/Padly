@@ -150,6 +150,9 @@ def test_public_clubs_manual_search_is_case_insensitive_and_returns_structured_f
         assert payload['items'][0]['public_province'] == 'SV'
         assert payload['items'][0]['courts_count'] == 2
         assert payload['items'][0]['is_community_open'] is True
+        assert payload['items'][0]['public_activity_score'] == 0
+        assert payload['items'][0]['recent_open_matches_count'] == 0
+        assert payload['items'][0]['public_activity_label'] == 'Nessuna disponibilita recente'
 
 
 def test_public_clubs_nearby_orders_by_distance_and_keeps_clubs_without_coordinates(client):
@@ -273,6 +276,9 @@ def test_public_club_detail_exposes_only_lightweight_open_matches(client):
     assert payload['club']['public_city'] == 'Savona'
     assert payload['club']['public_province'] == 'SV'
     assert payload['club']['is_community_open'] is True
+    assert payload['club']['public_activity_score'] == 6
+    assert payload['club']['recent_open_matches_count'] == 3
+    assert payload['club']['public_activity_label'] == 'Alta disponibilita recente'
     assert payload['public_match_window_days'] == 7
 
     open_matches = payload['open_matches']

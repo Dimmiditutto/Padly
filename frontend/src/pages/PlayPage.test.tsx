@@ -17,6 +17,7 @@ vi.mock('../services/playApi', () => ({
   identifyPlayPlayer: vi.fn(),
   joinPlayMatch: vi.fn(),
   leavePlayMatch: vi.fn(),
+  markPlayNotificationRead: vi.fn(),
   registerPlayPushSubscription: vi.fn(),
   revokePlayPushSubscription: vi.fn(),
   startPlayBookingCheckout: vi.fn(),
@@ -45,6 +46,7 @@ import {
   identifyPlayPlayer,
   joinPlayMatch,
   leavePlayMatch,
+  markPlayNotificationRead,
   registerPlayPushSubscription,
   revokePlayPushSubscription,
   startPlayBookingCheckout,
@@ -79,6 +81,7 @@ const baseNotificationSettings: PlayNotificationSettings = {
     active_subscription_count: 0,
   },
   recent_notifications: [],
+  unread_notifications_count: 0,
 };
 
 const baseAvailability: AvailabilityResponse = {
@@ -730,6 +733,70 @@ describe('Play phase 2 pages', () => {
     expect(await screen.findByText('Subscription web push revocata.')).toBeInTheDocument();
   });
 
+  it('shows unread count and marks a notification as read from the play panel', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({
+      player: { ...basePlayer },
+      notification_settings: {
+        ...baseNotificationSettings,
+        recent_notifications: [
+          {
+            id: 'notification-1',
+            match_id: 'match-3of4',
+            channel: 'IN_APP',
+            kind: 'MATCH_THREE_OF_FOUR',
+            title: 'Match quasi completo',
+            message: 'Manca un player per chiudere il match.',
+            payload: { match_id: 'match-3of4' },
+            sent_at: '2026-05-02T10:00:00Z',
+            read_at: null,
+            created_at: '2026-05-02T10:00:00Z',
+          },
+        ],
+        unread_notifications_count: 1,
+      },
+    });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+    vi.mocked(markPlayNotificationRead).mockResolvedValue({
+      message: 'Notifica play marcata come letta.',
+      settings: {
+        ...baseNotificationSettings,
+        recent_notifications: [
+          {
+            id: 'notification-1',
+            match_id: 'match-3of4',
+            channel: 'IN_APP',
+            kind: 'MATCH_THREE_OF_FOUR',
+            title: 'Match quasi completo',
+            message: 'Manca un player per chiudere il match.',
+            payload: { match_id: 'match-3of4' },
+            sent_at: '2026-05-02T10:00:00Z',
+            read_at: '2026-05-02T10:05:00Z',
+            created_at: '2026-05-02T10:00:00Z',
+          },
+        ],
+        unread_notifications_count: 0,
+      },
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Notifiche play' });
+    expect(screen.getByText('Non lette: 1')).toBeInTheDocument();
+    expect(screen.getByText('Non letta')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Segna come letta' }));
+
+    await waitFor(() => expect(markPlayNotificationRead).toHaveBeenCalledWith('notification-1', 'roma-club'));
+    expect(await screen.findByText('Notifica play marcata come letta.')).toBeInTheDocument();
+    expect(screen.getByText('Non lette: 0')).toBeInTheDocument();
+    expect(screen.getByText('Letta')).toBeInTheDocument();
+  });
+
   it('does not call revoke api when this browser has no active push subscription', async () => {
     const user = userEvent.setup();
     vi.mocked(getPlaySession).mockResolvedValue({
@@ -760,5 +827,32 @@ describe('Play phase 2 pages', () => {
     await waitFor(() => expect(unsubscribeBrowserFromPlayPush).toHaveBeenCalled());
     expect(revokePlayPushSubscription).not.toHaveBeenCalled();
     expect(await screen.findByText('Non ho trovato una subscription web push registrata in questo browser. Lo stato mostrato resta aggregato sul tuo profilo play.')).toBeInTheDocument();
+  });
+
+  it('shows a warning when subscriptions exist but the server cannot deliver web push', async () => {
+    vi.mocked(getPlaySession).mockResolvedValue({
+      player: { ...basePlayer },
+      notification_settings: {
+        ...baseNotificationSettings,
+        push: {
+          ...baseNotificationSettings.push,
+          push_supported: false,
+          public_vapid_key: null,
+          has_active_subscription: true,
+          active_subscription_count: 2,
+        },
+      },
+    });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Notifiche play' });
+    expect(screen.getByText('Il tuo profilo risulta associato a 2 subscription web push, ma questo ambiente server non puo consegnarle davvero. Il feed in-app resta disponibile finche la configurazione VAPID non viene completata.')).toBeInTheDocument();
+    expect(screen.queryByText('Web push attiva su 2 browser o dispositivi collegati al tuo profilo play. Le notifiche in-app restano comunque disponibili nella pagina.')).not.toBeInTheDocument();
   });
 });

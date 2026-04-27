@@ -1,46 +1,44 @@
-# VERIFICA PLAY 7 DISCOVERY PUBBLICO
+# VERIFICA PLAY FINAL E COERENZA DEL PERIMETRO /play
 
 ## 1. Esito sintetico generale
 
 PASS CON RISERVE
 
-La base tecnica della Fase 7 e coerente: modelli, router, schemi, service backend e pagine frontend discovery sono allineati, i controlli statici sui file discovery non mostrano errori, e le verifiche eseguibili mirate passano davvero.
+Il repository e coerente nel perimetro verificato: backend, frontend, contratti API, schemi e test del blocco finale /play risultano allineati, non emergono errori dell'editor sul workspace e le validazioni eseguibili rieseguite ora sono verdi.
 
 Validazioni reali rieseguite durante questa verifica:
 
-- backend: D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest -q tests/test_play_phase7_public_discovery.py -> PASS, 3 passed
-- frontend: npm run test:run -- src/pages/PublicDiscoveryPages.test.tsx -> PASS, 6 passed
-- controlli statici: nessun errore su router, schemi, service e pagine discovery controllati
+- backend: D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase4.py tests/test_play_phase6_public_directory.py tests/test_play_phase7_public_discovery.py -q --tb=short -> PASS, 20 passed
+- frontend test: npm run test:run -- src/pages/PlayPage.test.tsx src/pages/PublicDiscoveryPages.test.tsx -> PASS, 27 passed
+- frontend build: npm run build -> PASS
+- controlli editor: nessun errore rilevato nel workspace
 
-Riserva principale:
+Sintesi tecnica:
 
-- restano criticita concrete di business e affidabilita nel perimetro discovery pubblico, quindi il codice non e ancora da considerare chiuso in modo netto per il rilascio senza fix mirati
-
-Nota di perimetro:
-
-- il file [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) resta generico e punta a riferimenti SaaS storici
-- per questa verifica il perimetro reale usato e [STATO_PLAY_7.md](STATO_PLAY_7.md) piu i file backend e frontend discovery effettivamente toccati dalla Fase 7
-- il working tree contiene anche modifiche locali non discovery, come [frontend/src/components/play/CreateMatchForm.tsx](frontend/src/components/play/CreateMatchForm.tsx), [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx), [frontend/public/local-play-auto-join.html](frontend/public/local-play-auto-join.html) e [logochatgpt.png](logochatgpt.png); non fanno parte di questo verdetto
+- il perimetro finale letto in [STATO_PLAY_FINAL.md](STATO_PLAY_FINAL.md) e coerente con i vincoli architetturali di [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md) e con la baseline tenant-aware fissata in [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD)
+- unread count, mark-as-read, ranking pubblico e discovery pubblico sono oggi coerenti end-to-end
+- le criticita discovery riportate nel vecchio report non risultano piu aperte: watchlist privata coperta da [backend/tests/test_play_phase7_public_discovery.py](backend/tests/test_play_phase7_public_discovery.py#L127), esito degradato del contact request coperto da [backend/tests/test_play_phase7_public_discovery.py](backend/tests/test_play_phase7_public_discovery.py#L296-L307), validazione nome/email chiusa in [backend/app/schemas/public.py](backend/app/schemas/public.py#L261-L295)
+- restano pero criticita reali sul canale WEB_PUSH privato: fan-out incompleto su piu dispositivi, stato deliverable non sempre rappresentato in modo coerente in UI e click della push ancora non contestuale
 
 ## 2. Verifica per area
 
 ### Coerenza complessiva del codice
 
-Esito: PASS CON RISERVE
+Esito: PASS
 
 Problemi trovati:
 
-- il flusso watchlist e la UI permettono di seguire qualunque club pubblico, ma il dispatch alert discovery blocca i club con community privata; il comportamento risultante non e coerente tra promessa UI e trigger backend
-- il flusso richiesta contatto persiste la lead ma dichiara comunque esito positivo anche se l email operativa non viene consegnata
+- nessun conflitto strutturale tra backend, frontend, router, schemi, tipi e build nel perimetro verificato
+- le superfici /play e discovery pubblico restano isolate dal booking pubblico su / e rispettano il boundary tenant-aware richiesto dalla baseline SaaS
+- i contratti dati nuovi sono coerenti tra [backend/app/schemas/play.py](backend/app/schemas/play.py), [backend/app/schemas/public.py](backend/app/schemas/public.py), [frontend/src/types.ts](frontend/src/types.ts), [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts), [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx), [frontend/src/pages/ClubDirectoryPage.tsx](frontend/src/pages/ClubDirectoryPage.tsx) e [frontend/src/pages/PublicClubPage.tsx](frontend/src/pages/PublicClubPage.tsx)
 
 Gravita:
 
-- media per la watchlist su club privati
-- alta per il falso successo del contatto club
+- nessun blocker complessivo emerso nel perimetro verificato
 
 Impatto reale:
 
-- parte dell esperienza discovery puo risultare muta o ingannevole in produzione pur con test verdi
+- il progetto resta stabile sul perimetro finale /play e discovery pubblico
 
 ### Coerenza tra file modificati
 
@@ -48,18 +46,17 @@ Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- contratti frontend, router e service sono coerenti sui payload discovery, unread count e mark-as-read
-- il contratto del form contatto sembra restrittivo, ma lato backend accetta ancora dati sporchi o poco validati, in particolare nome solo spazi e email non validata semanticamente
-- il token discovery viene marcato come toccato nelle dependency, ma sulle route di lettura il dato non viene persistito davvero
+- il modello dati e la UI espongono uno stato aggregato multi-device tramite active_subscription_count, ma il dispatch server-side WEB_PUSH si ferma al primo invio riuscito in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L750-L758)
+- il click della push privata non riceve ancora un deep link contestuale: il payload inviato in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L719-L721) non include url, quindi il service worker ricade su / in [frontend/public/play-service-worker.js](frontend/public/play-service-worker.js#L13)
 
 Gravita:
 
-- media sulla validazione contatto
-- bassa sul touch non persistito del token
+- media sul fan-out multi-device
+- bassa sul deep link mancante
 
 Impatto reale:
 
-- si crea scollamento tra ciò che suggerisce lo schema e ciò che viene davvero salvato o tracciato
+- una parte del comportamento push promesso dal modello corrente resta solo parzialmente realizzata
 
 ### Conflitti o blocchi introdotti dai file modificati
 
@@ -67,18 +64,16 @@ Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- nessun errore statico, nessun mismatch tipico tra API e frontend, nessun test rosso nel perimetro discovery verificato
-- esiste pero un conflitto logico tra follow dei club privati e assenza di alert conseguente
-- esiste un rischio runtime non coperto dai test: richiesta contatto salvata ma email operativa fallita con risposta API comunque positiva
+- non emergono conflitti di build, import, tipi o runtime immediato nel perimetro toccato
+- esiste pero un conflitto logico tra stato deliverable server-side e messaggistica UI: il backend puo dichiarare push_supported false quando manca una chiave VAPID in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L312-L315), ma la banner principale della pagina continua a basarsi solo su has_active_subscription in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L588-L589)
 
 Gravita:
 
-- media sulla watchlist incoerente
-- alta sul ramo di failure email non gestito a livello di esito utente
+- media
 
 Impatto reale:
 
-- l integrazione puo apparire funzionante ma produrre perdite di segnale operativo o aspettative UX sbagliate
+- in scenari di configurazione incompleta o chiavi ruotate il player puo vedere insieme una push "attiva" e una push "non configurata", con feedback utente contraddittorio
 
 ### Criticita del progetto nel suo insieme
 
@@ -86,19 +81,16 @@ Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- il perimetro discovery non mostra regressioni bloccanti su build o test mirati
-- manca copertura sui rami realmente fragili: club privato seguito in watchlist, failure SMTP sul contact request, validazione input sporco del contatto
-- il campo last_used_at della sessione discovery viene aggiornato in memoria ma non consolidato sulle GET, quindi il dato di audit e fuorviante
+- non risultano errori globali dell'editor ne regressioni sui test mirati del perimetro finale
+- mancano pero coperture mirate su due casi di produzione plausibili: invio WEB_PUSH a piu subscription attive dello stesso player e mixed state push_supported false con subscription gia presenti
 
 Gravita:
 
-- alta per il ramo failure email
-- media per i gap di test e validazione
-- bassa per il last_used_at non persistito
+- media
 
 Impatto reale:
 
-- il sistema passa i test correnti ma lascia scoperti casi di produzione plausibili
+- queste regressioni potrebbero rientrare in futuro senza essere intercettate dai test correnti
 
 ### Rispetto della logica di business
 
@@ -106,95 +98,74 @@ Esito: FAIL PARZIALE
 
 Problemi trovati:
 
-- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L526) permette di seguire un club pubblico attivo senza filtrare lo stato community, mentre [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L633) sopprime gli alert se il club non e community aperta; questo contraddice la semantica della watchlist esposta in [frontend/src/pages/ClubDirectoryPage.tsx](frontend/src/pages/ClubDirectoryPage.tsx#L646) e [frontend/src/pages/PublicClubPage.tsx](frontend/src/pages/PublicClubPage.tsx#L229)
-- [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L412) restituisce sempre il messaggio positivo di invio, ma [backend/app/services/email_service.py](backend/app/services/email_service.py#L187) puo restituire FAILED senza che il ramo discovery lo propaghi o lo trasformi in esito coerente
-- [backend/app/schemas/public.py](backend/app/schemas/public.py#L261) non impone validazione email forte e non normalizza il nome prima del controllo di lunghezza, mentre [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L817) salva il nome gia strip-pato, quindi il backend puo accettare input semanticamente vuoti
+- il requisito di push privato "reale" e soddisfatto in modo minimale, ma non e pienamente coerente con il modello multi-device gia esposto dalla UI: oggi il server notifica di fatto un solo device per player anche quando il profilo dichiara piu subscription attive
+- il requisito di feedback coerente su push attive e fallback in-app non e ancora pienamente rispettato nei casi di configurazione VAPID incompleta, perche lo stato deliverable e lo stato storico delle subscription possono divergere senza essere ricomposti in UI
+- il resto della logica di business attesa per fase finale risulta invece rispettato: mark-as-read, unread count, ranking pubblico read-only, nessun leak nei payload pubblici, watchlist privata discovery, validation contact request e session touch discovery
 
 Gravita:
 
-- alta sul contatto club
-- media sulla watchlist privata e sulla validazione input
+- media
 
 Impatto reale:
 
-- alcune regole di prodotto dichiarate o implicite non sono ancora applicate in modo coerente end-to-end
+- il canale WEB_PUSH privato e utilizzabile, ma non ancora rifinito in modo coerente con tutte le promesse implicite del prodotto
 
 ## 3. Elenco criticita
 
-### 1. Watchlist coerente solo per club community aperta, ma follow aperto a tutti i club pubblici
+### 1. Fan-out WEB_PUSH fermato al primo invio riuscito
 
 Descrizione tecnica:
 
-- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L526) consente il follow di qualsiasi club pubblico attivo
-- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L653) interrompe il dispatch alert se il club non e community aperta
-- la UI invita comunque a seguire il club in [frontend/src/pages/ClubDirectoryPage.tsx](frontend/src/pages/ClubDirectoryPage.tsx#L646) e [frontend/src/pages/PublicClubPage.tsx](frontend/src/pages/PublicClubPage.tsx#L229)
+- il loop sulle subscription attive in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L750-L758) restituisce SENT al primo dispatch riuscito
+- lo stesso profilo player puo pero avere piu subscription attive e la UI lo espone in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L588-L590)
 
 Perche e un problema reale:
 
-- l utente puo seguire un club che poi non generera mai gli alert 2 su 4 o 3 su 4 promessi dal discovery
+- un player con telefono e desktop registrati non riceve la stessa notifica su tutti i device attivi, pur avendo uno stato di profilo che fa intendere il contrario
 
 Dove si manifesta:
 
-- watchlist pubblica, feed alert, pagina club pubblica e directory club
+- dispatch notifiche private /play
+- stato push aggregato del profilo player
 
 Gravita: media
 
-Blocca il rilascio: si, se il rilascio discovery deve essere coerente anche per i club con community privata
+Blocca il rilascio: no
 
-### 2. Richiesta contatto dichiarata come inviata anche quando l email operativa fallisce
-
-Descrizione tecnica:
-
-- [backend/app/services/email_service.py](backend/app/services/email_service.py#L187) restituisce uno stato FAILED o SKIPPED senza alzare errore
-- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L857) invoca l invio ma ignora lo stato ritornato
-- [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L433) risponde sempre con Richiesta inviata al circolo
-
-Perche e un problema reale:
-
-- il lead viene salvato ma il club potrebbe non essere notificato; l utente riceve comunque un messaggio di successo pieno e il team puo perdere richieste di contatto senza segnali applicativi adeguati
-
-Dove si manifesta:
-
-- POST /api/public/clubs/{club_slug}/contact-request
-
-Gravita: alta
-
-Blocca il rilascio: si
-
-### 3. Validazione backend troppo debole sul contact request discovery
+### 2. Stato push attiva incoerente quando il server non puo consegnare davvero
 
 Descrizione tecnica:
 
-- [backend/app/schemas/public.py](backend/app/schemas/public.py#L261) usa str semplice per email e non normalizza il nome prima del controllo minimo
-- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L817) salva name dopo strip, quindi un valore fatto solo di spazi puo diventare stringa vuota persistita
+- il backend marca push_supported solo se esistono sia chiave pubblica sia chiave privata VAPID in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L312-L315)
+- la UI principale considera invece sufficiente has_active_subscription per mostrare il messaggio di push attiva in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L588-L589)
 
 Perche e un problema reale:
 
-- l endpoint puo accettare via API payload formalmente passanti ma semanticamente sporchi, degradando qualita lead e affidabilita operativa
+- se il runtime perde la chiave privata o parte con configurazione incompleta, il player puo vedere contemporaneamente una push dichiarata attiva e un backend che non puo inviare
 
 Dove si manifesta:
 
-- POST /api/public/clubs/{club_slug}/contact-request
+- [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L309-L315)
+- [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L586-L636)
 
 Gravita: media
 
-Blocca il rilascio: no, ma va corretto prima della beta pubblica
+Blocca il rilascio: no, se l env produzione e completo; si traduce pero in feedback fuorviante e va corretto prima di considerare chiuso il canale push
 
-### 4. Touch del token discovery non persistito sulle route read-only
+### 3. Click della push privo di deep link contestuale /play
 
 Descrizione tecnica:
 
-- [backend/app/api/deps.py](backend/app/api/deps.py#L108) risolve il subscriber con touch attivo
-- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L247) aggiorna last_used_at in sessione
-- [backend/app/core/db.py](backend/app/core/db.py#L18) chiude la sessione senza commit automatico; route come [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L292) e [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L374) non fanno commit
+- il service worker apre event.notification.data.url oppure ricade su / in [frontend/public/play-service-worker.js](frontend/public/play-service-worker.js#L13)
+- il payload push inviato dal backend oggi non include ancora un url dedicato in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L719-L721)
 
 Perche e un problema reale:
 
-- il dato di ultimo utilizzo del token non rappresenta l uso reale sulle consultazioni discovery e puo trarre in inganno su audit, cleanup o analisi sessioni
+- la push consegnata porta fuori contesto: il player torna alla homepage invece che alla community /play o al match rilevante
 
 Dove si manifesta:
 
-- GET /api/public/discovery/me e GET /api/public/discovery/watchlist
+- click sulle notifiche WEB_PUSH private /play
 
 Gravita: bassa
 
@@ -204,40 +175,49 @@ Blocca il rilascio: no
 
 ### Da correggere prima del rilascio
 
-- gestire in modo coerente l esito del contact request quando la notifica email fallisce o non e configurata
-- allineare la semantica watchlist dei club privati: o il follow e consentito davvero con alert coerenti, oppure va esplicitamente impedito o degradato in modo chiaro tra backend e frontend
+- allineare lo stato UI della push con la reale deliverability server-side, cosi da non mostrare push attive quando push_supported e false
 
 ### Da correggere prima della beta pubblica
 
-- rafforzare la validazione backend del form contatto discovery su nome ed email
-- aggiungere test dedicati sui rami failure SMTP e sul comportamento watchlist per club non community aperta
+- completare il fan-out WEB_PUSH su tutte le subscription attive dello stesso player
+- aggiungere test backend e frontend mirati sui casi mixed state push_supported false con subscription storiche e multi-device fan-out
 
 ### Miglioramenti differibili
 
-- rendere consistente la persistenza di last_used_at del token discovery sulle route di lettura, oppure rimuovere il touch se non serve davvero come dato affidabile
+- aggiungere deep link contestuale nel payload push per far aprire /c/:clubSlug/play o la partita rilevante invece della homepage
 
 ## 5. Verdetto finale
 
-Il codice discovery pubblico della Fase 7 e quasi pronto ma richiede fix mirati prima di poter essere considerato chiuso con sicurezza.
+Il codice e quasi pronto ma richiede fix mirati sul canale WEB_PUSH privato prima di poter considerare davvero chiusa in modo pieno la fase finale /play.
 
-La struttura generale e solida, i contratti sono coerenti e i test mirati attuali passano, ma restano due problemi da non lasciare in coda: il falso successo del contact request in caso di failure email e l incoerenza tra follow dei club privati e generazione reale degli alert watchlist.
+Tutto il resto del perimetro verificato oggi regge: test e build passano, le criticita discovery del report precedente risultano chiuse e non emergono conflitti strutturali con la baseline multi-tenant del progetto. Le riserve residue non sono su ranking, unread state o discovery pubblico, ma solo sulla coerenza finale della push privata tra backend, UI e comportamento multi-device.
 
 ## 6. Prompt operativo per i fix
 
-Agisci solo sul perimetro Play 7 discovery pubblico. Non fare refactor ampi e non toccare file fuori dal perimetro discovery salvo test strettamente necessari.
+Agisci solo sul perimetro del canale WEB_PUSH privato /play. Non toccare booking pubblico, ranking pubblico, discovery pubblico o refactor architetturali non strettamente necessari.
 
 Obiettivi in ordine di priorita:
 
-1. Correggi il flusso POST /api/public/clubs/{club_slug}/contact-request in modo che l esito restituito all utente sia coerente con l esito reale della notifica operativa al club. Mantieni la persistenza della richiesta, ma non dichiarare successo pieno se email_service segnala FAILED o SKIPPED. Introduci la patch minima coerente con l infrastruttura email gia esistente e aggiungi un test backend sul ramo di failure.
+1. Correggi la rappresentazione dello stato push in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py) e [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx) in modo che la UI non dichiari mai "web push attiva" quando push_supported e false o quando il server non puo consegnare davvero. Mantieni la patch minima e conserva il fallback in-app attuale.
 
-2. Rendi coerente la watchlist discovery per i club con community privata. Scegli una sola semantica e applicala end-to-end con patch minima: oppure il club privato non e followabile, oppure i suoi eventi generano alert discovery come promesso dalla UI. Allinea backend, eventuale copy frontend e test mirato senza refactor superflui.
+2. Estendi il dispatch in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py) per tentare l invio su tutte le PlayerPushSubscription attive dello stesso player, senza perdere la revoca delle subscription invalide e senza introdurre refactor ampi. Mantieni NotificationLog coerente col livello player-based gia esistente.
 
-3. Rafforza la validazione backend del contact request discovery: trim prima della validazione, rifiuta name vuoto o solo spazi, usa una validazione email coerente con gli altri schemi del progetto. Aggiungi solo i test davvero necessari per coprire questi casi limite.
+3. Aggiungi test mirati minimi e non ridondanti in [backend/tests/test_play_phase4.py](backend/tests/test_play_phase4.py) e, se serve, in [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx) per coprire:
+- due subscription attive dello stesso player con fan-out reale verso entrambe
+- mixed state con subscription storiche presenti ma push_supported false
 
-4. Verifica se last_used_at del token discovery deve essere un dato affidabile. Se si, persisti davvero il touch sulle route read-only con patch minima e test mirato. Se no, elimina la semantica ingannevole del touch senza introdurre refactor.
+4. Solo se resta piccolo e naturale, aggiungi un deep link contestuale al payload push e aggiorna [frontend/public/play-service-worker.js](frontend/public/play-service-worker.js) in modo che il click riporti alla community /play corretta o alla partita rilevante.
+
+Vincoli operativi:
+
+- patch minime
+- nessun refactor inutile
+- nessuna estensione discovery pubblica
+- nessun cambiamento al modello di ranking pubblico
+- nessuna modifica ai flussi di booking non collegati al push /play
 
 Validazioni richieste a fine fix:
 
-- backend discovery: tests/test_play_phase7_public_discovery.py
-- frontend discovery: src/pages/PublicDiscoveryPages.test.tsx
-- eventuali test aggiunti solo sui casi critici sopra, senza allargare il perimetro inutilmente
+- backend: tests/test_play_phase4.py
+- frontend: src/pages/PlayPage.test.tsx
+- frontend build: npm run build

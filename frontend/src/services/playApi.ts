@@ -10,6 +10,7 @@ import type {
   PlayIdentifyResponse,
   PlayNotificationPreferenceUpdatePayload,
   PlayNotificationPreferenceUpdateResponse,
+  PlayNotificationReadResponse,
   PlayMatchDetailResponse,
   PlayMatchJoinResponse,
   PlayMatchLeaveResponse,
@@ -95,6 +96,12 @@ export async function cancelPlayMatch(matchId: string, tenantSlug?: string | nul
 
 export async function updatePlayNotificationPreferences(payload: PlayNotificationPreferenceUpdatePayload, tenantSlug?: string | null) {
   const response = await api.put<PlayNotificationPreferenceUpdateResponse>('/play/notifications/preferences', payload, { params: withTenantParams(tenantSlug) });
+  return response.data;
+}
+
+
+export async function markPlayNotificationRead(notificationId: string, tenantSlug?: string | null) {
+  const response = await api.post<PlayNotificationReadResponse>(`/play/notifications/${notificationId}/read`, undefined, { params: withTenantParams(tenantSlug) });
   return response.data;
 }
 

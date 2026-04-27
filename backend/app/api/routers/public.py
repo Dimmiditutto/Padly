@@ -45,7 +45,7 @@ from app.services.payment_service import (
     start_payment_for_booking,
 )
 from app.services.settings_service import get_booking_rules, get_public_rate_card
-from app.services.play_service import PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS, list_public_open_matches
+from app.services.play_service import PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS, build_public_activity_index, list_public_open_matches
 from app.services.public_discovery_service import (
     DISCOVERY_SESSION_COOKIE_NAME,
     DISCOVERY_SESSION_MAX_AGE_SECONDS,
@@ -125,8 +125,15 @@ def _load_court_counts(db: Session, *, club_ids: list[str]) -> dict[str, int]:
     return {club_id: count for club_id, count in rows}
 
 
-def _serialize_public_club(club: Club, *, court_counts: dict[str, int], distance_km: float | None = None) -> dict:
+def _serialize_public_club(
+    club: Club,
+    *,
+    court_counts: dict[str, int],
+    distance_km: float | None = None,
+    activity_summary: dict[str, int | str] | None = None,
+) -> dict:
     has_coordinates = _club_has_coordinates(club)
+    summary = activity_summary or {}
     return {
         'club_id': club.id,
         'club_slug': club.slug,
@@ -143,6 +150,9 @@ def _serialize_public_club(club: Club, *, court_counts: dict[str, int], distance
         'contact_email': _public_contact_email(club),
         'support_phone': club.support_phone,
         'is_community_open': club.is_community_open,
+        'public_activity_score': int(summary.get('public_activity_score', 0)),
+        'recent_open_matches_count': int(summary.get('recent_open_matches_count', 0)),
+        'public_activity_label': str(summary.get('public_activity_label', 'Nessuna disponibilita recente')),
     }
 
 
@@ -232,9 +242,17 @@ def list_public_clubs(
     normalized_query = _normalize_public_query(query)
     clubs = _load_public_clubs(db, search_query=normalized_query)
     court_counts = _load_court_counts(db, club_ids=[club.id for club in clubs])
+    activity_index = build_public_activity_index(db, club_ids=[club.id for club in clubs])
     return PublicClubDirectoryResponse(
         query=normalized_query,
-        items=[_serialize_public_club(club, court_counts=court_counts) for club in clubs],
+        items=[
+            _serialize_public_club(
+                club,
+                court_counts=court_counts,
+                activity_summary=activity_index.get(club.id),
+            )
+            for club in clubs
+        ],
     )
 
 
@@ -248,11 +266,17 @@ def list_public_clubs_nearby(
     normalized_query = _normalize_public_query(query)
     clubs = _load_public_clubs(db, search_query=normalized_query)
     court_counts = _load_court_counts(db, club_ids=[club.id for club in clubs])
+    activity_index = build_public_activity_index(db, club_ids=[club.id for club in clubs])
     sorted_clubs = _sort_public_clubs_by_distance(clubs, latitude=latitude, longitude=longitude)
     return PublicClubDirectoryResponse(
         query=normalized_query,
         items=[
-            _serialize_public_club(club, court_counts=court_counts, distance_km=distance_km)
+            _serialize_public_club(
+                club,
+                court_counts=court_counts,
+                distance_km=distance_km,
+                activity_summary=activity_index.get(club.id),
+            )
             for club, distance_km in sorted_clubs
         ],
     )
@@ -273,8 +297,13 @@ def get_public_club_detail(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Club pubblico non trovato')
 
     court_counts = _load_court_counts(db, club_ids=[club.id])
+    activity_index = build_public_activity_index(db, club_ids=[club.id])
     return PublicClubDetailResponse(
-        club=_serialize_public_club(club, court_counts=court_counts),
+        club=_serialize_public_club(
+            club,
+            court_counts=court_counts,
+            activity_summary=activity_index.get(club.id),
+        ),
         timezone=club.timezone,
         support_email=club.support_email,
         support_phone=club.support_phone,

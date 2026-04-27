@@ -615,6 +615,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                             <UsersRound size={16} /> {club.courts_count} {club.courts_count === 1 ? 'campo' : 'campi'}
                           </p>
                           <p className='mt-2 text-sm text-slate-600'>{formatDistance(club.distance_km)}</p>
+                          <p className='mt-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-700'>Score pubblico {club.public_activity_score}</p>
                         </div>
                         <div className='surface-muted text-sm text-slate-600'>
                           {club.contact_email ? (
@@ -625,6 +626,11 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                           ) : null}
                           {!club.contact_email && !club.support_phone ? <p>Contatti pubblici non disponibili.</p> : null}
                         </div>
+                      </div>
+
+                      <div className='mt-3 rounded-2xl border border-cyan-100 bg-cyan-50/70 px-4 py-3 text-sm text-slate-700'>
+                        <p className='font-semibold text-slate-900'>{club.public_activity_label}</p>
+                        <p className='mt-1'>Match open visibili nei prossimi 7 giorni: {club.recent_open_matches_count}. Il ranking usa solo segnali pubblici 1/4, 2/4 e 3/4.</p>
                       </div>
 
                       <div className='mt-4 flex flex-col gap-3 sm:flex-row'>

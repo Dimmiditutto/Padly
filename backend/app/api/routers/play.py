@@ -12,6 +12,7 @@ from app.schemas.play import (
     PlayMatchDetailResponse,
     PlayMatchJoinResponse,
     PlayMatchLeaveResponse,
+    PlayNotificationReadResponse,
     PlayNotificationPreferenceUpdateRequest,
     PlayNotificationPreferenceUpdateResponse,
     PlayPushSubscriptionRequest,
@@ -28,6 +29,7 @@ from app.schemas.public import PaymentInitResponse
 from app.services.booking_service import acquire_single_court_lock
 from app.services.play_notification_service import (
     get_player_notification_settings,
+    mark_notification_as_read,
     record_player_activity,
     register_push_subscription,
     revoke_push_subscription,
@@ -133,6 +135,29 @@ def put_play_notification_preferences(
     db.commit()
     return PlayNotificationPreferenceUpdateResponse(
         message='Preferenze notifiche aggiornate.',
+        settings=settings_payload,
+    )
+
+
+@router.post('/notifications/{notification_id}/read', response_model=PlayNotificationReadResponse)
+def post_play_notification_read(
+    notification_id: str,
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayNotificationReadResponse:
+    mark_notification_as_read(
+        db,
+        player=current_player,
+        notification_id=notification_id,
+    )
+    settings_payload = get_player_notification_settings(
+        db,
+        player=current_player,
+        push_public_key=settings.play_push_vapid_public_key,
+    )
+    db.commit()
+    return PlayNotificationReadResponse(
+        message='Notifica play marcata come letta.',
         settings=settings_payload,
     )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
+from types import SimpleNamespace
 
 from sqlalchemy import select
 
@@ -9,6 +10,7 @@ from app.core.db import SessionLocal
 from app.models import (
     Match,
     NotificationChannel,
+    NotificationDeliveryStatus,
     NotificationKind,
     NotificationLog,
     Player,
@@ -23,6 +25,7 @@ from app.services.play_notification_service import dispatch_play_notifications_f
 from app.services import play_notification_service as play_notification_service_module
 
 from test_play_phase1 import DEFAULT_CLUB_ID, first_court_id_for_club, seed_player
+from app.models import DEFAULT_CLUB_SLUG
 from test_play_phase3 import build_future_slot, identify_as, seed_match_at
 
 
@@ -175,6 +178,57 @@ def test_play_push_subscription_registers_and_revokes(client):
         assert subscription.revoked_at is not None
 
 
+def test_play_notifications_mark_as_read_updates_unread_count(client):
+    identify_as(client, profile_name='Read Player', phone='3337600012')
+
+    session_response = client.get('/api/play/me')
+    assert session_response.status_code == 200
+    player_id = session_response.json()['player']['id']
+
+    with SessionLocal() as db:
+        first_notification = NotificationLog(
+            club_id=DEFAULT_CLUB_ID,
+            player_id=player_id,
+            match_id='read-match-1',
+            channel=NotificationChannel.IN_APP,
+            kind=NotificationKind.MATCH_TWO_OF_FOUR,
+            title='Match da completare',
+            message='C e una partita 2/4 compatibile.',
+            payload={'match_id': 'read-match-1'},
+        )
+        second_notification = NotificationLog(
+            club_id=DEFAULT_CLUB_ID,
+            player_id=player_id,
+            match_id='read-match-2',
+            channel=NotificationChannel.IN_APP,
+            kind=NotificationKind.MATCH_THREE_OF_FOUR,
+            title='Ultimo posto disponibile',
+            message='Manca un player per chiudere il match.',
+            payload={'match_id': 'read-match-2'},
+        )
+        db.add(first_notification)
+        db.add(second_notification)
+        db.commit()
+        target_notification_id = first_notification.id
+
+    refreshed_session = client.get('/api/play/me')
+    assert refreshed_session.status_code == 200
+    refreshed_payload = refreshed_session.json()
+    assert refreshed_payload['notification_settings']['unread_notifications_count'] == 2
+
+    mark_read_response = client.post(f'/api/play/notifications/{target_notification_id}/read')
+    assert mark_read_response.status_code == 200
+    mark_read_payload = mark_read_response.json()
+    assert mark_read_payload['settings']['unread_notifications_count'] == 1
+    updated_item = next(item for item in mark_read_payload['settings']['recent_notifications'] if item['id'] == target_notification_id)
+    assert updated_item['read_at'] is not None
+
+    with SessionLocal() as db:
+        notification = db.get(NotificationLog, target_notification_id)
+        assert notification is not None
+        assert notification.read_at is not None
+
+
 def test_play_notification_dispatch_selects_top_six_for_three_of_four():
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
     creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Notify Creator', phone='3337600021')
@@ -227,6 +281,157 @@ def test_play_notification_dispatch_selects_top_six_for_three_of_four():
         assert candidate_ids[-1] not in notified_players
         top_candidate_logs = [item for item in logs if item.player_id == candidate_ids[0]]
         assert {item.channel for item in top_candidate_logs} == {NotificationChannel.IN_APP, NotificationChannel.WEB_PUSH}
+
+
+def test_play_web_push_dispatch_marks_sent_when_provider_succeeds(monkeypatch):
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Success Creator', phone='3337600024')
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Success Guest 1', phone='3337600025')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Success Guest 2', phone='3337600026')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator_id,
+        participant_player_ids=[creator_id, guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='web push reale sent',
+    )
+
+    candidate_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Success Candidate', phone='3337600027')
+    _seed_profile(
+        player_id=candidate_id,
+        club_id=DEFAULT_CLUB_ID,
+        start_at=start_at,
+        level=PlayLevel.INTERMEDIATE_MEDIUM,
+        useful_events_count=10,
+        engagement_score=10,
+    )
+    _seed_push_subscription(player_id=candidate_id, club_id=DEFAULT_CLUB_ID, suffix='web-push-sent')
+    _seed_push_subscription(player_id=candidate_id, club_id=DEFAULT_CLUB_ID, suffix='web-push-sent-secondary')
+
+    sent_dispatches: list[tuple[str, dict | None]] = []
+    monkeypatch.setattr(play_notification_service_module.settings, 'play_push_vapid_public_key', 'BElocalPlayPushKey')
+    monkeypatch.setattr(play_notification_service_module.settings, 'play_push_vapid_private_key', 'private-play-key')
+    monkeypatch.setattr(
+        play_notification_service_module,
+        '_dispatch_web_push_notification',
+        lambda subscription, **kwargs: sent_dispatches.append((subscription.endpoint, kwargs.get('payload'))),
+    )
+
+    with SessionLocal() as db:
+        result = dispatch_play_notifications_for_match(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            club_timezone='Europe/Rome',
+            match_id=match_id,
+        )
+        db.commit()
+        assert result['matches_processed'] == 1
+
+    assert [endpoint for endpoint, _ in sent_dispatches] == [
+        'https://push.example/web-push-sent',
+        'https://push.example/web-push-sent-secondary',
+    ]
+    assert all(payload is not None for _, payload in sent_dispatches)
+    assert all(payload and payload.get('url') == f'/c/{DEFAULT_CLUB_SLUG}/play' for _, payload in sent_dispatches)
+
+    with SessionLocal() as db:
+        web_push_log = db.scalar(
+            select(NotificationLog)
+            .where(
+                NotificationLog.match_id == match_id,
+                NotificationLog.player_id == candidate_id,
+                NotificationLog.channel == NotificationChannel.WEB_PUSH,
+            )
+            .limit(1)
+        )
+        assert web_push_log is not None
+        assert web_push_log.status == NotificationDeliveryStatus.SENT
+
+
+def test_play_web_push_dispatch_revokes_invalid_subscription_on_permanent_error(monkeypatch):
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Failure Creator', phone='3337600028')
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Failure Guest 1', phone='3337600029')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Failure Guest 2', phone='3337600030')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator_id,
+        participant_player_ids=[creator_id, guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='web push reale failed',
+    )
+
+    candidate_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Failure Candidate', phone='3337600031')
+    _seed_profile(
+        player_id=candidate_id,
+        club_id=DEFAULT_CLUB_ID,
+        start_at=start_at,
+        level=PlayLevel.INTERMEDIATE_MEDIUM,
+        useful_events_count=10,
+        engagement_score=10,
+    )
+    _seed_push_subscription(player_id=candidate_id, club_id=DEFAULT_CLUB_ID, suffix='web-push-failed')
+
+    class PermanentPushError(Exception):
+        def __init__(self, status_code: int):
+            super().__init__(f'Web push failed with status {status_code}')
+            self.response = SimpleNamespace(status_code=status_code)
+
+    monkeypatch.setattr(play_notification_service_module.settings, 'play_push_vapid_public_key', 'BElocalPlayPushKey')
+    monkeypatch.setattr(play_notification_service_module.settings, 'play_push_vapid_private_key', 'private-play-key')
+
+    def raise_permanent_error(*args, **kwargs):
+        raise PermanentPushError(410)
+
+    monkeypatch.setattr(play_notification_service_module, '_dispatch_web_push_notification', raise_permanent_error)
+
+    with SessionLocal() as db:
+        result = dispatch_play_notifications_for_match(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            club_timezone='Europe/Rome',
+            match_id=match_id,
+        )
+        db.commit()
+        assert result['matches_processed'] == 1
+
+    with SessionLocal() as db:
+        web_push_log = db.scalar(
+            select(NotificationLog)
+            .where(
+                NotificationLog.match_id == match_id,
+                NotificationLog.player_id == candidate_id,
+                NotificationLog.channel == NotificationChannel.WEB_PUSH,
+            )
+            .limit(1)
+        )
+        subscription = db.scalar(
+            select(PlayerPushSubscription)
+            .where(
+                PlayerPushSubscription.player_id == candidate_id,
+                PlayerPushSubscription.endpoint == 'https://push.example/web-push-failed',
+            )
+            .limit(1)
+        )
+        preference = db.scalar(
+            select(PlayerNotificationPreference)
+            .where(PlayerNotificationPreference.player_id == candidate_id)
+            .limit(1)
+        )
+        assert web_push_log is not None
+        assert web_push_log.status == NotificationDeliveryStatus.FAILED
+        assert subscription is not None
+        assert subscription.revoked_at is not None
+        assert preference is not None
+        assert preference.web_push_enabled is False
 
 
 def test_play_notification_dispatch_for_two_of_four_respects_daily_cap_and_excludes_weakest():

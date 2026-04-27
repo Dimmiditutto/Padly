@@ -245,6 +245,11 @@ export function PublicClubPage() {
                       <p className='mt-2 text-sm text-slate-600'>Mostriamo solo i prossimi {detail.public_match_window_days} giorni utili.</p>
                     </div>
                   </div>
+                  <div className='surface-muted'>
+                    <p className='text-sm font-semibold text-slate-900'>Ranking pubblico minimo</p>
+                    <p className='mt-2 text-sm text-slate-600'>{detail.club.public_activity_label}</p>
+                    <p className='mt-2 text-sm text-slate-600'>Score pubblico {detail.club.public_activity_score} calcolato su {detail.club.recent_open_matches_count} match open visibili nei prossimi {detail.public_match_window_days} giorni.</p>
+                  </div>
                   <div className='surface-muted text-sm text-slate-600'>
                     {detail.club.contact_email ? <p className='flex items-center gap-2'><Mail size={16} className='text-cyan-700' /> {detail.club.contact_email}</p> : null}
                     {detail.support_phone ? <p className='mt-2 flex items-center gap-2'><Phone size={16} className='text-cyan-700' /> {detail.support_phone}</p> : null}

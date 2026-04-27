@@ -662,6 +662,80 @@ def _serialize_public_match(match: Match) -> dict:
     }
 
 
+def _public_activity_weight(participant_count: int) -> int:
+    if participant_count >= 3:
+        return 3
+    if participant_count == 2:
+        return 2
+    if participant_count == 1:
+        return 1
+    return 0
+
+
+def _public_activity_label(*, public_activity_score: int, recent_open_matches_count: int) -> str:
+    if public_activity_score >= 6 or recent_open_matches_count >= 3:
+        return 'Alta disponibilita recente'
+    if public_activity_score >= 3 or recent_open_matches_count >= 2:
+        return 'Buona disponibilita recente'
+    if public_activity_score >= 1:
+        return 'Qualche match aperto'
+    return 'Nessuna disponibilita recente'
+
+
+def build_public_activity_index(
+    db: Session,
+    *,
+    club_ids: list[str],
+    lookahead_days: int = PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
+) -> dict[str, dict[str, int | str]]:
+    if not club_ids:
+        return {}
+
+    now = _utcnow()
+    window_end = now + timedelta(days=lookahead_days)
+    matches = db.scalars(
+        select(Match)
+        .options(selectinload(Match.participants))
+        .where(
+            Match.club_id.in_(club_ids),
+            Match.status == MatchStatus.OPEN,
+            Match.start_at > now,
+            Match.start_at <= window_end,
+        )
+        .order_by(Match.club_id.asc(), Match.start_at.asc(), Match.created_at.asc())
+    ).all()
+
+    activity_index: dict[str, dict[str, int | str]] = {
+        club_id: {
+            'public_activity_score': 0,
+            'recent_open_matches_count': 0,
+            'public_activity_label': 'Nessuna disponibilita recente',
+        }
+        for club_id in club_ids
+    }
+
+    for match in matches:
+        participant_count = len(match.participants)
+        club_summary = activity_index.setdefault(
+            match.club_id,
+            {
+                'public_activity_score': 0,
+                'recent_open_matches_count': 0,
+                'public_activity_label': 'Nessuna disponibilita recente',
+            },
+        )
+        club_summary['recent_open_matches_count'] = int(club_summary['recent_open_matches_count']) + 1
+        club_summary['public_activity_score'] = int(club_summary['public_activity_score']) + _public_activity_weight(participant_count)
+
+    for club_summary in activity_index.values():
+        club_summary['public_activity_label'] = _public_activity_label(
+            public_activity_score=int(club_summary['public_activity_score']),
+            recent_open_matches_count=int(club_summary['recent_open_matches_count']),
+        )
+
+    return activity_index
+
+
 def list_public_open_matches(
     db: Session,
     *,
