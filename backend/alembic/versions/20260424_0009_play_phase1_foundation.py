@@ -7,6 +7,7 @@ Create Date: 2026-04-24 10:30:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = '20260424_0009'
@@ -15,24 +16,35 @@ branch_labels = None
 depends_on = None
 
 
-play_level_enum = sa.Enum(
+PLAY_LEVEL_VALUES = (
     'NO_PREFERENCE',
     'BEGINNER',
     'INTERMEDIATE_LOW',
     'INTERMEDIATE_MEDIUM',
     'INTERMEDIATE_HIGH',
     'ADVANCED',
-    name='playlevel',
 )
 
-match_status_enum = sa.Enum('OPEN', 'FULL', 'CANCELLED', name='matchstatus')
+MATCH_STATUS_VALUES = ('OPEN', 'FULL', 'CANCELLED')
+
+
+def _enum_type(values: tuple[str, ...], name: str, *, is_postgresql: bool, create_type: bool = True) -> sa.Enum:
+    if is_postgresql:
+        return postgresql.ENUM(*values, name=name, create_type=create_type)
+    return sa.Enum(*values, name=name)
+
 
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name == 'postgresql':
-        play_level_enum.create(bind, checkfirst=True)
-        match_status_enum.create(bind, checkfirst=True)
+    is_postgresql = bind.dialect.name == 'postgresql'
+
+    play_level_enum = _enum_type(PLAY_LEVEL_VALUES, 'playlevel', is_postgresql=is_postgresql, create_type=False)
+    match_status_enum = _enum_type(MATCH_STATUS_VALUES, 'matchstatus', is_postgresql=is_postgresql, create_type=False)
+
+    if is_postgresql:
+        _enum_type(PLAY_LEVEL_VALUES, 'playlevel', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(MATCH_STATUS_VALUES, 'matchstatus', is_postgresql=True).create(bind, checkfirst=True)
 
     op.create_table(
         'players',
@@ -137,6 +149,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    is_postgresql = bind.dialect.name == 'postgresql'
 
     op.drop_index('ix_match_players_player_id', table_name='match_players')
     op.drop_index('ix_match_players_match_id', table_name='match_players')
@@ -174,6 +187,6 @@ def downgrade() -> None:
     op.drop_index('ix_players_club_id', table_name='players')
     op.drop_table('players')
 
-    if bind.dialect.name == 'postgresql':
-        match_status_enum.drop(bind, checkfirst=True)
-        play_level_enum.drop(bind, checkfirst=True)
+    if is_postgresql:
+        op.execute(sa.text('DROP TYPE IF EXISTS matchstatus'))
+        op.execute(sa.text('DROP TYPE IF EXISTS playlevel'))

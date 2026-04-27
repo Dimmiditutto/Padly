@@ -7,6 +7,7 @@ Create Date: 2026-04-25 09:30:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = '20260425_0013'
@@ -15,28 +16,79 @@ branch_labels = None
 depends_on = None
 
 
-play_level_enum = sa.Enum(
+PLAY_LEVEL_VALUES = (
     'NO_PREFERENCE',
     'BEGINNER',
     'INTERMEDIATE_LOW',
     'INTERMEDIATE_MEDIUM',
     'INTERMEDIATE_HIGH',
     'ADVANCED',
-    name='playlevel',
-    create_constraint=True,
 )
-notification_channel_enum = sa.Enum('IN_APP', 'WEB_PUSH', name='notificationchannel', create_constraint=True)
-notification_delivery_status_enum = sa.Enum('SENT', 'SKIPPED', 'FAILED', name='notificationdeliverystatus', create_constraint=True)
-public_discovery_notification_kind_enum = sa.Enum(
+
+NOTIFICATION_CHANNEL_VALUES = ('IN_APP', 'WEB_PUSH')
+
+NOTIFICATION_DELIVERY_STATUS_VALUES = ('SENT', 'SKIPPED', 'FAILED')
+
+PUBLIC_DISCOVERY_NOTIFICATION_KIND_VALUES = (
     'WATCHLIST_MATCH_THREE_OF_FOUR',
     'WATCHLIST_MATCH_TWO_OF_FOUR',
     'NEARBY_DIGEST',
-    name='publicdiscoverynotificationkind',
-    create_constraint=True,
 )
 
 
+def _enum_type(
+    values: tuple[str, ...],
+    name: str,
+    *,
+    is_postgresql: bool,
+    create_type: bool = True,
+    create_constraint: bool = False,
+) -> sa.Enum:
+    if is_postgresql:
+        return postgresql.ENUM(*values, name=name, create_type=create_type)
+    return sa.Enum(*values, name=name, create_constraint=create_constraint)
+
+
 def upgrade() -> None:
+    bind = op.get_bind()
+    is_postgresql = bind.dialect.name == 'postgresql'
+
+    play_level_enum = _enum_type(
+        PLAY_LEVEL_VALUES,
+        'playlevel',
+        is_postgresql=is_postgresql,
+        create_type=False,
+        create_constraint=True,
+    )
+    notification_channel_enum = _enum_type(
+        NOTIFICATION_CHANNEL_VALUES,
+        'notificationchannel',
+        is_postgresql=is_postgresql,
+        create_type=False,
+        create_constraint=True,
+    )
+    notification_delivery_status_enum = _enum_type(
+        NOTIFICATION_DELIVERY_STATUS_VALUES,
+        'notificationdeliverystatus',
+        is_postgresql=is_postgresql,
+        create_type=False,
+        create_constraint=True,
+    )
+    public_discovery_notification_kind_enum = _enum_type(
+        PUBLIC_DISCOVERY_NOTIFICATION_KIND_VALUES,
+        'publicdiscoverynotificationkind',
+        is_postgresql=is_postgresql,
+        create_type=False,
+        create_constraint=True,
+    )
+
+    if is_postgresql:
+        _enum_type(
+            PUBLIC_DISCOVERY_NOTIFICATION_KIND_VALUES,
+            'publicdiscoverynotificationkind',
+            is_postgresql=True,
+        ).create(bind, checkfirst=True)
+
     op.create_table(
         'public_discovery_subscribers',
         sa.Column('id', sa.String(length=36), nullable=False),
@@ -143,6 +195,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+
     op.drop_index('ix_public_club_contact_requests_phone', table_name='public_club_contact_requests')
     op.drop_index('ix_public_club_contact_requests_email', table_name='public_club_contact_requests')
     op.drop_index('ix_public_club_contact_requests_subscriber_id', table_name='public_club_contact_requests')
@@ -170,3 +224,6 @@ def downgrade() -> None:
 
     op.drop_index('ix_public_discovery_subscribers_nearby_digest_enabled', table_name='public_discovery_subscribers')
     op.drop_table('public_discovery_subscribers')
+
+    if bind.dialect.name == 'postgresql':
+        op.execute(sa.text('DROP TYPE IF EXISTS publicdiscoverynotificationkind'))

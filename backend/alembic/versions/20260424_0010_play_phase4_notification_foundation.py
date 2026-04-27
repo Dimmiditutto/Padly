@@ -7,6 +7,7 @@ Create Date: 2026-04-24 14:30:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = '20260424_0010'
@@ -15,18 +16,16 @@ branch_labels = None
 depends_on = None
 
 
-play_level_enum = sa.Enum(
+PLAY_LEVEL_VALUES = (
     'NO_PREFERENCE',
     'BEGINNER',
     'INTERMEDIATE_LOW',
     'INTERMEDIATE_MEDIUM',
     'INTERMEDIATE_HIGH',
     'ADVANCED',
-    name='playlevel',
-    create_type=False,
 )
 
-player_activity_event_type_enum = sa.Enum(
+PLAYER_ACTIVITY_EVENT_TYPE_VALUES = (
     'IDENTIFIED',
     'MATCH_CREATED',
     'MATCH_JOINED',
@@ -35,35 +34,60 @@ player_activity_event_type_enum = sa.Enum(
     'MATCH_COMPLETED',
     'PUSH_SUBSCRIBED',
     'PUSH_UNSUBSCRIBED',
-    name='playeractivityeventtype',
 )
 
-notification_channel_enum = sa.Enum('IN_APP', 'WEB_PUSH', name='notificationchannel')
+NOTIFICATION_CHANNEL_VALUES = ('IN_APP', 'WEB_PUSH')
 
-notification_kind_enum = sa.Enum(
+NOTIFICATION_KIND_VALUES = (
     'MATCH_THREE_OF_FOUR',
     'MATCH_TWO_OF_FOUR',
     'MATCH_ONE_OF_FOUR',
-    name='notificationkind',
 )
 
-notification_delivery_status_enum = sa.Enum(
-    'PENDING',
-    'SENT',
-    'SIMULATED',
-    'FAILED',
-    'SKIPPED',
-    name='notificationdeliverystatus',
-)
+NOTIFICATION_DELIVERY_STATUS_VALUES = ('PENDING', 'SENT', 'SIMULATED', 'FAILED', 'SKIPPED')
+
+
+def _enum_type(values: tuple[str, ...], name: str, *, is_postgresql: bool, create_type: bool = True) -> sa.Enum:
+    if is_postgresql:
+        return postgresql.ENUM(*values, name=name, create_type=create_type)
+    return sa.Enum(*values, name=name)
 
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name == 'postgresql':
-        player_activity_event_type_enum.create(bind, checkfirst=True)
-        notification_channel_enum.create(bind, checkfirst=True)
-        notification_kind_enum.create(bind, checkfirst=True)
-        notification_delivery_status_enum.create(bind, checkfirst=True)
+    is_postgresql = bind.dialect.name == 'postgresql'
+
+    play_level_enum = _enum_type(PLAY_LEVEL_VALUES, 'playlevel', is_postgresql=is_postgresql, create_type=False)
+    player_activity_event_type_enum = _enum_type(
+        PLAYER_ACTIVITY_EVENT_TYPE_VALUES,
+        'playeractivityeventtype',
+        is_postgresql=is_postgresql,
+        create_type=False,
+    )
+    notification_channel_enum = _enum_type(
+        NOTIFICATION_CHANNEL_VALUES,
+        'notificationchannel',
+        is_postgresql=is_postgresql,
+        create_type=False,
+    )
+    notification_kind_enum = _enum_type(
+        NOTIFICATION_KIND_VALUES,
+        'notificationkind',
+        is_postgresql=is_postgresql,
+        create_type=False,
+    )
+    notification_delivery_status_enum = _enum_type(
+        NOTIFICATION_DELIVERY_STATUS_VALUES,
+        'notificationdeliverystatus',
+        is_postgresql=is_postgresql,
+        create_type=False,
+    )
+
+    if is_postgresql:
+        _enum_type(PLAYER_ACTIVITY_EVENT_TYPE_VALUES, 'playeractivityeventtype', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(NOTIFICATION_CHANNEL_VALUES, 'notificationchannel', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(NOTIFICATION_KIND_VALUES, 'notificationkind', is_postgresql=True).create(bind, checkfirst=True)
+        _enum_type(NOTIFICATION_DELIVERY_STATUS_VALUES, 'notificationdeliverystatus', is_postgresql=True).create(bind, checkfirst=True)
 
     op.create_table(
         'player_activity_events',
@@ -201,7 +225,7 @@ def downgrade() -> None:
     op.drop_table('player_activity_events')
 
     if bind.dialect.name == 'postgresql':
-        notification_delivery_status_enum.drop(bind, checkfirst=True)
-        notification_kind_enum.drop(bind, checkfirst=True)
-        notification_channel_enum.drop(bind, checkfirst=True)
-        player_activity_event_type_enum.drop(bind, checkfirst=True)
+        op.execute(sa.text('DROP TYPE IF EXISTS notificationdeliverystatus'))
+        op.execute(sa.text('DROP TYPE IF EXISTS notificationkind'))
+        op.execute(sa.text('DROP TYPE IF EXISTS notificationchannel'))
+        op.execute(sa.text('DROP TYPE IF EXISTS playeractivityeventtype'))
