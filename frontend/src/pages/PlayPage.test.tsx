@@ -104,6 +104,18 @@ const baseAvailability: AvailabilityResponse = {
           available: true,
           reason: null,
         },
+        {
+          slot_id: 'slot-2',
+          court_id: 'court-1',
+          court_name: 'Campo 1',
+          court_badge_label: 'Indoor',
+          start_time: '18:30',
+          end_time: '20:00',
+          display_start_time: '18:30',
+          display_end_time: '20:00',
+          available: false,
+          reason: 'Lo slot non e piu disponibile',
+        },
       ],
     },
   ],
@@ -255,6 +267,17 @@ describe('Play phase 2 pages', () => {
     expect(within(cards[0]).getByText('3 su 4')).toBeInTheDocument();
     expect(within(cards[1]).getByText('2 su 4')).toBeInTheDocument();
     expect(within(cards[2]).getByText('1 su 4')).toBeInTheDocument();
+  });
+
+  it('shows the same slot-grid language as the public booking page and keeps occupied slots visible', async () => {
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+
+    expect(await screen.findByText('Orari disponibili per campo')).toBeInTheDocument();
+    expect(await screen.findByText('1 slot libero • 1 slot occupato')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '18:00' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: '18:30' })).toBeDisabled();
   });
 
   it('redirects the /play alias to the canonical tenant route and keeps tenant propagation', async () => {

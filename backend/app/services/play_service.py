@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.models import PlayerActivityEventType
 from app.services.play_notification_service import dispatch_play_notifications_for_match, record_player_activity
+from app.services.public_discovery_service import dispatch_public_watchlist_notifications_for_match
 from app.services.booking_service import acquire_single_court_lock, assert_slot_available, calculate_deposit, expire_pending_booking_if_needed, log_event, make_public_reference, resolve_slot_window
 from app.services.court_service import resolve_court
 from app.services.payment_service import list_available_checkout_providers, start_payment_for_booking
@@ -856,6 +857,11 @@ def create_play_match(
             club_timezone=club_timezone,
             match_id=created_match.id,
         )
+        dispatch_public_watchlist_notifications_for_match(
+            db,
+            club_id=club_id,
+            match_id=created_match.id,
+        )
         return {
             'created': True,
             'message': 'Partita play creata correttamente.',
@@ -939,6 +945,11 @@ def join_play_match(
                 db,
                 club_id=club_id,
                 club_timezone=club_timezone,
+                match_id=match.id,
+            )
+            dispatch_public_watchlist_notifications_for_match(
+                db,
+                club_id=club_id,
                 match_id=match.id,
             )
 
@@ -1049,6 +1060,11 @@ def leave_play_match(
                 club_timezone=club_timezone,
                 match_id=match.id,
             )
+            dispatch_public_watchlist_notifications_for_match(
+                db,
+                club_id=club_id,
+                match_id=match.id,
+            )
 
         return {
             'action': action,
@@ -1084,6 +1100,11 @@ def update_play_match(
             match.level_requested = level_requested
         if note_provided:
             match.note = _normalize_match_note(note)
+        dispatch_public_watchlist_notifications_for_match(
+            db,
+            club_id=club_id,
+            match_id=match.id,
+        )
         return {
             'action': 'UPDATED',
             'message': 'Partita aggiornata.',

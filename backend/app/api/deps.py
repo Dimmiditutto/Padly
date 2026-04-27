@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from app.core.observability import bind_observability_context
 from app.core.db import get_db
 from app.core.security import COOKIE_NAME, decode_admin_token, password_hash_fingerprint
-from app.models import Admin, Club, Player
+from app.models import Admin, Club, Player, PublicDiscoverySubscriber
 from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, get_player_from_access_token
+from app.services.public_discovery_service import DISCOVERY_SESSION_COOKIE_NAME, get_public_discovery_subscriber_from_access_token
 from app.services.tenant_service import TenantContext, resolve_tenant_context
 
 logger = logging.getLogger(__name__)
@@ -98,3 +99,18 @@ def get_current_player_required(
     if not current_player:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Profilo play richiesto')
     return current_player
+
+
+def get_current_public_discovery_optional(
+    db: Session = Depends(get_db),
+    discovery_token: str | None = Cookie(default=None, alias=DISCOVERY_SESSION_COOKIE_NAME),
+) -> PublicDiscoverySubscriber | None:
+    return get_public_discovery_subscriber_from_access_token(db, raw_token=discovery_token, touch=True)
+
+
+def get_current_public_discovery_required(
+    current_subscriber: PublicDiscoverySubscriber | None = Depends(get_current_public_discovery_optional),
+) -> PublicDiscoverySubscriber:
+    if not current_subscriber:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Sessione discovery richiesta')
+    return current_subscriber

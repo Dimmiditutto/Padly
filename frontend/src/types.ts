@@ -162,6 +162,94 @@ export interface PublicClubDetailResponse {
   open_matches: PublicClubOpenMatchSummary[];
 }
 
+export type PublicDiscoveryTimeSlot = 'morning' | 'afternoon' | 'evening';
+export type PublicDiscoveryNotificationKind = 'WATCHLIST_MATCH_THREE_OF_FOUR' | 'WATCHLIST_MATCH_TWO_OF_FOUR' | 'NEARBY_DIGEST';
+export type NotificationChannel = 'IN_APP' | 'WEB_PUSH';
+export type NotificationDeliveryStatus = 'SENT' | 'SKIPPED' | 'FAILED';
+
+export interface PublicDiscoveryIdentifyPayload {
+  preferred_level: PlayLevel;
+  preferred_time_slots: PublicDiscoveryTimeSlot[];
+  latitude?: number | null;
+  longitude?: number | null;
+  nearby_radius_km: number;
+  nearby_digest_enabled: boolean;
+  privacy_accepted: boolean;
+}
+
+export interface PublicDiscoveryPreferencesPayload {
+  preferred_level: PlayLevel;
+  preferred_time_slots: PublicDiscoveryTimeSlot[];
+  latitude?: number | null;
+  longitude?: number | null;
+  nearby_radius_km: number;
+  nearby_digest_enabled: boolean;
+}
+
+export interface PublicDiscoverySession {
+  subscriber_id: string;
+  preferred_level: PlayLevel;
+  preferred_time_slots: PublicDiscoveryTimeSlot[];
+  latitude?: number | null;
+  longitude?: number | null;
+  has_coordinates: boolean;
+  nearby_radius_km: number;
+  nearby_digest_enabled: boolean;
+  last_identified_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicDiscoveryNotificationSummary {
+  id: string;
+  kind: PublicDiscoveryNotificationKind;
+  channel: NotificationChannel;
+  status: NotificationDeliveryStatus;
+  title: string;
+  message: string;
+  payload?: Record<string, unknown> | null;
+  sent_at?: string | null;
+  read_at?: string | null;
+  created_at: string;
+}
+
+export interface PublicDiscoveryMeResponse {
+  subscriber?: PublicDiscoverySession | null;
+  recent_notifications: PublicDiscoveryNotificationSummary[];
+  unread_notifications_count: number;
+}
+
+export interface PublicClubWatchSummary {
+  watch_id: string;
+  club: PublicClubSummary;
+  alert_match_three_of_four: boolean;
+  alert_match_two_of_four: boolean;
+  matching_open_match_count: number;
+  created_at: string;
+}
+
+export interface PublicClubWatchResponse {
+  item: PublicClubWatchSummary;
+}
+
+export interface PublicClubWatchlistResponse {
+  items: PublicClubWatchSummary[];
+}
+
+export interface PublicClubContactRequestPayload {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  preferred_level: PlayLevel;
+  note?: string | null;
+  privacy_accepted: boolean;
+}
+
+export interface PublicClubContactRequestResponse {
+  request_id: string;
+  message: string;
+}
+
 export interface AvailabilityResponse {
   date: string;
   duration_minutes: number;

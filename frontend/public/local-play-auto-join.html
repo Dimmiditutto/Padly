@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auto Join Play</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+
+      .card {
+        width: min(560px, calc(100vw - 32px));
+        background: rgba(15, 23, 42, 0.92);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.4rem;
+      }
+
+      p, code {
+        line-height: 1.5;
+      }
+
+      code {
+        word-break: break-all;
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(30, 41, 59, 0.9);
+      }
+
+      .error {
+        color: #fecaca;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Ingresso automatico come secondo giocatore</h1>
+      <p id="summary">Sto identificando il secondo player e provo a farlo entrare nella partita scelta…</p>
+      <div class="status" id="status">Inizio procedura…</div>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const tenant = params.get('tenant') || 'default-club';
+      const matchId = params.get('matchId');
+      const phone = params.get('phone') || '3337000202';
+      const profileName = params.get('name') || 'Secondo Player Demo';
+      const level = params.get('level') || 'INTERMEDIATE_MEDIUM';
+      const apiBase = 'http://127.0.0.1:8000';
+      const frontendBase = 'http://127.0.0.1:5173';
+      const statusNode = document.getElementById('status');
+      const summaryNode = document.getElementById('summary');
+
+      function setStatus(message, isError = false) {
+        statusNode.textContent = message;
+        statusNode.className = isError ? 'status error' : 'status';
+      }
+
+      async function postJson(url, payload) {
+        const response = await fetch(url, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || 'Richiesta non riuscita');
+        }
+        return data;
+      }
+
+      async function run() {
+        if (!matchId) {
+          setStatus('Manca il parametro matchId nella URL.', true);
+          return;
+        }
+
+        try {
+          setStatus('Identifico il secondo player nel browser…');
+          await postJson(`${apiBase}/api/play/identify?tenant=${encodeURIComponent(tenant)}`, {
+            profile_name: profileName,
+            phone,
+            declared_level: level,
+            privacy_accepted: true,
+          });
+
+          setStatus('Join della partita in corso…');
+          const joinResult = await postJson(`${apiBase}/api/play/matches/${encodeURIComponent(matchId)}/join?tenant=${encodeURIComponent(tenant)}`);
+
+          summaryNode.innerHTML = `Ingresso completato come <strong>${profileName}</strong>. Reindirizzo verso la pagina play del club…`;
+          setStatus(joinResult.message || 'Ti sei unito alla partita.');
+
+          window.setTimeout(() => {
+            window.location.href = `${frontendBase}/c/${encodeURIComponent(tenant)}/play`;
+          }, 900);
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Procedura fallita', true);
+        }
+      }
+
+      run();
+    </script>
+  </body>
+</html>

@@ -1,145 +1,243 @@
-# VERIFICA RECENTE FASI PLAY 5 E PLAY 6
+# VERIFICA PLAY 7 DISCOVERY PUBBLICO
 
 ## 1. Esito sintetico generale
 
-PASS
+PASS CON RISERVE
 
-I fix richiesti dal prompt operativo sono stati implementati e verificati sul repository corrente. Il checkout caparra `/play` e ora allineato al percorso pubblico sui guardrail minimi di stato e lock, i retry del payer riusano il checkout gia iniziato senza cambiare provider, e [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx) recupera la caparra community pending anche dopo refresh tramite il payload di `GET /api/play/matches`.
+La base tecnica della Fase 7 e coerente: modelli, router, schemi, service backend e pagine frontend discovery sono allineati, i controlli statici sui file discovery non mostrano errori, e le verifiche eseguibili mirate passano davvero.
 
-Nota di contesto importante:
+Validazioni reali rieseguite durante questa verifica:
 
-- il file [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) punta ancora a riferimenti SaaS generici come `prompts SaaS/prompt_master.md` e `prompts SaaS/STATO_FASE_1.MD`
-- per questa verifica il perimetro reale usato e quello davvero modificato di recente nel repo: [STATO_PLAY_5.md](STATO_PLAY_5.md), [STATO_PLAY_6.md](STATO_PLAY_6.md), [play_7.md](play_7.md) e i file backend/frontend toccati dalle Fasi 5 e 6
+- backend: D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest -q tests/test_play_phase7_public_discovery.py -> PASS, 3 passed
+- frontend: npm run test:run -- src/pages/PublicDiscoveryPages.test.tsx -> PASS, 6 passed
+- controlli statici: nessun errore su router, schemi, service e pagine discovery controllati
 
-Validazioni reali eseguite dopo i fix:
+Riserva principale:
 
-- backend: `D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase3.py -k "checkout or mock_payment_confirms or expiry_marks" -q` -> PASS, `3 passed`
-- frontend: `npm run test:run -- src/pages/PlayPage.test.tsx` -> PASS, `19 passed`
-- frontend: `npm run build` -> PASS
+- restano criticita concrete di business e affidabilita nel perimetro discovery pubblico, quindi il codice non e ancora da considerare chiuso in modo netto per il rilascio senza fix mirati
+
+Nota di perimetro:
+
+- il file [PROMPT_VERIFICA.md](PROMPT_VERIFICA.md) resta generico e punta a riferimenti SaaS storici
+- per questa verifica il perimetro reale usato e [STATO_PLAY_7.md](STATO_PLAY_7.md) piu i file backend e frontend discovery effettivamente toccati dalla Fase 7
+- il working tree contiene anche modifiche locali non discovery, come [frontend/src/components/play/CreateMatchForm.tsx](frontend/src/components/play/CreateMatchForm.tsx), [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx), [frontend/public/local-play-auto-join.html](frontend/public/local-play-auto-join.html) e [logochatgpt.png](logochatgpt.png); non fanno parte di questo verdetto
 
 ## 2. Verifica per area
 
 ### Coerenza complessiva del codice
 
-Esito: PASS
+Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- nessun problema bloccante residuo emerso nel perimetro verificato
-- il checkout `/play` e ora coerente con il checkout pubblico sui guardrail minimi richiesti dal prompt operativo
+- il flusso watchlist e la UI permettono di seguire qualunque club pubblico, ma il dispatch alert discovery blocca i club con community privata; il comportamento risultante non e coerente tra promessa UI e trigger backend
+- il flusso richiesta contatto persiste la lead ma dichiara comunque esito positivo anche se l email operativa non viene consegnata
 
 Gravita:
 
-- nessuna
+- media per la watchlist su club privati
+- alta per il falso successo del contatto club
 
 Impatto reale:
 
-- l architettura resta consistente tra backend, contratti e frontend sul flusso community con caparra
+- parte dell esperienza discovery puo risultare muta o ingannevole in produzione pur con test verdi
 
 ### Coerenza tra file modificati
 
-Esito: PASS
+Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- backend, contratti Pydantic e tipi frontend sono ora allineati anche sul nuovo payload `pending_payment`
-- la CTA caparra non dipende piu solo dalla risposta del join ma e recuperabile al reload
+- contratti frontend, router e service sono coerenti sui payload discovery, unread count e mark-as-read
+- il contratto del form contatto sembra restrittivo, ma lato backend accetta ancora dati sporchi o poco validati, in particolare nome solo spazi e email non validata semanticamente
+- il token discovery viene marcato come toccato nelle dependency, ma sulle route di lettura il dato non viene persistito davvero
 
 Gravita:
 
-- nessuna
+- media sulla validazione contatto
+- bassa sul touch non persistito del token
 
 Impatto reale:
 
-- il payer puo riprendere il checkout community senza perdere il contesto del pagamento pending
+- si crea scollamento tra ciò che suggerisce lo schema e ciò che viene davvero salvato o tracciato
 
 ### Conflitti o blocchi introdotti dai file modificati
 
-Esito: PASS
+Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- nessun conflitto bloccante residuo nel percorso `/api/play/bookings/{booking_id}/checkout`
-- il route ora usa lock e il service rifiuta booking non piu `PENDING_PAYMENT`
+- nessun errore statico, nessun mismatch tipico tra API e frontend, nessun test rosso nel perimetro discovery verificato
+- esiste pero un conflitto logico tra follow dei club privati e assenza di alert conseguente
+- esiste un rischio runtime non coperto dai test: richiesta contatto salvata ma email operativa fallita con risposta API comunque positiva
 
 Gravita:
 
-- nessuna
+- media sulla watchlist incoerente
+- alta sul ramo di failure email non gestito a livello di esito utente
 
 Impatto reale:
 
-- i retry leciti del payer riusano il checkout gia iniziato, mentre i casi fuori stato valido vengono rifiutati
+- l integrazione puo apparire funzionante ma produrre perdite di segnale operativo o aspettative UX sbagliate
 
 ### Criticita del progetto nel suo insieme
 
-Esito: PASS
+Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- non sono emerse regressioni sui file e sui test toccati dal fix
-- la copertura aggiunta ora include retry sul checkout gia iniziato, blocco post-pagamento e recovery UI dopo refresh
+- il perimetro discovery non mostra regressioni bloccanti su build o test mirati
+- manca copertura sui rami realmente fragili: club privato seguito in watchlist, failure SMTP sul contact request, validazione input sporco del contatto
+- il campo last_used_at della sessione discovery viene aggiornato in memoria ma non consolidato sulle GET, quindi il dato di audit e fuorviante
 
 Gravita:
 
-- nessuna
+- alta per il ramo failure email
+- media per i gap di test e validazione
+- bassa per il last_used_at non persistito
 
 Impatto reale:
 
-- il perimetro corretto dal prompt operativo e ora coperto da test reali e build verde
+- il sistema passa i test correnti ma lascia scoperti casi di produzione plausibili
 
 ### Rispetto della logica di business
 
-Esito: PASS
+Esito: FAIL PARZIALE
 
 Problemi trovati:
 
-- la regola di business resta rispettata: paga solo il quarto player che completa il `4/4`
-- il controllo di stato ora impedisce di riaprire il checkout quando la booking non e piu pagabile
+- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L526) permette di seguire un club pubblico attivo senza filtrare lo stato community, mentre [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L633) sopprime gli alert se il club non e community aperta; questo contraddice la semantica della watchlist esposta in [frontend/src/pages/ClubDirectoryPage.tsx](frontend/src/pages/ClubDirectoryPage.tsx#L646) e [frontend/src/pages/PublicClubPage.tsx](frontend/src/pages/PublicClubPage.tsx#L229)
+- [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L412) restituisce sempre il messaggio positivo di invio, ma [backend/app/services/email_service.py](backend/app/services/email_service.py#L187) puo restituire FAILED senza che il ramo discovery lo propaghi o lo trasformi in esito coerente
+- [backend/app/schemas/public.py](backend/app/schemas/public.py#L261) non impone validazione email forte e non normalizza il nome prima del controllo di lunghezza, mentre [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L817) salva il nome gia strip-pato, quindi il backend puo accettare input semanticamente vuoti
 
 Gravita:
 
-- nessuna
+- alta sul contatto club
+- media sulla watchlist privata e sulla validazione input
 
 Impatto reale:
 
-- la semantica di pagamento unico e ora blindata nel perimetro verificato
+- alcune regole di prodotto dichiarate o implicite non sono ancora applicate in modo coerente end-to-end
 
 ## 3. Elenco criticita
 
-Nessuna criticita bloccante aperta nel perimetro verificato.
+### 1. Watchlist coerente solo per club community aperta, ma follow aperto a tutti i club pubblici
 
-Criticita chiuse con questa esecuzione:
+Descrizione tecnica:
 
-- il checkout `/play` non puo piu essere avviato fuori dallo stato `PENDING_PAYMENT`
-- il route `/play` usa ora un lock coerente con il checkout pubblico
-- il payer puo recuperare la caparra community pending anche dopo refresh tramite `pending_payment` in `GET /api/play/matches`
+- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L526) consente il follow di qualsiasi club pubblico attivo
+- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L653) interrompe il dispatch alert se il club non e community aperta
+- la UI invita comunque a seguire il club in [frontend/src/pages/ClubDirectoryPage.tsx](frontend/src/pages/ClubDirectoryPage.tsx#L646) e [frontend/src/pages/PublicClubPage.tsx](frontend/src/pages/PublicClubPage.tsx#L229)
+
+Perche e un problema reale:
+
+- l utente puo seguire un club che poi non generera mai gli alert 2 su 4 o 3 su 4 promessi dal discovery
+
+Dove si manifesta:
+
+- watchlist pubblica, feed alert, pagina club pubblica e directory club
+
+Gravita: media
+
+Blocca il rilascio: si, se il rilascio discovery deve essere coerente anche per i club con community privata
+
+### 2. Richiesta contatto dichiarata come inviata anche quando l email operativa fallisce
+
+Descrizione tecnica:
+
+- [backend/app/services/email_service.py](backend/app/services/email_service.py#L187) restituisce uno stato FAILED o SKIPPED senza alzare errore
+- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L857) invoca l invio ma ignora lo stato ritornato
+- [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L433) risponde sempre con Richiesta inviata al circolo
+
+Perche e un problema reale:
+
+- il lead viene salvato ma il club potrebbe non essere notificato; l utente riceve comunque un messaggio di successo pieno e il team puo perdere richieste di contatto senza segnali applicativi adeguati
+
+Dove si manifesta:
+
+- POST /api/public/clubs/{club_slug}/contact-request
+
+Gravita: alta
+
+Blocca il rilascio: si
+
+### 3. Validazione backend troppo debole sul contact request discovery
+
+Descrizione tecnica:
+
+- [backend/app/schemas/public.py](backend/app/schemas/public.py#L261) usa str semplice per email e non normalizza il nome prima del controllo minimo
+- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L817) salva name dopo strip, quindi un valore fatto solo di spazi puo diventare stringa vuota persistita
+
+Perche e un problema reale:
+
+- l endpoint puo accettare via API payload formalmente passanti ma semanticamente sporchi, degradando qualita lead e affidabilita operativa
+
+Dove si manifesta:
+
+- POST /api/public/clubs/{club_slug}/contact-request
+
+Gravita: media
+
+Blocca il rilascio: no, ma va corretto prima della beta pubblica
+
+### 4. Touch del token discovery non persistito sulle route read-only
+
+Descrizione tecnica:
+
+- [backend/app/api/deps.py](backend/app/api/deps.py#L108) risolve il subscriber con touch attivo
+- [backend/app/services/public_discovery_service.py](backend/app/services/public_discovery_service.py#L247) aggiorna last_used_at in sessione
+- [backend/app/core/db.py](backend/app/core/db.py#L18) chiude la sessione senza commit automatico; route come [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L292) e [backend/app/api/routers/public.py](backend/app/api/routers/public.py#L374) non fanno commit
+
+Perche e un problema reale:
+
+- il dato di ultimo utilizzo del token non rappresenta l uso reale sulle consultazioni discovery e puo trarre in inganno su audit, cleanup o analisi sessioni
+
+Dove si manifesta:
+
+- GET /api/public/discovery/me e GET /api/public/discovery/watchlist
+
+Gravita: bassa
+
+Blocca il rilascio: no
 
 ## 4. Prioritizzazione finale
 
 ### Da correggere prima del rilascio
 
-- nessuna azione bloccante residua emersa nel perimetro verificato
+- gestire in modo coerente l esito del contact request quando la notifica email fallisce o non e configurata
+- allineare la semantica watchlist dei club privati: o il follow e consentito davvero con alert coerenti, oppure va esplicitamente impedito o degradato in modo chiaro tra backend e frontend
 
 ### Da correggere prima della beta pubblica
 
-- nessuna azione obbligatoria residua emersa sul perimetro corretto da questo prompt
+- rafforzare la validazione backend del form contatto discovery su nome ed email
+- aggiungere test dedicati sui rami failure SMTP e sul comportamento watchlist per club non community aperta
 
 ### Miglioramenti differibili
 
-- se in futuro il prodotto vorra gestire piu caparre community pending simultanee dello stesso payer, la UI potra essere estesa oltre il primo `pending_payment` recuperato
+- rendere consistente la persistenza di last_used_at del token discovery sulle route di lettura, oppure rimuovere il touch se non serve davvero come dato affidabile
 
 ## 5. Verdetto finale
 
-Il codice e pronto nel perimetro verificato del flusso caparra community `/play`.
+Il codice discovery pubblico della Fase 7 e quasi pronto ma richiede fix mirati prima di poter essere considerato chiuso con sicurezza.
 
-La discovery pubblica della Fase 6 resta intatta, mentre il percorso di checkout community della Fase 5 e ora chiuso sui tre punti richiesti dalla verifica: stato valido, retry idempotente e recovery dopo refresh.
+La struttura generale e solida, i contratti sono coerenti e i test mirati attuali passano, ma restano due problemi da non lasciare in coda: il falso successo del contact request in caso di failure email e l incoerenza tra follow dei club privati e generazione reale degli alert watchlist.
 
 ## 6. Prompt operativo per i fix
 
-Nessun prompt operativo di fix ulteriore e richiesto nel perimetro verificato.
+Agisci solo sul perimetro Play 7 discovery pubblico. Non fare refactor ampi e non toccare file fuori dal perimetro discovery salvo test strettamente necessari.
 
-Le verifiche finali realmente eseguite e passate sono:
+Obiettivi in ordine di priorita:
 
-- [backend/tests/test_play_phase3.py](backend/tests/test_play_phase3.py) sul blocco `checkout or mock_payment_confirms or expiry_marks`
-- [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx)
-- build frontend con `npm run build`
+1. Correggi il flusso POST /api/public/clubs/{club_slug}/contact-request in modo che l esito restituito all utente sia coerente con l esito reale della notifica operativa al club. Mantieni la persistenza della richiesta, ma non dichiarare successo pieno se email_service segnala FAILED o SKIPPED. Introduci la patch minima coerente con l infrastruttura email gia esistente e aggiungi un test backend sul ramo di failure.
+
+2. Rendi coerente la watchlist discovery per i club con community privata. Scegli una sola semantica e applicala end-to-end con patch minima: oppure il club privato non e followabile, oppure i suoi eventi generano alert discovery come promesso dalla UI. Allinea backend, eventuale copy frontend e test mirato senza refactor superflui.
+
+3. Rafforza la validazione backend del contact request discovery: trim prima della validazione, rifiuta name vuoto o solo spazi, usa una validazione email coerente con gli altri schemi del progetto. Aggiungi solo i test davvero necessari per coprire questi casi limite.
+
+4. Verifica se last_used_at del token discovery deve essere un dato affidabile. Se si, persisti davvero il touch sulle route read-only con patch minima e test mirato. Se no, elimina la semantica ingannevole del touch senza introdurre refactor.
+
+Validazioni richieste a fine fix:
+
+- backend discovery: tests/test_play_phase7_public_discovery.py
+- frontend discovery: src/pages/PublicDiscoveryPages.test.tsx
+- eventuali test aggiunti solo sui casi critici sopra, senza allargare il perimetro inutilmente

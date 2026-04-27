@@ -1,11 +1,12 @@
 from datetime import date, datetime, time
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.models import BookingStatus, PaymentProvider, PaymentStatus, PlayLevel
+from app.models import BookingStatus, NotificationChannel, NotificationDeliveryStatus, PaymentProvider, PaymentStatus, PlayLevel, PublicDiscoveryNotificationKind
 from app.schemas.common import BookingCustomerData, CourtAvailability, TimeSlot
 
 VALID_DURATIONS = {60, 90, 120, 150, 180, 210, 240, 270, 300}
+VALID_DISCOVERY_TIME_SLOTS = {'morning', 'afternoon', 'evening'}
 
 
 def validate_hhmm_time(value: str) -> str:
@@ -143,6 +144,160 @@ class PublicClubDetailResponse(BaseModel):
     support_phone: str | None = None
     public_match_window_days: int
     open_matches: list[PublicClubOpenMatchSummary] = Field(default_factory=list)
+
+
+class PublicDiscoveryIdentifyRequest(BaseModel):
+    preferred_level: PlayLevel = PlayLevel.NO_PREFERENCE
+    preferred_time_slots: list[str] = Field(default_factory=list)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    nearby_radius_km: int = Field(default=25, ge=5, le=250)
+    nearby_digest_enabled: bool = False
+    privacy_accepted: bool
+
+    @field_validator('preferred_time_slots')
+    @classmethod
+    def validate_preferred_time_slots(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in value:
+            slot = item.strip().lower()
+            if slot not in VALID_DISCOVERY_TIME_SLOTS:
+                raise ValueError('Fascia oraria non valida')
+            if slot not in normalized:
+                normalized.append(slot)
+        return normalized
+
+    @field_validator('privacy_accepted')
+    @classmethod
+    def validate_privacy(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError('Devi accettare la privacy')
+        return value
+
+    @model_validator(mode='after')
+    def validate_coordinates(self) -> 'PublicDiscoveryIdentifyRequest':
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError('Latitudine e longitudine devono essere valorizzate insieme')
+        return self
+
+
+class PublicDiscoveryPreferencesUpdateRequest(BaseModel):
+    preferred_level: PlayLevel = PlayLevel.NO_PREFERENCE
+    preferred_time_slots: list[str] = Field(default_factory=list)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    nearby_radius_km: int = Field(default=25, ge=5, le=250)
+    nearby_digest_enabled: bool = False
+
+    @field_validator('preferred_time_slots')
+    @classmethod
+    def validate_preferred_time_slots(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in value:
+            slot = item.strip().lower()
+            if slot not in VALID_DISCOVERY_TIME_SLOTS:
+                raise ValueError('Fascia oraria non valida')
+            if slot not in normalized:
+                normalized.append(slot)
+        return normalized
+
+    @model_validator(mode='after')
+    def validate_coordinates(self) -> 'PublicDiscoveryPreferencesUpdateRequest':
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError('Latitudine e longitudine devono essere valorizzate insieme')
+        return self
+
+
+class PublicDiscoverySession(BaseModel):
+    subscriber_id: str
+    preferred_level: PlayLevel
+    preferred_time_slots: list[str] = Field(default_factory=list)
+    latitude: float | None = None
+    longitude: float | None = None
+    has_coordinates: bool
+    nearby_radius_km: int
+    nearby_digest_enabled: bool
+    last_identified_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublicDiscoveryNotificationSummary(BaseModel):
+    id: str
+    kind: PublicDiscoveryNotificationKind
+    channel: NotificationChannel
+    status: NotificationDeliveryStatus
+    title: str
+    message: str
+    payload: dict | None = None
+    sent_at: datetime | None = None
+    read_at: datetime | None = None
+    created_at: datetime
+
+
+class PublicDiscoveryMeResponse(BaseModel):
+    subscriber: PublicDiscoverySession | None = None
+    recent_notifications: list[PublicDiscoveryNotificationSummary] = Field(default_factory=list)
+    unread_notifications_count: int = 0
+
+
+class PublicClubWatchSummary(BaseModel):
+    watch_id: str
+    club: PublicClubSummary
+    alert_match_three_of_four: bool
+    alert_match_two_of_four: bool
+    matching_open_match_count: int
+    created_at: datetime
+
+
+class PublicClubWatchResponse(BaseModel):
+    item: PublicClubWatchSummary
+
+
+class PublicClubWatchlistResponse(BaseModel):
+    items: list[PublicClubWatchSummary] = Field(default_factory=list)
+
+
+class PublicClubContactRequestCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=50)
+    preferred_level: PlayLevel = PlayLevel.NO_PREFERENCE
+    note: str | None = Field(default=None, max_length=1000)
+    privacy_accepted: bool
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def normalize_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator('email', 'phone', 'note', mode='before')
+    @classmethod
+    def normalize_optional_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+    @field_validator('privacy_accepted')
+    @classmethod
+    def validate_privacy(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError('Devi accettare la privacy')
+        return value
+
+    @model_validator(mode='after')
+    def validate_contact_channel(self) -> 'PublicClubContactRequestCreateRequest':
+        if not ((self.email or '').strip() or (self.phone or '').strip()):
+            raise ValueError('Inserisci almeno email o telefono')
+        return self
+
+
+class PublicClubContactRequestCreateResponse(BaseModel):
+    request_id: str
+    message: str
 
 
 class PublicBookingSummary(BaseModel):

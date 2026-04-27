@@ -89,6 +89,12 @@ class NotificationKind(str, enum.Enum):
     MATCH_ONE_OF_FOUR = 'MATCH_ONE_OF_FOUR'
 
 
+class PublicDiscoveryNotificationKind(str, enum.Enum):
+    WATCHLIST_MATCH_THREE_OF_FOUR = 'WATCHLIST_MATCH_THREE_OF_FOUR'
+    WATCHLIST_MATCH_TWO_OF_FOUR = 'WATCHLIST_MATCH_TWO_OF_FOUR'
+    NEARBY_DIGEST = 'NEARBY_DIGEST'
+
+
 class NotificationDeliveryStatus(str, enum.Enum):
     PENDING = 'PENDING'
     SENT = 'SENT'
@@ -141,6 +147,9 @@ class Club(Base):
     push_subscriptions: Mapped[list['PlayerPushSubscription']] = relationship(back_populates='club', cascade='all, delete-orphan')
     notification_preferences: Mapped[list['PlayerNotificationPreference']] = relationship(back_populates='club', cascade='all, delete-orphan')
     notification_logs: Mapped[list['NotificationLog']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    public_watch_items: Mapped[list['PublicClubWatch']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    public_discovery_notifications: Mapped[list['PublicDiscoveryNotification']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    public_contact_requests: Mapped[list['PublicClubContactRequest']] = relationship(back_populates='club', cascade='all, delete-orphan')
 
 
 class ClubDomain(Base):
@@ -424,6 +433,102 @@ class NotificationLog(Base):
     club: Mapped['Club'] = relationship(back_populates='notification_logs')
     player: Mapped['Player'] = relationship(back_populates='notifications')
     match: Mapped['Match | None'] = relationship()
+
+
+class PublicDiscoverySubscriber(Base):
+    __tablename__ = 'public_discovery_subscribers'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    preferred_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    preferred_time_slots: Mapped[dict] = mapped_column(JSON, default=dict)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
+    nearby_radius_km: Mapped[int] = mapped_column(Integer, default=25)
+    nearby_digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    privacy_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_identified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    session_tokens: Mapped[list['PublicDiscoverySessionToken']] = relationship(back_populates='subscriber', cascade='all, delete-orphan')
+    watch_items: Mapped[list['PublicClubWatch']] = relationship(back_populates='subscriber', cascade='all, delete-orphan')
+    notifications: Mapped[list['PublicDiscoveryNotification']] = relationship(back_populates='subscriber', cascade='all, delete-orphan')
+    contact_requests: Mapped[list['PublicClubContactRequest']] = relationship(back_populates='subscriber', cascade='all, delete-orphan')
+
+
+class PublicDiscoverySessionToken(Base):
+    __tablename__ = 'public_discovery_session_tokens'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    subscriber_id: Mapped[str] = mapped_column(ForeignKey('public_discovery_subscribers.id'), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    subscriber: Mapped['PublicDiscoverySubscriber'] = relationship(back_populates='session_tokens')
+
+
+class PublicClubWatch(Base):
+    __tablename__ = 'public_club_watches'
+    __table_args__ = (UniqueConstraint('subscriber_id', 'club_id', name='uq_public_club_watches_subscriber_club'),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    subscriber_id: Mapped[str] = mapped_column(ForeignKey('public_discovery_subscribers.id'), index=True)
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True)
+    alert_match_three_of_four: Mapped[bool] = mapped_column(Boolean, default=True)
+    alert_match_two_of_four: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    subscriber: Mapped['PublicDiscoverySubscriber'] = relationship(back_populates='watch_items')
+    club: Mapped['Club'] = relationship(back_populates='public_watch_items')
+
+
+class PublicDiscoveryNotification(Base):
+    __tablename__ = 'public_discovery_notifications'
+    __table_args__ = (
+        UniqueConstraint('subscriber_id', 'channel', 'dedupe_key', name='uq_public_discovery_notifications_subscriber_channel_dedupe'),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    subscriber_id: Mapped[str] = mapped_column(ForeignKey('public_discovery_subscribers.id'), index=True)
+    club_id: Mapped[str | None] = mapped_column(ForeignKey('clubs.id'), nullable=True, index=True)
+    match_id: Mapped[str | None] = mapped_column(ForeignKey('matches.id'), nullable=True, index=True)
+    channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel), index=True, default=NotificationChannel.IN_APP)
+    kind: Mapped[PublicDiscoveryNotificationKind] = mapped_column(Enum(PublicDiscoveryNotificationKind), index=True)
+    status: Mapped[NotificationDeliveryStatus] = mapped_column(Enum(NotificationDeliveryStatus), default=NotificationDeliveryStatus.SENT, index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(160), index=True)
+    title: Mapped[str] = mapped_column(String(140))
+    message: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    subscriber: Mapped['PublicDiscoverySubscriber'] = relationship(back_populates='notifications')
+    club: Mapped['Club | None'] = relationship(back_populates='public_discovery_notifications')
+    match: Mapped['Match | None'] = relationship()
+
+
+class PublicClubContactRequest(Base):
+    __tablename__ = 'public_club_contact_requests'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True)
+    subscriber_id: Mapped[str | None] = mapped_column(ForeignKey('public_discovery_subscribers.id'), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    preferred_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    privacy_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='public_contact_requests')
+    subscriber: Mapped['PublicDiscoverySubscriber | None'] = relationship(back_populates='contact_requests')
 
 
 class RecurringBookingSeries(Base):

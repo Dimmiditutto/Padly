@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
+import type { PublicClubWatchSummary, PublicDiscoveryNotificationSummary, PublicDiscoverySession } from '../types';
 
 vi.mock('../pages/PublicBookingPage', () => ({
   PublicBookingPage: () => <div>PUBLIC BOOKING ROUTE</div>,
@@ -13,12 +14,30 @@ vi.mock('../pages/PlayPage', () => ({
 }));
 
 vi.mock('../services/publicApi', () => ({
+  createPublicClubContactRequest: vi.fn(),
+  followPublicClub: vi.fn(),
   getPublicClubDetail: vi.fn(),
+  getPublicDiscoveryMe: vi.fn(),
+  identifyPublicDiscovery: vi.fn(),
   listPublicClubs: vi.fn(),
   listPublicClubsNearby: vi.fn(),
+  listPublicWatchlist: vi.fn(),
+  markPublicDiscoveryNotificationRead: vi.fn(),
+  unfollowPublicClub: vi.fn(),
+  updatePublicDiscoveryPreferences: vi.fn(),
 }));
 
-import { getPublicClubDetail, listPublicClubs, listPublicClubsNearby } from '../services/publicApi';
+import {
+  createPublicClubContactRequest,
+  followPublicClub,
+  getPublicClubDetail,
+  getPublicDiscoveryMe,
+  identifyPublicDiscovery,
+  listPublicClubs,
+  listPublicClubsNearby,
+  listPublicWatchlist,
+  markPublicDiscoveryNotificationRead,
+} from '../services/publicApi';
 
 function renderApp(path: string) {
   return render(
@@ -65,11 +84,58 @@ const directoryItems = [
   },
 ];
 
+const discoverySubscriber: PublicDiscoverySession = {
+  subscriber_id: 'subscriber-1',
+  preferred_level: 'INTERMEDIATE_HIGH',
+  preferred_time_slots: ['morning', 'afternoon', 'evening'],
+  latitude: 44.30941,
+  longitude: 8.47715,
+  has_coordinates: true,
+  nearby_radius_km: 25,
+  nearby_digest_enabled: true,
+  last_identified_at: '2026-05-01T09:00:00Z',
+  created_at: '2026-05-01T09:00:00Z',
+  updated_at: '2026-05-01T09:00:00Z',
+};
+
+const discoveryNotification: PublicDiscoveryNotificationSummary = {
+  id: 'notification-1',
+  kind: 'WATCHLIST_MATCH_TWO_OF_FOUR',
+  channel: 'IN_APP',
+  status: 'SENT',
+  title: 'Alert 2/4 Roma Club',
+  message: 'Una partita del club Roma Club e arrivata a 2/4.',
+  payload: null,
+  sent_at: '2026-05-01T10:00:00Z',
+  read_at: null,
+  created_at: '2026-05-01T10:00:00Z',
+};
+
+const discoveryNotificationRead: PublicDiscoveryNotificationSummary = {
+  ...discoveryNotification,
+  read_at: '2026-05-01T10:05:00Z',
+};
+
+const watchlistItem: PublicClubWatchSummary = {
+  watch_id: 'watch-1',
+  club: directoryItems[0],
+  alert_match_three_of_four: true,
+  alert_match_two_of_four: true,
+  matching_open_match_count: 1,
+  created_at: '2026-05-01T09:30:00Z',
+};
+
 describe('Public discovery routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(listPublicClubs).mockResolvedValue({ query: null, items: directoryItems });
     vi.mocked(listPublicClubsNearby).mockResolvedValue({ query: null, items: [directoryItems[0]] });
+    vi.mocked(getPublicDiscoveryMe).mockResolvedValue({ subscriber: null, recent_notifications: [], unread_notifications_count: 0 });
+    vi.mocked(listPublicWatchlist).mockResolvedValue({ items: [] });
+    vi.mocked(identifyPublicDiscovery).mockResolvedValue({ subscriber: discoverySubscriber, recent_notifications: [discoveryNotification], unread_notifications_count: 1 });
+    vi.mocked(followPublicClub).mockResolvedValue({ item: watchlistItem });
+    vi.mocked(markPublicDiscoveryNotificationRead).mockResolvedValue({ subscriber: discoverySubscriber, recent_notifications: [discoveryNotificationRead], unread_notifications_count: 0 });
+    vi.mocked(createPublicClubContactRequest).mockResolvedValue({ request_id: 'request-1', message: 'Richiesta inviata al circolo' });
     vi.mocked(getPublicClubDetail).mockResolvedValue({
       club: directoryItems[0],
       timezone: 'Europe/Rome',
@@ -198,5 +264,66 @@ describe('Public discovery routes', () => {
     await waitFor(() => expect(getPublicClubDetail).toHaveBeenLastCalledWith('roma-club', 'ADVANCED'));
     expect(await screen.findByText('Mancano 2 giocatori')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Entra nella community' })).toHaveAttribute('href', '/c/roma-club/play');
+  });
+
+  it('activates discovery and follows a club from /clubs', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPublicDiscoveryMe)
+      .mockResolvedValueOnce({ subscriber: null, recent_notifications: [], unread_notifications_count: 0 })
+      .mockResolvedValueOnce({ subscriber: discoverySubscriber, recent_notifications: [discoveryNotificationRead], unread_notifications_count: 0 });
+    vi.mocked(listPublicWatchlist)
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [watchlistItem] });
+
+    renderApp('/clubs');
+
+    expect(await screen.findByText('Roma Club')).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: /Accetto il trattamento dei dati per salvare la sessione discovery/i }));
+    await user.click(screen.getByRole('button', { name: 'Attiva discovery pubblico' }));
+
+    await waitFor(() => expect(identifyPublicDiscovery).toHaveBeenCalled());
+    expect(await screen.findByText('Alert 2/4 Roma Club')).toBeInTheDocument();
+    expect(screen.getByText('Non lette: 1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Segna come letta' }));
+
+    await waitFor(() => expect(markPublicDiscoveryNotificationRead).toHaveBeenCalledWith('notification-1'));
+    expect(await screen.findByText('Non lette: 0')).toBeInTheDocument();
+    expect(screen.getByText('Letta')).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: 'Segui questo club' })[0]);
+
+    await waitFor(() => expect(followPublicClub).toHaveBeenCalledWith('roma-club'));
+    expect(await screen.findByText('Club seguito. Match compatibili in watchlist: 1.')).toBeInTheDocument();
+  });
+
+  it('submits the guided club contact request from /c/:clubSlug', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPublicDiscoveryMe).mockResolvedValue({ subscriber: discoverySubscriber, recent_notifications: [], unread_notifications_count: 0 });
+    vi.mocked(listPublicWatchlist).mockResolvedValue({ items: [] });
+
+    renderApp('/c/roma-club');
+
+    expect(await screen.findByRole('heading', { name: 'Roma Club' })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Nome'), 'Martina Smash');
+    await user.type(screen.getByLabelText('Email'), 'martina@example.com');
+    await user.type(screen.getByLabelText('Telefono'), '+39 333 765 4321');
+    await user.type(screen.getByLabelText('Messaggio'), 'Vorrei parlare con il club prima di entrare nella community.');
+    await user.click(screen.getByRole('checkbox', { name: /Accetto il trattamento dei dati per l invio della richiesta di contatto/i }));
+    await user.click(screen.getByRole('button', { name: 'Invia richiesta contatto' }));
+
+    await waitFor(() =>
+      expect(createPublicClubContactRequest).toHaveBeenCalledWith(
+        'roma-club',
+        expect.objectContaining({
+          name: 'Martina Smash',
+          email: 'martina@example.com',
+          phone: '+39 333 765 4321',
+          preferred_level: 'INTERMEDIATE_HIGH',
+        })
+      )
+    );
+    expect(await screen.findByText('Richiesta inviata al circolo')).toBeInTheDocument();
   });
 });

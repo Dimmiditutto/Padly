@@ -1,24 +1,38 @@
 import math
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_club, get_current_club_enforced
+from app.api.deps import (
+    get_current_club,
+    get_current_club_enforced,
+    get_current_public_discovery_optional,
+    get_current_public_discovery_required,
+)
+from app.core.config import settings
 from app.core.db import get_db
-from app.models import Booking, BookingStatus, Club, Court, PaymentProvider, PaymentStatus, PlayLevel
+from app.models import Booking, BookingStatus, Club, Court, PaymentProvider, PaymentStatus, PlayLevel, PublicDiscoverySubscriber
 from app.schemas.common import SimpleMessage
 from app.schemas.public import (
     AvailabilityResponse,
     BookingStatusResponse,
     PaymentInitResponse,
+    PublicClubContactRequestCreateRequest,
+    PublicClubContactRequestCreateResponse,
     PublicClubDetailResponse,
     PublicClubDirectoryResponse,
+    PublicClubWatchResponse,
+    PublicClubWatchlistResponse,
     PublicCancellationResponse,
     PublicBookingCreateRequest,
     PublicBookingCreateResponse,
     PublicConfigResponse,
+    PublicDiscoveryIdentifyRequest,
+    PublicDiscoveryMeResponse,
+    PublicDiscoveryPreferencesUpdateRequest,
+    PublicDiscoverySession,
 )
 from app.services.booking_service import acquire_single_court_lock, as_utc, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking, expire_pending_booking_if_needed
 from app.services.booking_service import build_daily_slots_grouped_by_court
@@ -32,6 +46,21 @@ from app.services.payment_service import (
 )
 from app.services.settings_service import get_booking_rules, get_public_rate_card
 from app.services.play_service import PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS, list_public_open_matches
+from app.services.public_discovery_service import (
+    DISCOVERY_SESSION_COOKIE_NAME,
+    DISCOVERY_SESSION_MAX_AGE_SECONDS,
+    count_unread_public_discovery_notifications,
+    create_public_club_contact_request,
+    follow_public_club,
+    identify_public_discovery_subscriber,
+    list_public_watchlist,
+    mark_public_discovery_notification_as_read,
+    serialize_public_discovery_me_response,
+    serialize_public_discovery_subscriber,
+    serialize_public_watch_item,
+    unfollow_public_club,
+    update_public_discovery_preferences,
+)
 
 router = APIRouter(prefix='/public', tags=['Public'])
 
@@ -256,6 +285,158 @@ def get_public_club_detail(
             level_requested=level,
             lookahead_days=PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
         ),
+    )
+
+
+@router.get('/discovery/me', response_model=PublicDiscoveryMeResponse)
+def get_public_discovery_me(
+    current_subscriber: PublicDiscoverySubscriber | None = Depends(get_current_public_discovery_optional),
+    db: Session = Depends(get_db),
+) -> PublicDiscoveryMeResponse:
+    if current_subscriber:
+        db.commit()
+    return PublicDiscoveryMeResponse.model_validate(
+        serialize_public_discovery_me_response(db, subscriber=current_subscriber)
+    )
+
+
+@router.post('/discovery/identify', response_model=PublicDiscoveryMeResponse)
+def identify_discovery_user(
+    payload: PublicDiscoveryIdentifyRequest,
+    response: Response,
+    current_subscriber: PublicDiscoverySubscriber | None = Depends(get_current_public_discovery_optional),
+    db: Session = Depends(get_db),
+) -> PublicDiscoveryMeResponse:
+    subscriber, raw_token = identify_public_discovery_subscriber(
+        db,
+        preferred_level=payload.preferred_level,
+        preferred_time_slots=payload.preferred_time_slots,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        nearby_radius_km=payload.nearby_radius_km,
+        nearby_digest_enabled=payload.nearby_digest_enabled,
+        privacy_accepted=payload.privacy_accepted,
+        current_subscriber=current_subscriber,
+    )
+    response.set_cookie(
+        key=DISCOVERY_SESSION_COOKIE_NAME,
+        value=raw_token,
+        httponly=True,
+        secure=settings.is_production,
+        samesite='lax',
+        max_age=DISCOVERY_SESSION_MAX_AGE_SECONDS,
+        path='/',
+    )
+    db.commit()
+    db.refresh(subscriber)
+    return PublicDiscoveryMeResponse.model_validate(
+        serialize_public_discovery_me_response(db, subscriber=subscriber)
+    )
+
+
+@router.post('/discovery/notifications/{notification_id}/read', response_model=PublicDiscoveryMeResponse)
+def mark_public_discovery_notification_read(
+    notification_id: str,
+    current_subscriber: PublicDiscoverySubscriber = Depends(get_current_public_discovery_required),
+    db: Session = Depends(get_db),
+) -> PublicDiscoveryMeResponse:
+    mark_public_discovery_notification_as_read(
+        db,
+        subscriber=current_subscriber,
+        notification_id=notification_id,
+    )
+    db.commit()
+    return PublicDiscoveryMeResponse.model_validate(
+        serialize_public_discovery_me_response(db, subscriber=current_subscriber)
+    )
+
+
+@router.put('/discovery/preferences', response_model=PublicDiscoverySession)
+def update_discovery_preferences(
+    payload: PublicDiscoveryPreferencesUpdateRequest,
+    current_subscriber: PublicDiscoverySubscriber = Depends(get_current_public_discovery_required),
+    db: Session = Depends(get_db),
+) -> PublicDiscoverySession:
+    subscriber = update_public_discovery_preferences(
+        db,
+        subscriber=current_subscriber,
+        preferred_level=payload.preferred_level,
+        preferred_time_slots=payload.preferred_time_slots,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        nearby_radius_km=payload.nearby_radius_km,
+        nearby_digest_enabled=payload.nearby_digest_enabled,
+    )
+    db.commit()
+    db.refresh(subscriber)
+    return PublicDiscoverySession.model_validate(serialize_public_discovery_subscriber(subscriber))
+
+
+@router.get('/discovery/watchlist', response_model=PublicClubWatchlistResponse)
+def get_public_discovery_watchlist(
+    current_subscriber: PublicDiscoverySubscriber = Depends(get_current_public_discovery_required),
+    db: Session = Depends(get_db),
+) -> PublicClubWatchlistResponse:
+    db.commit()
+    return PublicClubWatchlistResponse(items=list_public_watchlist(db, subscriber=current_subscriber))
+
+
+@router.post('/discovery/watchlist/{club_slug}', response_model=PublicClubWatchResponse, status_code=status.HTTP_201_CREATED)
+def follow_public_club_route(
+    club_slug: str,
+    current_subscriber: PublicDiscoverySubscriber = Depends(get_current_public_discovery_required),
+    db: Session = Depends(get_db),
+) -> PublicClubWatchResponse:
+    watch_item = follow_public_club(db, subscriber=current_subscriber, club_slug=club_slug)
+    items = list_public_watchlist(db, subscriber=current_subscriber)
+    item_payload = next((item for item in items if item['watch_id'] == watch_item.id), None)
+    if item_payload is None:
+        court_counts = _load_court_counts(db, club_ids=[watch_item.club_id])
+        item_payload = serialize_public_watch_item(
+            watch_item,
+            court_counts=court_counts,
+            matching_open_match_count=0,
+        )
+    db.commit()
+    return PublicClubWatchResponse(item=item_payload)
+
+
+@router.delete('/discovery/watchlist/{club_slug}', response_model=SimpleMessage)
+def unfollow_public_club_route(
+    club_slug: str,
+    current_subscriber: PublicDiscoverySubscriber = Depends(get_current_public_discovery_required),
+    db: Session = Depends(get_db),
+) -> SimpleMessage:
+    unfollow_public_club(db, subscriber=current_subscriber, club_slug=club_slug)
+    db.commit()
+    return SimpleMessage(message='Club rimosso dalla watchlist')
+
+
+@router.post('/clubs/{club_slug}/contact-request', response_model=PublicClubContactRequestCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_public_club_contact_request_route(
+    club_slug: str,
+    payload: PublicClubContactRequestCreateRequest,
+    current_subscriber: PublicDiscoverySubscriber | None = Depends(get_current_public_discovery_optional),
+    db: Session = Depends(get_db),
+) -> PublicClubContactRequestCreateResponse:
+    contact_request, delivery_status = create_public_club_contact_request(
+        db,
+        club_slug=club_slug,
+        name=payload.name,
+        email=payload.email,
+        phone=payload.phone,
+        preferred_level=payload.preferred_level,
+        note=payload.note,
+        privacy_accepted=payload.privacy_accepted,
+        subscriber=current_subscriber,
+    )
+    db.commit()
+    message = 'Richiesta inviata al circolo'
+    if delivery_status != 'SENT':
+        message = 'Richiesta registrata, ma la notifica al circolo non e stata confermata'
+    return PublicClubContactRequestCreateResponse(
+        request_id=contact_request.id,
+        message=message,
     )
 
 

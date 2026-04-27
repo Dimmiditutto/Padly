@@ -1,16 +1,33 @@
-import { ArrowLeft, Clock3, Mail, MapPin, Phone, UsersRound } from 'lucide-react';
+import { AxiosError } from 'axios';
+import { ArrowLeft, BellRing, Clock3, Mail, MapPin, Phone, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
-import { getPublicClubDetail } from '../services/publicApi';
-import type { PlayLevel, PublicClubDetailResponse } from '../types';
+import {
+  createPublicClubContactRequest,
+  followPublicClub,
+  getPublicClubDetail,
+  getPublicDiscoveryMe,
+  listPublicWatchlist,
+  unfollowPublicClub,
+} from '../services/publicApi';
+import type { PlayLevel, PublicClubDetailResponse, PublicClubWatchSummary, PublicDiscoveryMeResponse } from '../types';
 import { formatDate, formatTimeValue } from '../utils/format';
 import { buildClubPlayPath, formatPlayLevel, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 type LevelFilter = 'ALL' | PlayLevel;
+type FeedbackState = { tone: 'error' | 'warning' | 'success' | 'info'; message: string } | null;
+type ContactFormState = {
+  name: string;
+  email: string;
+  phone: string;
+  preferred_level: PlayLevel;
+  note: string;
+  privacy_accepted: boolean;
+};
 
 function formatWeekday(dateValue: string, timeZone: string) {
   const label = new Intl.DateTimeFormat('it-IT', { weekday: 'long', timeZone }).format(new Date(dateValue));
@@ -21,12 +38,39 @@ function buildLocationLine(payload: PublicClubDetailResponse['club']) {
   return [payload.public_address, payload.public_postal_code, payload.public_city, payload.public_province].filter(Boolean).join(' • ');
 }
 
+function createDefaultContactForm(): ContactFormState {
+  return {
+    name: '',
+    email: '',
+    phone: '',
+    preferred_level: 'NO_PREFERENCE',
+    note: '',
+    privacy_accepted: false,
+  };
+}
+
+function parseApiError(error: unknown, fallback: string) {
+  const requestError = error as AxiosError<{ detail?: string }>;
+  return requestError.response?.data?.detail || fallback;
+}
+
 export function PublicClubPage() {
   const { clubSlug } = useParams();
   const [detail, setDetail] = useState<PublicClubDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [feedback, setFeedback] = useState<{ tone: 'error' | 'warning'; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedLevel, setSelectedLevel] = useState<LevelFilter>('ALL');
+  const [discovery, setDiscovery] = useState<PublicDiscoveryMeResponse>({
+    subscriber: null,
+    recent_notifications: [],
+    unread_notifications_count: 0,
+  });
+  const [watchlist, setWatchlist] = useState<PublicClubWatchSummary[]>([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(true);
+  const [watchActionLoading, setWatchActionLoading] = useState(false);
+  const [contactSubmitting, setContactSubmitting] = useState(false);
+  const [contactFeedback, setContactFeedback] = useState<FeedbackState>(null);
+  const [contactForm, setContactForm] = useState<ContactFormState>(() => createDefaultContactForm());
 
   useEffect(() => {
     if (!clubSlug) {
@@ -36,6 +80,13 @@ export function PublicClubPage() {
     }
     void loadDetail(clubSlug, selectedLevel === 'ALL' ? null : selectedLevel);
   }, [clubSlug, selectedLevel]);
+
+  useEffect(() => {
+    if (!clubSlug) {
+      return;
+    }
+    void loadDiscoveryContext();
+  }, [clubSlug]);
 
   async function loadDetail(resolvedClubSlug: string, level: PlayLevel | null) {
     setLoading(true);
@@ -50,7 +101,33 @@ export function PublicClubPage() {
     }
   }
 
+  async function loadDiscoveryContext() {
+    setDiscoveryLoading(true);
+    try {
+      const response = await getPublicDiscoveryMe();
+      setDiscovery(response);
+      if (response.subscriber) {
+        const watchlistResponse = await listPublicWatchlist();
+        setWatchlist(watchlistResponse.items);
+        setContactForm((prev) => ({
+          ...prev,
+          preferred_level: prev.preferred_level === 'NO_PREFERENCE' ? response.subscriber!.preferred_level : prev.preferred_level,
+        }));
+      } else {
+        setWatchlist([]);
+      }
+    } catch {
+      setFeedback({ tone: 'warning', message: 'Non riesco a leggere la tua sessione discovery pubblica.' });
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  }
+
   const levelOptions = useMemo(() => PLAY_LEVEL_OPTIONS.filter((option) => option.value !== 'NO_PREFERENCE'), []);
+  const watchItem = useMemo(
+    () => watchlist.find((item) => item.club.club_slug === clubSlug),
+    [clubSlug, watchlist]
+  );
 
   if (!clubSlug) {
     return (
@@ -64,6 +141,7 @@ export function PublicClubPage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
         {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+        {contactFeedback ? <AlertBanner tone={contactFeedback.tone}>{contactFeedback.message}</AlertBanner> : null}
 
         {loading ? (
           <LoadingBlock label='Carico la pagina pubblica del club…' labelClassName='text-base' />
@@ -102,6 +180,60 @@ export function PublicClubPage() {
                   <div className='surface-muted'>
                     <p className='text-sm font-semibold text-slate-900'>Stato community</p>
                     <p className='mt-2 text-sm text-slate-600'>{detail.club.is_community_open ? 'Il club accetta nuovi ingressi nella community.' : 'La community del club resta privata e l accesso va richiesto.'}</p>
+                  </div>
+                  <div className='surface-muted'>
+                    <p className='text-sm font-semibold text-slate-900'>Discovery pubblico</p>
+                    <p className='mt-2 text-sm text-slate-600'>
+                      {watchItem
+                        ? `Stai seguendo questo club. Match compatibili ora visibili in watchlist: ${watchItem.matching_open_match_count}.`
+                        : discovery.subscriber
+                          ? 'Puoi seguire questo club per ricevere alert 2/4, 3/4 e tenerlo nella watchlist pubblica.'
+                          : 'Per seguire il club devi prima attivare la sessione discovery dalla directory pubblica.'}
+                    </p>
+                    <div className='mt-3 flex flex-col gap-3 sm:flex-row'>
+                      <button
+                        type='button'
+                        className='btn-secondary'
+                        disabled={watchActionLoading || discoveryLoading}
+                        onClick={() => void (async () => {
+                          if (!clubSlug) {
+                            return;
+                          }
+                          if (!discovery.subscriber) {
+                            setContactFeedback({ tone: 'info', message: 'Attiva discovery dalla directory per seguire i club pubblici.' });
+                            return;
+                          }
+                          setWatchActionLoading(true);
+                          setContactFeedback(null);
+                          try {
+                            if (watchItem) {
+                              await unfollowPublicClub(clubSlug);
+                              setContactFeedback({ tone: 'success', message: 'Club rimosso dalla watchlist pubblica.' });
+                            } else {
+                              await followPublicClub(clubSlug);
+                              setContactFeedback({ tone: 'success', message: 'Club aggiunto alla watchlist pubblica.' });
+                            }
+                            await loadDiscoveryContext();
+                          } catch (error) {
+                            setContactFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento watchlist non riuscito.') });
+                          } finally {
+                            setWatchActionLoading(false);
+                          }
+                        })()}
+                      >
+                        <BellRing size={16} />
+                        <span>
+                          {watchActionLoading
+                            ? 'Aggiornamento…'
+                            : watchItem
+                              ? 'Rimuovi dalla watchlist'
+                              : 'Segui questo club'}
+                        </span>
+                      </button>
+                      <Link className='btn-secondary' to='/clubs'>
+                        <span>{discovery.subscriber ? 'Apri feed discovery' : 'Attiva discovery'}</span>
+                      </Link>
+                    </div>
                   </div>
                   <div className='grid gap-3 sm:grid-cols-2'>
                     <div className='surface-muted'>
@@ -164,6 +296,90 @@ export function PublicClubPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              </SectionCard>
+            </div>
+
+            <div className='mt-6 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
+              <SectionCard title='Richiedi contatto al club' description='Flusso guidato per chi non vuole entrare subito nella community o ha bisogno di un contatto umano.' elevated>
+                <form
+                  className='grid gap-4 sm:grid-cols-2'
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!clubSlug) {
+                      return;
+                    }
+                    void (async () => {
+                      setContactSubmitting(true);
+                      setContactFeedback(null);
+                      try {
+                        const response = await createPublicClubContactRequest(clubSlug, {
+                          name: contactForm.name,
+                          email: contactForm.email || null,
+                          phone: contactForm.phone || null,
+                          preferred_level: contactForm.preferred_level,
+                          note: contactForm.note || null,
+                          privacy_accepted: contactForm.privacy_accepted,
+                        });
+                        setContactFeedback({ tone: 'success', message: response.message });
+                        setContactForm((prev) => ({ ...prev, note: '', privacy_accepted: false }));
+                      } catch (error) {
+                        setContactFeedback({ tone: 'error', message: parseApiError(error, 'Invio richiesta contatto non riuscito.') });
+                      } finally {
+                        setContactSubmitting(false);
+                      }
+                    })();
+                  }}
+                >
+                  <div>
+                    <label className='field-label' htmlFor='club-contact-name'>Nome</label>
+                    <input id='club-contact-name' className='text-input' value={contactForm.name} onChange={(event) => setContactForm((prev) => ({ ...prev, name: event.target.value }))} required />
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='club-contact-level'>Livello dichiarato</label>
+                    <select id='club-contact-level' className='text-input' value={contactForm.preferred_level} onChange={(event) => setContactForm((prev) => ({ ...prev, preferred_level: event.target.value as PlayLevel }))}>
+                      {PLAY_LEVEL_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='club-contact-email'>Email</label>
+                    <input id='club-contact-email' className='text-input' type='email' value={contactForm.email} onChange={(event) => setContactForm((prev) => ({ ...prev, email: event.target.value }))} />
+                  </div>
+                  <div>
+                    <label className='field-label' htmlFor='club-contact-phone'>Telefono</label>
+                    <input id='club-contact-phone' className='text-input' value={contactForm.phone} onChange={(event) => setContactForm((prev) => ({ ...prev, phone: event.target.value }))} />
+                  </div>
+                  <div className='sm:col-span-2'>
+                    <label className='field-label' htmlFor='club-contact-note'>Messaggio</label>
+                    <textarea id='club-contact-note' className='text-input min-h-24' value={contactForm.note} onChange={(event) => setContactForm((prev) => ({ ...prev, note: event.target.value }))} placeholder='Dimmi se vuoi informazioni su community, livello, orari o modalità di ingresso.' />
+                  </div>
+                  <label className='sm:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
+                    <input type='checkbox' checked={contactForm.privacy_accepted} onChange={(event) => setContactForm((prev) => ({ ...prev, privacy_accepted: event.target.checked }))} className='mt-1 h-4 w-4 rounded border-slate-300' required />
+                    <span>Accetto il trattamento dei dati per l invio della richiesta di contatto al club.</span>
+                  </label>
+                  <button className='btn-primary sm:col-span-2' type='submit' disabled={contactSubmitting}>
+                    <Mail size={16} />
+                    <span>{contactSubmitting ? 'Invio in corso…' : 'Invia richiesta contatto'}</span>
+                  </button>
+                </form>
+              </SectionCard>
+
+              <SectionCard title='Come muoversi da qui' description='La pagina pubblica resta read-only: osservi segnali utili, poi scegli il passo successivo.'>
+                <div className='space-y-4 text-sm text-slate-600'>
+                  <div className='surface-muted'>
+                    <p className='font-semibold text-slate-900'>1. Segui il club</p>
+                    <p className='mt-2'>Usa la watchlist pubblica per far comparire alert persistenti quando un match arriva a 2/4 o 3/4.</p>
+                  </div>
+                  <div className='surface-muted'>
+                    <p className='font-semibold text-slate-900'>2. Valuta le partite open</p>
+                    <p className='mt-2'>Qui vedi solo livello, campo, orario e riempimento. I nomi player restano privati fino all ingresso community.</p>
+                  </div>
+                  <div className='surface-muted'>
+                    <p className='font-semibold text-slate-900'>3. Entra o fatti contattare</p>
+                    <p className='mt-2'>Se vuoi agire subito passa alla community del club; se preferisci un passaggio umano usa il form contatto qui sopra.</p>
+                  </div>
                 </div>
               </SectionCard>
             </div>

@@ -10,6 +10,7 @@ from app.services.booking_service import acquire_single_court_lock, expire_pendi
 from app.services.data_governance_service import purge_technical_retention_data
 from app.services.email_service import email_service
 from app.services.play_notification_service import dispatch_play_notifications_for_club, purge_play_notification_data
+from app.services.public_discovery_service import emit_public_nearby_digest_notifications
 from app.services.settings_service import get_booking_rules
 from app.services.tenant_service import list_active_clubs
 
@@ -125,6 +126,23 @@ def play_retention_job() -> None:
         logger.exception('Job retention play fallito')
 
 
+def public_discovery_digest_job() -> None:
+    try:
+        with SessionLocal() as db:
+            notifications_created = emit_public_nearby_digest_notifications(db)
+            if notifications_created:
+                db.commit()
+            logger.info(
+                'Job digest discovery pubblico completato',
+                extra={
+                    'event': 'public_discovery_digest_dispatched',
+                    'notifications_created': notifications_created,
+                },
+            )
+    except Exception:  # pragma: no cover
+        logger.exception('Job digest discovery pubblico fallito')
+
+
 def scheduler_should_be_running() -> bool:
     return settings.app_env != 'test' and settings.scheduler_enabled
 
@@ -135,6 +153,7 @@ def start_scheduler() -> None:
     scheduler.add_job(expire_pending_job, 'interval', minutes=1, id='expire_pending_bookings', replace_existing=True)
     scheduler.add_job(reminder_job, 'interval', minutes=15, id='send_booking_reminders', replace_existing=True)
     scheduler.add_job(play_notification_job, 'interval', minutes=15, id='dispatch_play_notifications', replace_existing=True)
+    scheduler.add_job(public_discovery_digest_job, 'cron', hour=6, minute=30, id='dispatch_public_discovery_digest', replace_existing=True)
     scheduler.add_job(technical_retention_job, 'cron', hour=3, id='purge_technical_retention', replace_existing=True)
     scheduler.add_job(play_retention_job, 'cron', hour=3, minute=10, id='purge_play_retention', replace_existing=True)
     try:

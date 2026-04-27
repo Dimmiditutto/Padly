@@ -1,14 +1,23 @@
 import { api } from './api';
 import type {
+  ApiMessage,
   AvailabilityResponse,
   BookingStatusResponse,
   PaymentInitResponse,
+  PublicClubContactRequestPayload,
+  PublicClubContactRequestResponse,
   PublicClubDetailResponse,
   PublicClubDirectoryResponse,
+  PublicClubWatchResponse,
+  PublicClubWatchlistResponse,
   PublicCancellationResponse,
   PublicBookingCreateResponse,
   PublicBookingPayload,
   PublicConfig,
+  PublicDiscoveryIdentifyPayload,
+  PublicDiscoveryMeResponse,
+  PublicDiscoveryPreferencesPayload,
+  PublicDiscoverySession,
 } from '../types';
 
 function withTenantParams(tenantSlug?: string | null) {
@@ -44,6 +53,46 @@ export async function getPublicClubDetail(clubSlug: string, level?: string | nul
   const response = await api.get<PublicClubDetailResponse>(`/public/clubs/${clubSlug}`, {
     params: level ? { level } : undefined,
   });
+  return response.data;
+}
+
+export async function getPublicDiscoveryMe() {
+  const response = await api.get<PublicDiscoveryMeResponse>('/public/discovery/me');
+  return response.data;
+}
+
+export async function identifyPublicDiscovery(payload: PublicDiscoveryIdentifyPayload) {
+  const response = await api.post<PublicDiscoveryMeResponse>('/public/discovery/identify', payload);
+  return response.data;
+}
+
+export async function markPublicDiscoveryNotificationRead(notificationId: string) {
+  const response = await api.post<PublicDiscoveryMeResponse>(`/public/discovery/notifications/${notificationId}/read`);
+  return response.data;
+}
+
+export async function updatePublicDiscoveryPreferences(payload: PublicDiscoveryPreferencesPayload) {
+  const response = await api.put<PublicDiscoverySession>('/public/discovery/preferences', payload);
+  return response.data;
+}
+
+export async function listPublicWatchlist() {
+  const response = await api.get<PublicClubWatchlistResponse>('/public/discovery/watchlist');
+  return response.data;
+}
+
+export async function followPublicClub(clubSlug: string) {
+  const response = await api.post<PublicClubWatchResponse>(`/public/discovery/watchlist/${clubSlug}`);
+  return response.data;
+}
+
+export async function unfollowPublicClub(clubSlug: string) {
+  const response = await api.delete<ApiMessage>(`/public/discovery/watchlist/${clubSlug}`);
+  return response.data;
+}
+
+export async function createPublicClubContactRequest(clubSlug: string, payload: PublicClubContactRequestPayload) {
+  const response = await api.post<PublicClubContactRequestResponse>(`/public/clubs/${clubSlug}/contact-request`, payload);
   return response.data;
 }
 
