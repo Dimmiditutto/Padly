@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,9 +33,12 @@ vi.mock('../utils/playPush', () => ({
 
 vi.mock('../services/publicApi', () => ({
   getAvailability: vi.fn(),
+  getPublicConfig: vi.fn(),
+  prefetchAvailabilityWindow: vi.fn(),
 }));
 
 import { getAvailability } from '../services/publicApi';
+import { getPublicConfig, prefetchAvailabilityWindow } from '../services/publicApi';
 import {
   acceptCommunityInvite,
   cancelPlayMatch,
@@ -168,6 +171,26 @@ describe('Play phase 2 pages', () => {
     vi.stubGlobal('location', { ...originalLocation, assign: assignMock });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(getAvailability).mockResolvedValue({ ...baseAvailability });
+    vi.mocked(getPublicConfig).mockResolvedValue({
+      app_name: 'PadelBooking',
+      tenant_id: 'tenant-roma',
+      tenant_slug: 'roma-club',
+      public_name: 'Roma Club',
+      timezone: 'Europe/Rome',
+      currency: 'EUR',
+      contact_email: 'desk@roma-club.example',
+      support_email: 'help@roma-club.example',
+      support_phone: '+39021234567',
+      booking_hold_minutes: 15,
+      cancellation_window_hours: 24,
+      member_hourly_rate: 7,
+      non_member_hourly_rate: 9,
+      member_ninety_minute_rate: 10,
+      non_member_ninety_minute_rate: 13,
+      stripe_enabled: true,
+      paypal_enabled: true,
+    });
+    vi.mocked(prefetchAvailabilityWindow).mockResolvedValue(undefined);
     vi.mocked(getPlaySession).mockResolvedValue({ player: null, notification_settings: null });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: null,
@@ -260,7 +283,7 @@ describe('Play phase 2 pages', () => {
   it('renders the canonical /c/:clubSlug/play route, preserves tenant slug and keeps the visual order of open matches', async () => {
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await screen.findByRole('heading', { name: 'Partite aperte' });
 
     expect(getPlaySession).toHaveBeenCalledWith('roma-club');
     expect(getPlayMatches).toHaveBeenCalledWith('roma-club');
@@ -275,7 +298,7 @@ describe('Play phase 2 pages', () => {
   it('shows the same slot-grid language as the public booking page and keeps occupied slots visible', async () => {
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await screen.findByRole('heading', { name: 'Partite aperte' });
 
     expect(await screen.findByText('Orari disponibili per campo')).toBeInTheDocument();
     expect(await screen.findByText('1 slot libero • 1 slot occupato')).toBeInTheDocument();
@@ -283,10 +306,27 @@ describe('Play phase 2 pages', () => {
     expect(await screen.findByRole('button', { name: '18:30' })).toBeDisabled();
   });
 
+  it('shows the club name in header, exposes 7 upcoming days and lets the user change duration', async () => {
+    const user = userEvent.setup();
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+
+    expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY MATCHINN ROMA CLUB')).toBeInTheDocument();
+    expect(screen.getByText('Prossimi 7 giorni')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Seleziona / })).toHaveLength(7);
+
+    fireEvent.change(screen.getByLabelText('Durata'), { target: { value: '120' } });
+
+    await waitFor(() => expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 120, 'roma-club'));
+    expect(prefetchAvailabilityWindow).toHaveBeenLastCalledWith(expect.any(String), 120, 'roma-club', 7);
+  });
+
   it('redirects the /play alias to the canonical tenant route and keeps tenant propagation', async () => {
     renderApp('/play?tenant=roma-club');
 
-    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await screen.findByRole('heading', { name: 'Partite aperte' });
     expect(getPlayMatches).toHaveBeenCalledWith('roma-club');
   });
 
@@ -318,7 +358,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await screen.findByRole('heading', { name: 'Partite aperte' });
     await user.type(screen.getByLabelText('Nota opzionale'), 'cerco ultimo giocatore');
     await user.click(screen.getByRole('button', { name: 'Crea nuova partita' }));
 
@@ -345,11 +385,28 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play/invite/invite-123');
 
-    await screen.findByRole('heading', { name: 'Ingresso community del club' });
+    await screen.findByRole('heading', { name: 'Invito community' });
     await user.click(screen.getByRole('button', { name: 'Entra nella community' }));
 
     expect(acceptCommunityInvite).not.toHaveBeenCalled();
     expect(await screen.findByText('Per entrare nella community devi accettare la privacy.')).toBeInTheDocument();
+  });
+
+  it('redirects to Partite aperte after a successful community invite acceptance', async () => {
+    const user = userEvent.setup();
+
+    renderApp('/c/roma-club/play/invite/invite-123');
+
+    await screen.findByRole('heading', { name: 'Invito community' });
+    await user.click(screen.getByText('Accetto la privacy per entrare in COMMUNITY Matchinn e conservare il mio profilo.'));
+    await user.click(screen.getByRole('button', { name: 'Entra nella community' }));
+
+    await waitFor(() => expect(acceptCommunityInvite).toHaveBeenCalledWith(
+      'invite-123',
+      expect.objectContaining({ privacy_accepted: true }),
+      'roma-club',
+    ));
+    await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/c/roma-club/play'));
   });
 
   it('shows a clear error when the invite alias is opened without a tenant context', async () => {
@@ -375,7 +432,7 @@ describe('Play phase 2 pages', () => {
 
     await screen.findByRole('heading', { name: 'Partita condivisa' });
     expect(getPlaySharedMatch).toHaveBeenCalledWith('share-match-shared', 'roma-club');
-    expect(await screen.findByText('Per unirti da questa pagina devi prima identificarti sul tenant corrente del club.')).toBeInTheDocument();
+    expect(await screen.findByText('Per unirti da questa pagina devi prima attivare il tuo profilo sul club corrente.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Identificati per unirti' }));
     expect(await screen.findByRole('heading', { name: 'Identificati per proseguire dal link condiviso' })).toBeInTheDocument();
@@ -419,7 +476,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await screen.findByRole('heading', { name: 'Partite aperte' });
     await user.click(screen.getByRole('button', { name: 'Crea nuova partita' }));
 
     expect(await screen.findByRole('heading', { name: 'Prima completa queste partite compatibili' })).toBeInTheDocument();
@@ -513,7 +570,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Completa prima le partite aperte del club' });
+    await screen.findByRole('heading', { name: 'Partite aperte' });
     await user.click(screen.getAllByRole('button', { name: 'Unisciti' })[0]);
 
     expect(await screen.findByRole('heading', { name: 'Caparra community da completare' })).toBeInTheDocument();

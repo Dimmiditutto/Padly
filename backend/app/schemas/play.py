@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -171,6 +172,32 @@ class AdminCommunityInviteCreateResponse(BaseModel):
     phone: str
     invited_level: PlayLevel
     expires_at: datetime
+
+
+CommunityInviteAdminStatus = Literal['ACTIVE', 'USED', 'EXPIRED', 'REVOKED']
+
+
+class AdminCommunityInviteSummary(BaseModel):
+    id: str
+    profile_name: str
+    phone: str
+    invited_level: PlayLevel
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    accepted_player_name: str | None = None
+    status: CommunityInviteAdminStatus
+    can_revoke: bool
+
+
+class AdminCommunityInviteListResponse(BaseModel):
+    items: list[AdminCommunityInviteSummary] = Field(default_factory=list)
+
+
+class AdminCommunityInviteRevokeResponse(BaseModel):
+    message: str
+    item: AdminCommunityInviteSummary
 
 
 class PlayMatchesResponse(BaseModel):

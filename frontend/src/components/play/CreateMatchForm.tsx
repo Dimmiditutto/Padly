@@ -4,14 +4,17 @@ import { AlertBanner } from '../AlertBanner';
 import { DateFieldWithDay } from '../DateFieldWithDay';
 import { LoadingBlock } from '../LoadingBlock';
 import { SlotGrid } from '../SlotGrid';
-import { getAvailability } from '../../services/publicApi';
+import { getAvailability, prefetchAvailabilityWindow } from '../../services/publicApi';
 import type { AvailabilityResponse, CourtAvailability, PlayLevel, TimeSlot } from '../../types';
-import { toDateInputValue } from '../../utils/format';
+import { formatWeekdayLabel, toDateInputValue } from '../../utils/format';
 import { PLAY_LEVEL_OPTIONS, formatPlayLevel } from '../../utils/play';
 
-const PLAY_CREATE_DURATIONS = [90];
+const PLAY_CREATE_DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
+const PLAY_DATE_WINDOW_DAYS = 7;
 const COLLAPSED_COURT_SLOT_COUNT = 8;
 const today = toDateInputValue(new Date());
+const maxBookingDate = addDaysToDateInput(today, PLAY_DATE_WINDOW_DAYS - 1);
+const upcomingBookingDates = buildUpcomingBookingDates(today, PLAY_DATE_WINDOW_DAYS);
 
 export interface PlayCreateIntent {
   bookingDate: string;
@@ -74,6 +77,7 @@ export function CreateMatchForm({
 
   useEffect(() => {
     void loadAvailability();
+    void prefetchAvailabilityWindow(bookingDate, durationMinutes, tenantSlug, PLAY_DATE_WINDOW_DAYS);
   }, [bookingDate, durationMinutes, tenantSlug]);
 
   const visibleCourtGroups = useMemo(
@@ -148,6 +152,10 @@ export function CreateMatchForm({
     setSelectedSlotId(nextCourt?.slots.find((slot) => slot.available)?.slot_id || '');
   }
 
+  function handleBookingDateChange(nextDate: string) {
+    setBookingDate(clampBookingDateToWindow(nextDate));
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
@@ -182,8 +190,8 @@ export function CreateMatchForm({
       {!loading ? (
         <div className='grid gap-6 xl:grid-cols-[1.1fr_0.9fr]'>
           <div className='space-y-5'>
-            <div className='grid gap-4 lg:grid-cols-2'>
-              <DateFieldWithDay id='play-create-date' label='Giorno' value={bookingDate} min={today} onChange={setBookingDate} />
+            <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]'>
+              <DateFieldWithDay id='play-create-date' label='Giorno' value={bookingDate} min={today} max={maxBookingDate} onChange={handleBookingDateChange} />
 
               <div>
                 <label className='field-label' htmlFor='play-create-duration'>Durata</label>
@@ -197,8 +205,27 @@ export function CreateMatchForm({
                     <option key={duration} value={duration}>{duration} minuti</option>
                   ))}
                 </select>
-                <div className='mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600'>
-                  Le partite play restano a 90 minuti per riusare lo stesso motore slot della prenotazione utente.
+              </div>
+
+              <div className='rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 lg:col-span-2'>
+                <p className='text-sm font-semibold uppercase tracking-[0.16em] text-slate-500'>Prossimi 7 giorni</p>
+                <div className='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4'>
+                  {upcomingBookingDates.map((option) => {
+                    const selected = option.value === bookingDate;
+                    return (
+                      <button
+                        key={option.value}
+                        type='button'
+                        aria-label={`Seleziona ${option.ariaLabel}`}
+                        aria-pressed={selected}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${selected ? 'border-cyan-300 bg-cyan-50 text-cyan-900' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}
+                        onClick={() => handleBookingDateChange(option.value)}
+                      >
+                        <span className='block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500'>{option.shortDateLabel}</span>
+                        <span className='mt-1 block text-sm font-semibold'>{option.dayLabel}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -208,7 +235,6 @@ export function CreateMatchForm({
                 <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                   <div>
                     <p className='text-base font-semibold text-slate-900'>Orari disponibili per campo</p>
-                    <p className='mt-1 text-sm text-slate-600'>La griglia usa lo stesso stato visivo della home booking: puoi distinguere subito slot liberi e occupati.</p>
                   </div>
                   <div className='flex flex-wrap gap-2 text-xs font-semibold'>
                     <span className='rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-cyan-700'>Slot libero</span>
@@ -435,4 +461,39 @@ function isSlotWithinOpeningHours(slot: TimeSlot) {
 
 function formatSlotCountLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function addDaysToDateInput(dateValue: string, daysToAdd: number) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) {
+    return dateValue;
+  }
+
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  normalizedDate.setUTCDate(normalizedDate.getUTCDate() + daysToAdd);
+  return normalizedDate.toISOString().slice(0, 10);
+}
+
+function clampBookingDateToWindow(dateValue: string) {
+  if (!dateValue || dateValue < today) {
+    return today;
+  }
+  if (dateValue > maxBookingDate) {
+    return maxBookingDate;
+  }
+  return dateValue;
+}
+
+function buildUpcomingBookingDates(startDate: string, dayCount: number) {
+  return Array.from({ length: dayCount }, (_, index) => {
+    const value = addDaysToDateInput(startDate, index);
+    const [year, month, day] = value.split('-').map(Number);
+    const shortDateLabel = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
+    return {
+      value,
+      dayLabel: index === 0 ? 'Oggi' : index === 1 ? 'Domani' : formatWeekdayLabel(value),
+      shortDateLabel,
+      ariaLabel: `${formatWeekdayLabel(value)} ${shortDateLabel}`,
+    };
+  });
 }

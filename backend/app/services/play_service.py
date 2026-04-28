@@ -103,6 +103,50 @@ def create_community_invite(
     return invite, raw_token
 
 
+def get_community_invite_status(invite: CommunityInviteToken, *, now: datetime | None = None) -> str:
+    current_time = now or _utcnow()
+    if invite.revoked_at is not None:
+        return 'REVOKED'
+    if invite.used_at is not None:
+        return 'USED'
+    if _as_utc(invite.expires_at) <= current_time:
+        return 'EXPIRED'
+    return 'ACTIVE'
+
+
+def can_revoke_community_invite(invite: CommunityInviteToken, *, now: datetime | None = None) -> bool:
+    return get_community_invite_status(invite, now=now) == 'ACTIVE'
+
+
+def list_community_invites(db: Session, *, club_id: str) -> list[CommunityInviteToken]:
+    return db.scalars(
+        select(CommunityInviteToken)
+        .options(selectinload(CommunityInviteToken.accepted_player))
+        .where(CommunityInviteToken.club_id == club_id)
+        .order_by(CommunityInviteToken.created_at.desc())
+    ).all()
+
+
+def revoke_community_invite(db: Session, *, club_id: str, invite_id: str) -> CommunityInviteToken:
+    invite = db.scalar(
+        select(CommunityInviteToken)
+        .options(selectinload(CommunityInviteToken.accepted_player))
+        .where(
+            CommunityInviteToken.club_id == club_id,
+            CommunityInviteToken.id == invite_id,
+        )
+        .limit(1)
+    )
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Invito community non trovato')
+    if not can_revoke_community_invite(invite):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Invito community non piu revocabile')
+
+    invite.revoked_at = _utcnow()
+    db.flush()
+    return invite
+
+
 def _find_profile_name_conflict(db: Session, *, club_id: str, profile_name: str, exclude_player_id: str | None = None) -> Player | None:
     stmt = select(Player).where(Player.club_id == club_id, func.lower(Player.profile_name) == profile_name.lower())
     if exclude_player_id:

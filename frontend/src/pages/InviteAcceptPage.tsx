@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
+import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { acceptCommunityInvite } from '../services/playApi';
 import type { CommunityInviteAcceptPayload, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug } from '../utils/tenantContext';
-import { PLAY_LEVEL_OPTIONS, buildClubPlayPath } from '../utils/play';
+import { buildClubPlayPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 export function InviteAcceptPage() {
   const { clubSlug, token } = useParams();
@@ -18,6 +18,7 @@ export function InviteAcceptPage() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [player, setPlayer] = useState<PlayPlayerSummary | null>(null);
+  const clubDisplayName = tenantSlug ? formatClubDisplayName(tenantSlug) : 'il club';
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,8 +37,13 @@ export function InviteAcceptPage() {
 
     try {
       const response = await acceptCommunityInvite(token, formData, tenantSlug);
+      const playPath = buildClubPlayPath(tenantSlug);
       setPlayer(response.player);
       setFeedback({ tone: 'success', message: response.message });
+      if (typeof window !== 'undefined') {
+        window.location.assign(playPath);
+        return;
+      }
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Non riesco a completare l ingresso community da questo invito.' });
     } finally {
@@ -49,14 +55,14 @@ export function InviteAcceptPage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-3xl'>
         <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-          <AppBrand light label='Invite accept' />
-          <h1 className='mt-4 text-3xl font-bold tracking-tight text-white'>Ingresso community del club</h1>
-          <p className='mt-3 text-sm leading-6 text-slate-300'>Questo link arriva dall invito del club. Qui raccogli il tuo livello dichiarato e il consenso privacy prima di entrare davvero nel modulo `/play`.</p>
+          <CommunityMatchinnBrand clubName={clubDisplayName} />
+          <h1 className='mt-4 text-3xl font-bold tracking-tight text-white'>Invito community</h1>
+          <p className='mt-3 text-sm leading-6 text-slate-300'>Questo link ti porta dentro il profilo Matchinn del club. Qui scegli il livello iniziale e confermi la privacy prima di aprire Partite aperte.</p>
         </div>
 
         <section className='surface-card mt-6'>
           <h2 className='section-title'>Completa il tuo ingresso</h2>
-          <p className='mt-2 helper-text'>Nome profilo e telefono arrivano dal token di community gia emesso dal club. In questa fase scegli solo il livello iniziale e confermi la privacy.</p>
+          <p className='mt-2 helper-text'>Nome profilo e telefono arrivano dal link gia generato dal club. In questa fase scegli solo il livello iniziale e confermi la privacy.</p>
 
           <form className='mt-6 space-y-4' onSubmit={handleSubmit}>
             <div>
@@ -80,20 +86,20 @@ export function InviteAcceptPage() {
                 checked={formData.privacy_accepted}
                 onChange={(event) => setFormData((current) => ({ ...current, privacy_accepted: event.target.checked }))}
               />
-              <span>Accetto la privacy per entrare nella community del club e conservare il mio profilo play.</span>
+              <span>Accetto la privacy per entrare in COMMUNITY Matchinn e conservare il mio profilo.</span>
             </label>
 
             {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
 
             {player && tenantSlug ? (
               <AlertBanner tone='success'>
-                Profilo attivo per <strong>{player.profile_name}</strong>. Ora puoi aprire la bacheca play del club.
+                Profilo attivo per <strong>{player.profile_name}</strong>. Ora puoi aprire Partite aperte.
               </AlertBanner>
             ) : null}
 
             <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
               {tenantSlug ? (
-                <Link className='btn-secondary' to={buildClubPlayPath(tenantSlug)}>Vai alla bacheca play</Link>
+                <Link className='btn-secondary' to={buildClubPlayPath(tenantSlug)}>Vai a Partite aperte</Link>
               ) : null}
               <button type='submit' className='btn-primary' disabled={submitting}>
                 {submitting ? 'Conferma in corso…' : 'Entra nella community'}

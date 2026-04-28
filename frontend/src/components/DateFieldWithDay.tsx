@@ -6,6 +6,7 @@ export function DateFieldWithDay({
   value,
   onChange,
   min,
+  max,
   showDayPreview = true,
 }: {
   id: string;
@@ -13,6 +14,7 @@ export function DateFieldWithDay({
   value: string;
   onChange: (value: string) => void;
   min?: string;
+  max?: string;
   showDayPreview?: boolean;
 }) {
   return (
@@ -24,6 +26,7 @@ export function DateFieldWithDay({
         type='date'
         value={value}
         min={min}
+        max={max}
         onChange={(event) => onChange(event.target.value)}
       />
       {showDayPreview ? (

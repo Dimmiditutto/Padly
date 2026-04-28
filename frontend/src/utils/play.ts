@@ -37,3 +37,12 @@ export function buildPlayMatchPath(tenantSlug: string, matchId: string): string 
 export function buildInviteAcceptPath(tenantSlug: string, inviteToken: string): string {
   return buildClubPlayPath(tenantSlug, `/invite/${encodeURIComponent(inviteToken)}`);
 }
+
+
+export function formatClubDisplayName(tenantSlug: string): string {
+  return String(tenantSlug)
+    .split('-')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}

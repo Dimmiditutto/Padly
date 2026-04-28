@@ -507,6 +507,31 @@ export interface AdminCommunityInviteResponse {
   expires_at: string;
 }
 
+export type AdminCommunityInviteStatus = 'ACTIVE' | 'USED' | 'EXPIRED' | 'REVOKED';
+
+export interface AdminCommunityInviteSummary {
+  id: string;
+  profile_name: string;
+  phone: string;
+  invited_level: PlayLevel;
+  created_at: string;
+  expires_at: string;
+  used_at?: string | null;
+  revoked_at?: string | null;
+  accepted_player_name?: string | null;
+  status: AdminCommunityInviteStatus;
+  can_revoke: boolean;
+}
+
+export interface AdminCommunityInviteListResponse {
+  items: AdminCommunityInviteSummary[];
+}
+
+export interface AdminCommunityInviteRevokeResponse {
+  message: string;
+  item: AdminCommunityInviteSummary;
+}
+
 export interface AdminDashboardData {
   bookings: BookingSummary[];
   report: ReportResponse;

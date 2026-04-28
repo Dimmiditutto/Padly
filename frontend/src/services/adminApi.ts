@@ -2,8 +2,10 @@ import { api } from './api';
 import type {
   AdminBookingStatusPayload,
   AdminBookingUpdatePayload,
+  AdminCommunityInviteListResponse,
   AdminCommunityInvitePayload,
   AdminCommunityInviteResponse,
+  AdminCommunityInviteRevokeResponse,
   AdminDashboardFilters,
   AdminEvent,
   AdminManualBookingPayload,
@@ -174,6 +176,16 @@ export async function updateAdminSettings(payload: AdminSettingsUpdatePayload) {
 
 export async function createAdminCommunityInvite(payload: AdminCommunityInvitePayload) {
   const response = await api.post<AdminCommunityInviteResponse>('/admin/settings/community-invites', payload);
+  return response.data;
+}
+
+export async function listAdminCommunityInvites() {
+  const response = await api.get<AdminCommunityInviteListResponse>('/admin/settings/community-invites');
+  return response.data;
+}
+
+export async function revokeAdminCommunityInvite(inviteId: string) {
+  const response = await api.post<AdminCommunityInviteRevokeResponse>(`/admin/settings/community-invites/${inviteId}/revoke`);
   return response.data;
 }
 

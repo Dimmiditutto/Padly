@@ -275,6 +275,87 @@ def test_admin_can_create_community_invite_and_receive_share_path(client):
         assert invite.token_hash == hash_play_token(payload['invite_token'])
 
 
+def test_admin_can_list_and_revoke_community_invites(client):
+    login_response = client.post(
+        '/api/admin/auth/login',
+        json={'email': 'admin@padelbooking.app', 'password': 'ChangeMe123!'},
+    )
+    assert login_response.status_code == 200
+
+    with SessionLocal() as db:
+        active_invite, _ = create_community_invite(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            profile_name='Active Guest',
+            phone='3330000001',
+            invited_level=PlayLevel.INTERMEDIATE_LOW,
+        )
+        expired_invite, _ = create_community_invite(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            profile_name='Expired Guest',
+            phone='3330000002',
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        used_invite, _ = create_community_invite(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            profile_name='Used Guest',
+            phone='3330000003',
+            invited_level=PlayLevel.ADVANCED,
+        )
+        accepted_player = Player(
+            club_id=DEFAULT_CLUB_ID,
+            profile_name='Used Guest',
+            phone='3330009999',
+            declared_level=PlayLevel.ADVANCED,
+            privacy_accepted_at=datetime.now(UTC),
+            is_active=True,
+        )
+        db.add(accepted_player)
+        db.flush()
+        used_invite.used_at = datetime.now(UTC)
+        used_invite.accepted_player_id = accepted_player.id
+
+        revoked_invite, _ = create_community_invite(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            profile_name='Revoked Guest',
+            phone='3330000004',
+        )
+        revoked_invite.revoked_at = datetime.now(UTC)
+        db.commit()
+
+        active_invite_id = active_invite.id
+        expired_invite_id = expired_invite.id
+        used_invite_id = used_invite.id
+        revoked_invite_id = revoked_invite.id
+
+    list_response = client.get('/api/admin/settings/community-invites')
+
+    assert list_response.status_code == 200
+    items_by_id = {item['id']: item for item in list_response.json()['items']}
+    assert items_by_id[active_invite_id]['status'] == 'ACTIVE'
+    assert items_by_id[active_invite_id]['can_revoke'] is True
+    assert items_by_id[expired_invite_id]['status'] == 'EXPIRED'
+    assert items_by_id[expired_invite_id]['can_revoke'] is False
+    assert items_by_id[used_invite_id]['status'] == 'USED'
+    assert items_by_id[used_invite_id]['accepted_player_name'] == 'Used Guest'
+    assert items_by_id[revoked_invite_id]['status'] == 'REVOKED'
+
+    revoke_response = client.post(f'/api/admin/settings/community-invites/{active_invite_id}/revoke')
+
+    assert revoke_response.status_code == 200
+    assert revoke_response.json()['message'] == 'Invito community revocato.'
+    assert revoke_response.json()['item']['status'] == 'REVOKED'
+    assert revoke_response.json()['item']['can_revoke'] is False
+
+    with SessionLocal() as db:
+        invite = db.get(CommunityInviteToken, active_invite_id)
+        assert invite is not None
+        assert invite.revoked_at is not None
+
+
 def test_play_cookie_is_not_valid_across_tenants(client):
     secondary = create_secondary_tenant(slug='play-milano', host='play-milano.example.test')
 

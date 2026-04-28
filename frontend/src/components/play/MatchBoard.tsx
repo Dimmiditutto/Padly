@@ -17,7 +17,7 @@ export function MatchBoard({
       <EmptyState
         icon={Users}
         title='Nessuna partita aperta in questo momento'
-        description='Quando il club o i giocatori apriranno nuove partite, le vedrai qui gia ordinate per priorita.'
+        description=''
       />
     );
   }

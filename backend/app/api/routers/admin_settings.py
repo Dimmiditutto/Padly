@@ -5,12 +5,41 @@ from app.api.deps import get_current_admin_enforced
 from app.core.db import get_db
 from app.models import Admin
 from app.schemas.admin import AdminSettingsResponse, AdminSettingsUpdateRequest
-from app.schemas.play import AdminCommunityInviteCreateRequest, AdminCommunityInviteCreateResponse
+from app.schemas.play import (
+    AdminCommunityInviteCreateRequest,
+    AdminCommunityInviteCreateResponse,
+    AdminCommunityInviteListResponse,
+    AdminCommunityInviteRevokeResponse,
+    AdminCommunityInviteSummary,
+)
 from app.services.payment_service import is_paypal_checkout_available, is_stripe_checkout_available, list_available_checkout_providers
-from app.services.play_service import create_community_invite
+from app.services.play_service import (
+    can_revoke_community_invite,
+    create_community_invite,
+    get_community_invite_status,
+    list_community_invites,
+    revoke_community_invite,
+)
 from app.services.settings_service import get_tenant_settings, update_tenant_settings
 
 router = APIRouter(prefix='/admin/settings', tags=['Admin Settings'])
+
+
+def _build_admin_community_invite_summary(invite) -> AdminCommunityInviteSummary:
+    status_value = get_community_invite_status(invite)
+    return AdminCommunityInviteSummary(
+        id=invite.id,
+        profile_name=invite.profile_name,
+        phone=invite.phone,
+        invited_level=invite.invited_level,
+        created_at=invite.created_at,
+        expires_at=invite.expires_at,
+        used_at=invite.used_at,
+        revoked_at=invite.revoked_at,
+        accepted_player_name=invite.accepted_player.profile_name if invite.accepted_player else None,
+        status=status_value,
+        can_revoke=can_revoke_community_invite(invite),
+    )
 
 
 @router.get('', response_model=AdminSettingsResponse)
@@ -90,4 +119,27 @@ def create_settings_community_invite(
         phone=invite.phone,
         invited_level=invite.invited_level,
         expires_at=invite.expires_at,
+    )
+
+
+@router.get('/community-invites', response_model=AdminCommunityInviteListResponse)
+def list_settings_community_invites(
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminCommunityInviteListResponse:
+    items = list_community_invites(db, club_id=admin.club_id)
+    return AdminCommunityInviteListResponse(items=[_build_admin_community_invite_summary(invite) for invite in items])
+
+
+@router.post('/community-invites/{invite_id}/revoke', response_model=AdminCommunityInviteRevokeResponse)
+def revoke_settings_community_invite(
+    invite_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminCommunityInviteRevokeResponse:
+    invite = revoke_community_invite(db, club_id=admin.club_id, invite_id=invite_id)
+    db.commit()
+    return AdminCommunityInviteRevokeResponse(
+        message='Invito community revocato.',
+        item=_build_admin_community_invite_summary(invite),
     )

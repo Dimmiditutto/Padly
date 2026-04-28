@@ -12,9 +12,11 @@ vi.mock('../services/adminApi', () => ({
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
   listAdminCourts: vi.fn(),
+  listAdminCommunityInvites: vi.fn(),
   listBlackouts: vi.fn(),
   logoutAdmin: vi.fn(),
   previewRecurring: vi.fn(),
+  revokeAdminCommunityInvite: vi.fn(),
   updateAdminSettings: vi.fn(),
 }));
 
@@ -30,10 +32,12 @@ import {
   createRecurring,
   getAdminSession,
   getAdminSettings,
+  listAdminCommunityInvites,
   listAdminCourts,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
+  revokeAdminCommunityInvite,
   updateAdminSettings,
 } from '../services/adminApi';
 import { getAvailability } from '../services/publicApi';
@@ -117,8 +121,25 @@ describe('AdminDashboardPage', () => {
     });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
     vi.mocked(listAdminCourts).mockResolvedValue({ items: [] });
+    vi.mocked(listAdminCommunityInvites).mockResolvedValue({ items: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(previewRecurring).mockResolvedValue({ occurrences: [] });
+    vi.mocked(revokeAdminCommunityInvite).mockResolvedValue({
+      message: 'Invito community revocato.',
+      item: {
+        id: 'invite-active',
+        profile_name: 'Marco Guest',
+        phone: '+393331111111',
+        invited_level: 'INTERMEDIATE_LOW',
+        created_at: '2026-04-27T09:00:00Z',
+        expires_at: '2026-05-04T09:00:00Z',
+        used_at: null,
+        revoked_at: '2026-04-27T10:00:00Z',
+        accepted_player_name: null,
+        status: 'REVOKED',
+        can_revoke: false,
+      },
+    });
     vi.mocked(updateAdminSettings).mockResolvedValue({ ...adminSettings });
     vi.mocked(getAvailability).mockImplementation(async (bookingDate: string, durationMinutes: number) => ({
       date: bookingDate,
@@ -487,5 +508,170 @@ describe('AdminDashboardPage', () => {
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedInviteUrl));
     expect(within(settingsSection as HTMLElement).getByDisplayValue(expectedInviteUrl)).toBeInTheDocument();
     expect(within(settingsSection as HTMLElement).getByText('Link accesso community copiato negli appunti.')).toBeInTheDocument();
+  });
+
+  it('lists issued community invites with status and lets admin revoke an active link', async () => {
+    vi.mocked(listAdminCommunityInvites).mockResolvedValue({
+      items: [
+        {
+          id: 'invite-active',
+          profile_name: 'Marco Guest',
+          phone: '+393331111111',
+          invited_level: 'INTERMEDIATE_LOW',
+          created_at: '2026-04-27T09:00:00Z',
+          expires_at: '2026-05-04T09:00:00Z',
+          used_at: null,
+          revoked_at: null,
+          accepted_player_name: null,
+          status: 'ACTIVE',
+          can_revoke: true,
+        },
+        {
+          id: 'invite-used',
+          profile_name: 'Luca Used',
+          phone: '+393332222222',
+          invited_level: 'ADVANCED',
+          created_at: '2026-04-25T09:00:00Z',
+          expires_at: '2026-05-02T09:00:00Z',
+          used_at: '2026-04-25T10:00:00Z',
+          revoked_at: null,
+          accepted_player_name: 'Luca Used',
+          status: 'USED',
+          can_revoke: false,
+        },
+      ],
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    expect(await screen.findByText('Marco Guest')).toBeInTheDocument();
+  const activeCard = screen.getByText('Marco Guest').closest('div.rounded-2xl');
+    const usedCard = screen.getAllByText('Luca Used')[0].closest('div.rounded-2xl');
+  expect(activeCard).not.toBeNull();
+  expect(usedCard).not.toBeNull();
+  expect(within(activeCard as HTMLElement).getByText('Attivo')).toBeInTheDocument();
+  expect(within(usedCard as HTMLElement).getByText('Usato')).toBeInTheDocument();
+    expect(screen.getByText(/Per sicurezza il link completo viene mostrato solo subito dopo la generazione/)).toBeInTheDocument();
+
+    await screen.findByRole('button', { name: 'Revoca link Marco Guest' });
+    fireEvent.click(screen.getByRole('button', { name: 'Revoca link Marco Guest' }));
+
+    await waitFor(() => expect(revokeAdminCommunityInvite).toHaveBeenCalledWith('invite-active'));
+    expect(await screen.findByText('Invito community revocato.')).toBeInTheDocument();
+    const revokedCard = screen.getByText('Marco Guest').closest('div.rounded-2xl');
+    expect(revokedCard).not.toBeNull();
+    expect(within(revokedCard as HTMLElement).getByText('Revocato')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoca link Marco Guest' })).not.toBeInTheDocument();
+  });
+
+  it('filters and searches community invites by status, name and phone', async () => {
+    vi.mocked(listAdminCommunityInvites).mockResolvedValue({
+      items: [
+        {
+          id: 'invite-active',
+          profile_name: 'Marco Guest',
+          phone: '+393331111111',
+          invited_level: 'INTERMEDIATE_LOW',
+          created_at: '2026-04-27T09:00:00Z',
+          expires_at: '2026-05-04T09:00:00Z',
+          used_at: null,
+          revoked_at: null,
+          accepted_player_name: null,
+          status: 'ACTIVE',
+          can_revoke: true,
+        },
+        {
+          id: 'invite-expired',
+          profile_name: 'Giulia Scaduta',
+          phone: '+393332222222',
+          invited_level: 'BEGINNER',
+          created_at: '2026-04-20T09:00:00Z',
+          expires_at: '2026-04-21T09:00:00Z',
+          used_at: null,
+          revoked_at: null,
+          accepted_player_name: null,
+          status: 'EXPIRED',
+          can_revoke: false,
+        },
+        {
+          id: 'invite-revoked',
+          profile_name: 'Luca Revocato',
+          phone: '+393333333333',
+          invited_level: 'ADVANCED',
+          created_at: '2026-04-22T09:00:00Z',
+          expires_at: '2026-04-29T09:00:00Z',
+          used_at: null,
+          revoked_at: '2026-04-23T09:00:00Z',
+          accepted_player_name: null,
+          status: 'REVOKED',
+          can_revoke: false,
+        },
+      ],
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    fireEvent.change(screen.getByLabelText('Filtra inviti community'), { target: { value: 'REVOKED' } });
+    expect(await screen.findByText('Luca Revocato')).toBeInTheDocument();
+    expect(screen.queryByText('Marco Guest')).not.toBeInTheDocument();
+    expect(screen.queryByText('Giulia Scaduta')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filtra inviti community'), { target: { value: 'ALL' } });
+    fireEvent.change(screen.getByLabelText('Cerca inviti community'), { target: { value: 'Giulia' } });
+    expect(await screen.findByText('Giulia Scaduta')).toBeInTheDocument();
+    expect(screen.queryByText('Marco Guest')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Cerca inviti community'), { target: { value: '3333333333' } });
+    expect(await screen.findByText('Luca Revocato')).toBeInTheDocument();
+    expect(screen.queryByText('Giulia Scaduta')).not.toBeInTheDocument();
+  });
+
+  it('paginates community invites 10 at a time with previous and next buttons', async () => {
+    vi.mocked(listAdminCommunityInvites).mockResolvedValue({
+      items: Array.from({ length: 12 }, (_, index) => ({
+        id: `invite-${index + 1}`,
+        profile_name: `Guest ${index + 1}`,
+        phone: `+3933300000${String(index + 1).padStart(2, '0')}`,
+        invited_level: 'NO_PREFERENCE' as const,
+        created_at: '2026-04-27T09:00:00Z',
+        expires_at: '2026-05-04T09:00:00Z',
+        used_at: null,
+        revoked_at: null,
+        accepted_player_name: null,
+        status: 'ACTIVE' as const,
+        can_revoke: true,
+      })),
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    expect(await screen.findByText('Guest 1')).toBeInTheDocument();
+    expect(screen.getByText('Guest 10')).toBeInTheDocument();
+    expect(screen.queryByText('Guest 11')).not.toBeInTheDocument();
+    expect(screen.getByText('Mostro 1-10 di 12 inviti')).toBeInTheDocument();
+    expect(screen.getByText('Pagina 1 di 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inviti successivi' }));
+
+    expect(await screen.findByText('Guest 11')).toBeInTheDocument();
+    expect(screen.getByText('Guest 12')).toBeInTheDocument();
+    expect(screen.queryByText('Guest 1')).not.toBeInTheDocument();
+    expect(screen.getByText('Mostro 11-12 di 12 inviti')).toBeInTheDocument();
+    expect(screen.getByText('Pagina 2 di 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inviti precedenti' }));
+
+    expect(await screen.findByText('Guest 1')).toBeInTheDocument();
+    expect(screen.queryByText('Guest 11')).not.toBeInTheDocument();
+    expect(screen.getByText('Pagina 1 di 2')).toBeInTheDocument();
   });
 });

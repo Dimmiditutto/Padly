@@ -2,14 +2,14 @@ import { ArrowLeft, Share2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { MatchCard } from '../components/play/MatchCard';
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
 import { getPlaySession, getPlaySharedMatch, joinPlayMatch } from '../services/playApi';
 import type { PlayMatchSummary, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayMatchPath } from '../utils/play';
+import { buildClubPlayPath, buildPlayMatchPath, formatClubDisplayName } from '../utils/play';
 
 export function SharedMatchPage() {
   const { clubSlug, shareToken } = useParams();
@@ -20,6 +20,7 @@ export function SharedMatchPage() {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [identifyOpen, setIdentifyOpen] = useState(false);
+  const clubDisplayName = tenantSlug ? formatClubDisplayName(tenantSlug) : 'il club';
 
   useEffect(() => {
     if (!tenantSlug || !shareToken) {
@@ -112,9 +113,9 @@ export function SharedMatchPage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-4xl'>
         <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-          <AppBrand light label='Shared match' />
+          <CommunityMatchinnBrand clubName={clubDisplayName} />
           <h1 className='mt-4 text-3xl font-bold tracking-tight text-white'>Partita condivisa</h1>
-          <p className='mt-3 text-sm leading-6 text-slate-300'>Questa pagina nasce dal link di condivisione di una partita aperta del club. Il player riconosciuto puo proseguire subito, quello anonimo entra con onboarding leggero.</p>
+          <p className='mt-3 text-sm leading-6 text-slate-300'>Questo link apre una partita gia condivisa del club. Se sei gia riconosciuto puoi unirti subito, altrimenti attivi il profilo e torni qui senza perdere il contesto.</p>
         </div>
 
         <div className='mt-6 space-y-6'>
@@ -123,7 +124,7 @@ export function SharedMatchPage() {
           {currentPlayer ? (
             <AlertBanner tone='success'>Profilo attivo: <strong>{currentPlayer.profile_name}</strong>.</AlertBanner>
           ) : (
-            <AlertBanner tone='info'>Per unirti da questa pagina devi prima identificarti sul tenant corrente del club.</AlertBanner>
+            <AlertBanner tone='info'>Per unirti da questa pagina devi prima attivare il tuo profilo sul club corrente.</AlertBanner>
           )}
 
           {loading ? <LoadingBlock label='Carico la partita condivisa…' /> : null}
@@ -142,7 +143,7 @@ export function SharedMatchPage() {
             <div className='flex flex-col gap-3 sm:flex-row'>
               <Link className='btn-secondary' to={buildClubPlayPath(tenantSlug)}>
                 <ArrowLeft size={16} />
-                <span>Torna alla bacheca play</span>
+                <span>Torna a Partite aperte</span>
               </Link>
               {match ? (
                 <button type='button' className='btn-secondary' onClick={handleShare}>
@@ -159,7 +160,7 @@ export function SharedMatchPage() {
             open={identifyOpen}
             tenantSlug={tenantSlug}
             title='Identificati per proseguire dal link condiviso'
-            description='Salvo il tuo profilo play sul club corrente prima di completare il flusso community della partita condivisa.'
+            description='Salvo il tuo profilo sul club corrente prima di completare il join della partita condivisa.'
             onClose={() => setIdentifyOpen(false)}
             onSuccess={handleIdentifySuccess}
           />

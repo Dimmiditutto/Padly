@@ -2,13 +2,14 @@ import { ArrowLeft, BellRing, Sparkles, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
+import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { CreateMatchForm, type PlayCreateIntent } from '../components/play/CreateMatchForm';
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
 import { MatchBoard } from '../components/play/MatchBoard';
 import { MyMatches } from '../components/play/MyMatches';
+import { getPublicConfig } from '../services/publicApi';
 import {
   cancelPlayMatch,
   createPlayMatch,
@@ -33,10 +34,11 @@ import type {
   PlayNotificationPreferenceSummary,
   PlayNotificationSettings,
   PlayPlayerSummary,
+  PublicConfig,
 } from '../types';
 import { isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayMatchPath, PLAY_LEVEL_OPTIONS } from '../utils/play';
+import { buildClubPlayPath, buildPlayMatchPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
 
@@ -65,6 +67,7 @@ export function PlayPage() {
   const navigate = useNavigate();
   const tenantSlug = normalizeTenantSlug(clubSlug) || getTenantSlugFromSearchParams(searchParams) || null;
   const [playData, setPlayData] = useState<PlayMatchesResponse | null>(null);
+  const [clubConfig, setClubConfig] = useState<PublicConfig | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<PlayPlayerSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: FeedbackTone; message: string } | null>(null);
@@ -87,11 +90,13 @@ export function PlayPage() {
   useEffect(() => {
     if (!tenantSlug) {
       setLoading(false);
+      setClubConfig(null);
       setPendingPlayPayment(null);
       setFeedback({ tone: 'error', message: 'Tenant play non valido. Apri la pagina da un club specifico.' });
       return;
     }
 
+    setClubConfig((prev) => prev?.tenant_slug === tenantSlug ? prev : null);
     setPendingPlayPayment(null);
     void loadPlaySurface(tenantSlug);
   }, [tenantSlug]);
@@ -107,12 +112,16 @@ export function PlayPage() {
   async function loadPlaySurface(resolvedTenantSlug: string) {
     setLoading(true);
     try {
-      const [session, matches] = await Promise.all([
+      const [session, matches, publicConfig] = await Promise.all([
         getPlaySession(resolvedTenantSlug),
         getPlayMatches(resolvedTenantSlug),
+        getPublicConfig(resolvedTenantSlug).catch(() => null),
       ]);
       setCurrentPlayer(session.player || matches.player || null);
       setPlayData(matches);
+      if (publicConfig) {
+        setClubConfig(publicConfig);
+      }
       setPendingPlayPayment(
         matches.pending_payment
           ? {
@@ -492,6 +501,7 @@ export function PlayPage() {
       ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'browser o dispositivo collegato al tuo profilo play' : 'browser o dispositivi collegati al tuo profilo play'}. Le notifiche in-app restano comunque disponibili nella pagina.`
       : `Il tuo profilo risulta associato a ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'subscription web push' : 'subscription web push'}, ma questo ambiente server non puo consegnarle davvero. Il feed in-app resta disponibile finche la configurazione VAPID non viene completata.`
     : 'Nessuna web push attiva sul tuo profilo play. Le notifiche in-app restano sempre nel feed locale della pagina.';
+    const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -499,9 +509,8 @@ export function PlayPage() {
         <header className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
           <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
             <div className='max-w-3xl'>
-              <AppBrand light label='Play community' />
-              <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>Completa prima le partite aperte del club</h1>
-              <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>La bacheca /play ordina le partite gia quasi piene, ti fa riconoscere con un profilo leggero e prepara il flusso community senza toccare la homepage booking su `/`.</p>
+              <CommunityMatchinnBrand clubName={clubDisplayName} />
+              <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>Partite aperte</h1>
             </div>
 
             <div className='flex flex-col gap-3 sm:flex-row'>
@@ -516,17 +525,13 @@ export function PlayPage() {
             </div>
           </div>
 
-          <div className='mt-5 rounded-[24px] border border-white/10 bg-white/5 p-4'>
-            {currentPlayer ? (
+          {currentPlayer ? (
+            <div className='mt-5 rounded-[24px] border border-white/10 bg-white/5 p-4'>
               <AlertBanner tone='success' title='Profilo play attivo'>
                 Sei riconosciuto come <strong>{currentPlayer.profile_name}</strong>. Le tue partite e i CTA join/create ora possono usare il tenant corretto del club.
               </AlertBanner>
-            ) : (
-              <AlertBanner tone='info' title='Ingresso leggero nella community'>
-                Per unirti o preparare una nuova partita ti basta nome profilo, telefono, livello dichiarato e consenso privacy.
-              </AlertBanner>
-            )}
-          </div>
+            </div>
+          ) : null}
         </header>
 
         <div className='mt-6 space-y-6'>
@@ -570,7 +575,6 @@ export function PlayPage() {
             <>
               <SectionCard
                 title='Partite da completare'
-                description='Ordinate 3/4, poi 2/4, poi 1/4. Il focus della pagina resta completare i match gia avviati.'
                 elevated
               >
                 <MatchBoard matches={openMatches} onJoin={handleJoin} onShare={handleShare} />
@@ -760,7 +764,7 @@ export function PlayPage() {
 
               <SectionCard
                 title='Crea nuova partita'
-                description='Scegli giorno, slot libero reale, campo e livello. Il motore slot e gia tenant-aware e riusa la disponibilita esistente del club.'
+                description='Scegli slot'
               >
                 <CreateMatchForm tenantSlug={tenantSlug} onCreateIntent={handleCreateIntent} />
               </SectionCard>
@@ -830,7 +834,7 @@ export function PlayPage() {
                   />
                 </SectionCard>
               ) : (
-                <SectionCard title='Le mie partite' description='Questa sezione appare appena ti riconosci con il profilo play.'>
+                <SectionCard title='Le mie partite'>
                   <div className='surface-muted flex items-center gap-3'>
                     <UsersRound size={18} className='text-cyan-700' />
                     <p className='text-sm text-slate-700'>Identificati dal pulsante `Unisciti` o `Crea nuova partita` per vedere il tuo spazio personale.</p>

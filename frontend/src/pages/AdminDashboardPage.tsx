@@ -18,16 +18,20 @@ import {
   getAdminSession,
   getAdminSettings,
   getSubscriptionStatus,
+  listAdminCommunityInvites,
   listAdminCourts,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
+  revokeAdminCommunityInvite,
   updateAdminCourt,
   updateAdminSettings,
 } from '../services/adminApi';
 import type {
   AdminCommunityInvitePayload,
   AdminCommunityInviteResponse,
+  AdminCommunityInviteStatus,
+  AdminCommunityInviteSummary,
   AdminManualBookingPayload,
   AdminSession,
   AdminSettings,
@@ -44,8 +48,31 @@ import { PLAY_LEVEL_OPTIONS, formatPlayLevel } from '../utils/play';
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
+const COMMUNITY_INVITES_PAGE_SIZE = 10;
 type FeedbackState = { tone: 'error' | 'success'; message: string } | null;
 type CourtDraftState = { name: string; badge_label: string };
+type CommunityInviteStatusFilter = 'ALL' | 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+
+const COMMUNITY_INVITE_FILTER_LABELS: Record<CommunityInviteStatusFilter, string> = {
+  ALL: 'Tutti',
+  ACTIVE: 'Attivo',
+  EXPIRED: 'Scaduto',
+  REVOKED: 'Revocato',
+};
+
+const COMMUNITY_INVITE_STATUS_LABELS: Record<AdminCommunityInviteStatus, string> = {
+  ACTIVE: 'Attivo',
+  USED: 'Usato',
+  EXPIRED: 'Scaduto',
+  REVOKED: 'Revocato',
+};
+
+const COMMUNITY_INVITE_STATUS_STYLES: Record<AdminCommunityInviteStatus, string> = {
+  ACTIVE: 'bg-emerald-100 text-emerald-700',
+  USED: 'bg-sky-100 text-sky-700',
+  EXPIRED: 'bg-amber-100 text-amber-700',
+  REVOKED: 'bg-slate-200 text-slate-700',
+};
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -94,6 +121,10 @@ export function AdminDashboardPage() {
   const [settingsFeedback, setSettingsFeedback] = useState<FeedbackState>(null);
   const [courtsFeedback, setCourtsFeedback] = useState<FeedbackState>(null);
   const [communityInviteFeedback, setCommunityInviteFeedback] = useState<FeedbackState>(null);
+  const [communityInvites, setCommunityInvites] = useState<AdminCommunityInviteSummary[]>([]);
+  const [communityInviteStatusFilter, setCommunityInviteStatusFilter] = useState<CommunityInviteStatusFilter>('ALL');
+  const [communityInviteSearchQuery, setCommunityInviteSearchQuery] = useState('');
+  const [communityInvitePage, setCommunityInvitePage] = useState(1);
   const [latestCommunityInvite, setLatestCommunityInvite] = useState<AdminCommunityInviteResponse | null>(null);
   const [courtDrafts, setCourtDrafts] = useState<Record<string, CourtDraftState>>({});
   const [newCourtName, setNewCourtName] = useState('Campo 2');
@@ -135,10 +166,45 @@ export function AdminDashboardPage() {
   });
   const [recurringPreview, setRecurringPreview] = useState<RecurringOccurrence[]>([]);
   const adminTimezone = settings?.timezone || session?.timezone || null;
+  const normalizedCommunityInviteSearch = communityInviteSearchQuery.trim().toLowerCase();
+  const normalizedCommunityInviteDigitsSearch = communityInviteSearchQuery.replace(/\D/g, '');
+  const filteredCommunityInvites = communityInvites.filter((invite) => {
+    if (communityInviteStatusFilter !== 'ALL' && invite.status !== communityInviteStatusFilter) {
+      return false;
+    }
+    if (!normalizedCommunityInviteSearch) {
+      return true;
+    }
+
+    const matchesName = invite.profile_name.toLowerCase().includes(normalizedCommunityInviteSearch);
+    const invitePhoneDigits = invite.phone.replace(/\D/g, '');
+    const matchesPhone = normalizedCommunityInviteDigitsSearch
+      ? invitePhoneDigits.includes(normalizedCommunityInviteDigitsSearch)
+      : invite.phone.toLowerCase().includes(normalizedCommunityInviteSearch);
+    return matchesName || matchesPhone;
+  });
+  const communityInviteTotalPages = Math.max(1, Math.ceil(filteredCommunityInvites.length / COMMUNITY_INVITES_PAGE_SIZE));
+  const currentCommunityInvitePage = Math.min(communityInvitePage, communityInviteTotalPages);
+  const communityInvitePageStartIndex = (currentCommunityInvitePage - 1) * COMMUNITY_INVITES_PAGE_SIZE;
+  const paginatedCommunityInvites = filteredCommunityInvites.slice(
+    communityInvitePageStartIndex,
+    communityInvitePageStartIndex + COMMUNITY_INVITES_PAGE_SIZE,
+  );
+  const hasCommunityInviteFilters = communityInviteStatusFilter !== 'ALL' || normalizedCommunityInviteSearch.length > 0;
+  const communityInviteRangeStart = filteredCommunityInvites.length === 0 ? 0 : communityInvitePageStartIndex + 1;
+  const communityInviteRangeEnd = filteredCommunityInvites.length === 0
+    ? 0
+    : Math.min(communityInvitePageStartIndex + COMMUNITY_INVITES_PAGE_SIZE, filteredCommunityInvites.length);
 
   useEffect(() => {
     void bootstrap();
   }, [tenantSlug]);
+
+  useEffect(() => {
+    if (communityInvitePage > communityInviteTotalPages) {
+      setCommunityInvitePage(communityInviteTotalPages);
+    }
+  }, [communityInvitePage, communityInviteTotalPages]);
 
   useEffect(() => {
     const defaultCourtId = courts[0]?.id;
@@ -172,7 +238,7 @@ export function AdminDashboardPage() {
     }
 
     try {
-      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadCourts(), loadSettings(), loadSubscription()]);
+      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadCourts(), loadSettings(), loadSubscription(), loadCommunityInvites()]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
         redirectToLogin();
@@ -223,10 +289,15 @@ export function AdminDashboardPage() {
     }
   }
 
+  async function loadCommunityInvites() {
+    const response = await listAdminCommunityInvites();
+    setCommunityInvites(response.items);
+  }
+
   async function refreshDashboard() {
     setPageFeedback(null);
     try {
-      await Promise.all([loadReport(), loadBlackouts(), loadSettings()]);
+      await Promise.all([loadReport(), loadBlackouts(), loadSettings(), loadCommunityInvites()]);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
         redirectToLogin();
@@ -402,10 +473,37 @@ export function AdminDashboardPage() {
       const response = await createAdminCommunityInvite(communityInviteForm);
       setLatestCommunityInvite(response);
       setCommunityInviteForm({ profile_name: '', phone: '', invited_level: 'NO_PREFERENCE' });
+      void loadCommunityInvites().catch(() => {
+        setPageFeedback({ tone: 'error', message: 'Invito creato, ma l elenco inviti non e stato aggiornato.' });
+      });
       await copyCommunityInviteLink(response);
     } catch (error: any) {
       setCommunityInviteFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione invito community non riuscita.' });
     }
+  }
+
+  async function revokeCommunityInvite(inviteId: string) {
+    setCommunityInviteFeedback(null);
+    try {
+      const response = await revokeAdminCommunityInvite(inviteId);
+      setCommunityInvites((prev) => prev.map((invite) => invite.id == inviteId ? response.item : invite));
+      if (latestCommunityInvite?.invite_id == inviteId) {
+        setLatestCommunityInvite(null);
+      }
+      setCommunityInviteFeedback({ tone: 'success', message: response.message });
+    } catch (error: any) {
+      setCommunityInviteFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Revoca invito community non riuscita.' });
+    }
+  }
+
+  function updateCommunityInviteStatusFilter(value: CommunityInviteStatusFilter) {
+    setCommunityInviteStatusFilter(value);
+    setCommunityInvitePage(1);
+  }
+
+  function updateCommunityInviteSearchQuery(value: string) {
+    setCommunityInviteSearchQuery(value);
+    setCommunityInvitePage(1);
   }
 
   async function logout() {
@@ -906,6 +1004,96 @@ export function AdminDashboardPage() {
                         </div>
                       </div>
                     ) : null}
+                    <p className='mt-4 text-xs leading-5 text-slate-500'>Per sicurezza il link completo viene mostrato solo subito dopo la generazione. Nell elenco storico qui sotto puoi controllare stato e revoca, ma non recuperare di nuovo il token raw.</p>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-[220px_minmax(0,1fr)]'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-community-invites-status-filter'>Filtra inviti community</label>
+                        <select
+                          id='admin-community-invites-status-filter'
+                          className='text-input'
+                          value={communityInviteStatusFilter}
+                          onChange={(event) => updateCommunityInviteStatusFilter(event.target.value as CommunityInviteStatusFilter)}
+                        >
+                          {Object.entries(COMMUNITY_INVITE_FILTER_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-community-invites-search'>Cerca inviti community</label>
+                        <input
+                          id='admin-community-invites-search'
+                          className='text-input'
+                          value={communityInviteSearchQuery}
+                          onChange={(event) => updateCommunityInviteSearchQuery(event.target.value)}
+                          placeholder='Cerca per nome o telefono'
+                        />
+                      </div>
+                    </div>
+                    {filteredCommunityInvites.length > 0 ? (
+                      <div className='mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500'>
+                        <p>Mostro {communityInviteRangeStart}-{communityInviteRangeEnd} di {filteredCommunityInvites.length} inviti</p>
+                        <div className='flex items-center gap-2'>
+                          <button
+                            className='btn-secondary sm:w-auto'
+                            type='button'
+                            disabled={currentCommunityInvitePage === 1}
+                            onClick={() => setCommunityInvitePage((prev) => Math.max(1, prev - 1))}
+                          >
+                            Inviti precedenti
+                          </button>
+                          <span>Pagina {currentCommunityInvitePage} di {communityInviteTotalPages}</span>
+                          <button
+                            className='btn-secondary sm:w-auto'
+                            type='button'
+                            disabled={currentCommunityInvitePage >= communityInviteTotalPages}
+                            onClick={() => setCommunityInvitePage((prev) => Math.min(communityInviteTotalPages, prev + 1))}
+                          >
+                            Inviti successivi
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className='mt-4 space-y-3'>
+                      {communityInvites.length === 0 ? (
+                        <EmptyState icon={CalendarClock} title='Nessun invito community emesso' description='Gli inviti generati da questo pannello compariranno qui con stato attivo, usato, scaduto o revocato.' />
+                      ) : filteredCommunityInvites.length === 0 ? (
+                        <EmptyState icon={CalendarClock} title='Nessun invito corrisponde ai filtri' description={hasCommunityInviteFilters ? 'Prova a cambiare stato o ricerca per tornare a vedere gli inviti emessi.' : 'Non ci sono inviti da mostrare.'} />
+                      ) : (
+                        paginatedCommunityInvites.map((invite) => (
+                          <div key={invite.id} className='rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700'>
+                            <div className='flex flex-wrap items-start justify-between gap-3'>
+                              <div>
+                                <p className='font-semibold text-slate-900'>{invite.profile_name}</p>
+                                <p className='mt-1 text-xs text-slate-500'>{invite.phone} • {formatPlayLevel(invite.invited_level)}</p>
+                              </div>
+                              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${COMMUNITY_INVITE_STATUS_STYLES[invite.status]}`}>
+                                {COMMUNITY_INVITE_STATUS_LABELS[invite.status]}
+                              </span>
+                            </div>
+                            <div className='mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2'>
+                              <p><strong className='text-slate-700'>Creato:</strong> {formatDateTime(invite.created_at, adminTimezone)}</p>
+                              <p><strong className='text-slate-700'>Scade:</strong> {formatDateTime(invite.expires_at, adminTimezone)}</p>
+                              {invite.used_at ? <p><strong className='text-slate-700'>Usato:</strong> {formatDateTime(invite.used_at, adminTimezone)}</p> : null}
+                              {invite.revoked_at ? <p><strong className='text-slate-700'>Revocato:</strong> {formatDateTime(invite.revoked_at, adminTimezone)}</p> : null}
+                              {invite.accepted_player_name ? <p><strong className='text-slate-700'>Entrato come:</strong> {invite.accepted_player_name}</p> : null}
+                            </div>
+                            {invite.can_revoke ? (
+                              <div className='mt-3'>
+                                <button
+                                  className='btn-secondary sm:w-auto'
+                                  type='button'
+                                  aria-label={`Revoca link ${invite.profile_name}`}
+                                  onClick={() => void revokeCommunityInvite(invite.id)}
+                                >
+                                  Revoca link
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>
