@@ -166,6 +166,14 @@ export function CreateMatchForm({
       return;
     }
 
+    const selectedSlotStart = new Date(selectedSlot.slot_id).getTime();
+    if (!Number.isNaN(selectedSlotStart) && selectedSlotStart <= Date.now()) {
+      setSelectedSlotId('');
+      setFeedback('Lo slot selezionato non e piu disponibile. Ho aggiornato la griglia con gli orari futuri.');
+      void loadAvailability();
+      return;
+    }
+
     onCreateIntent({
       bookingDate,
       durationMinutes,
@@ -291,17 +299,27 @@ export function CreateMatchForm({
                           })}
                           selectedSlotId={selectedOnCourt ? selectedSlotId : ''}
                           highlightedSlotIds={selectedOnCourt ? highlightedSlotIds : []}
-                          unavailableStateContent={buildCollapsedCourtCta({
-                            courtId: group.court_id,
-                            slots: group.slots,
-                            expanded: Boolean(expandedCourtIds[group.court_id]),
-                            onExpand: () => setExpandedCourtIds((prev) => ({ ...prev, [group.court_id]: true })),
-                          })}
                           onSelect={(slotId) => {
                             setSelectedCourtId(group.court_id);
                             setSelectedSlotId(slotId);
                           }}
                         />
+
+                        {buildCollapsedCourtCta({
+                          courtId: group.court_id,
+                          slots: group.slots,
+                          expanded: Boolean(expandedCourtIds[group.court_id]),
+                          onExpand: () => setExpandedCourtIds((prev) => ({ ...prev, [group.court_id]: true })),
+                        }) ? (
+                          <div className='mt-4'>
+                            {buildCollapsedCourtCta({
+                              courtId: group.court_id,
+                              slots: group.slots,
+                              expanded: Boolean(expandedCourtIds[group.court_id]),
+                              onExpand: () => setExpandedCourtIds((prev) => ({ ...prev, [group.court_id]: true })),
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -332,7 +350,7 @@ export function CreateMatchForm({
                 className='text-input min-h-[112px] resize-y'
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder='Es. partita amichevole, ritmo alto, cerco ultimo giocatore per completare il gruppo.'
+                placeholder='Es. partita amichevole, partita mista, cerco ultimo giocatore per completare il gruppo.'
               />
             </div>
 
@@ -411,10 +429,9 @@ function buildCollapsedCourtCta({
   }
 
   const initialSlots = slots.slice(0, COLLAPSED_COURT_SLOT_COUNT);
-  const hasVisibleAvailableSlots = initialSlots.some((slot) => slot.available);
   const hasHiddenSlots = slots.length > initialSlots.length;
 
-  if (!hasHiddenSlots || hasVisibleAvailableSlots) {
+  if (!hasHiddenSlots) {
     return null;
   }
 

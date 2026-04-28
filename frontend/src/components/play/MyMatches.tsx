@@ -25,7 +25,6 @@ export function MyMatches({
       <EmptyState
         icon={CalendarCheck2}
         title='Nessuna partita personale attiva'
-        description='Dopo il riconoscimento vedrai qui le partite future che hai creato o a cui partecipi.'
       />
     );
   }

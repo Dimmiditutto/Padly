@@ -37,7 +37,6 @@ from app.services.settings_service import get_play_community_payment
 PLAYER_SESSION_COOKIE_NAME = 'padel_play_session'
 PLAYER_SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 PLAY_MATCH_SIZE = 4
-PLAY_MATCH_DURATION_MINUTES = 90
 PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS = 7
 
 
@@ -884,9 +883,6 @@ def create_play_match(
     note: str | None,
     force_create: bool,
 ) -> dict:
-    if duration_minutes != PLAY_MATCH_DURATION_MINUTES:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Le partite play sono da 90 minuti')
-
     court = resolve_court(db, club_id=club_id, court_id=court_id)
     _, _, start_at, end_at = resolve_slot_window(
         booking_date,

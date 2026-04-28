@@ -181,6 +181,38 @@ def test_play_create_suggests_existing_match_then_force_create_allows_new_one(cl
     assert create_payload['match']['participant_count'] == 1
 
 
+def test_play_create_accepts_supported_durations_beyond_90_minutes(client):
+    creator = identify_as(client, profile_name='Marco Long Match', phone='3337000099')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    booking_date, start_time, slot_id, _, _ = build_future_slot(booking_date_offset_days=11, duration_minutes=120)
+
+    response = client.post(
+        '/api/play/matches',
+        json={
+            'booking_date': booking_date,
+            'court_id': default_court_id,
+            'start_time': start_time,
+            'slot_id': slot_id,
+            'duration_minutes': 120,
+            'level_requested': 'INTERMEDIATE_MEDIUM',
+            'note': 'Partita lunga',
+            'force_create': True,
+        },
+    )
+
+    assert creator['id']
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['created'] is True
+    assert payload['match']['duration_minutes'] == 120
+
+    with SessionLocal() as db:
+        match = db.get(Match, payload['match']['id'])
+        assert match is not None
+        assert match.duration_minutes == 120
+        assert int((match.end_at - match.start_at).total_seconds() // 60) == 120
+
+
 def test_play_shared_match_uses_real_share_token_and_rejects_invalid_token(client):
     identify_as(client, profile_name='Luca Share', phone='3337100001')
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)

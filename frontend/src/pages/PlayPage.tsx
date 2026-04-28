@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios';
 import { ArrowLeft, BellRing, Sparkles, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -59,6 +60,11 @@ function paymentProviderLabel(provider: PaymentProvider) {
     return 'PayPal';
   }
   return 'Pagamento online';
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  const requestError = error as AxiosError<{ detail?: string }>;
+  return requestError?.response?.data?.detail || (error instanceof Error ? error.message : fallback);
 }
 
 export function PlayPage() {
@@ -325,7 +331,7 @@ export function PlayPage() {
     } catch (error) {
       setFeedback({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Non riesco a creare la partita play.',
+        message: getApiErrorMessage(error, 'Non riesco a creare la partita play.'),
       });
     }
   }
@@ -498,10 +504,10 @@ export function PlayPage() {
     : 'info';
   const pushStatusMessage = notificationSettings?.push.has_active_subscription
     ? notificationSettings.push.push_supported
-      ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'browser o dispositivo collegato al tuo profilo play' : 'browser o dispositivi collegati al tuo profilo play'}. Le notifiche in-app restano comunque disponibili nella pagina.`
-      : `Il tuo profilo risulta associato a ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'subscription web push' : 'subscription web push'}, ma questo ambiente server non puo consegnarle davvero. Il feed in-app resta disponibile finche la configurazione VAPID non viene completata.`
-    : 'Nessuna web push attiva sul tuo profilo play. Le notifiche in-app restano sempre nel feed locale della pagina.';
-    const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
+      ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'dispositivo' : 'dispositivi'}.`
+      : 'Web push non disponibile da questo server.'
+    : 'Web push non attiva.';
+  const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -527,8 +533,8 @@ export function PlayPage() {
 
           {currentPlayer ? (
             <div className='mt-5 rounded-[24px] border border-white/10 bg-white/5 p-4'>
-              <AlertBanner tone='success' title='Profilo play attivo'>
-                Sei riconosciuto come <strong>{currentPlayer.profile_name}</strong>. Le tue partite e i CTA join/create ora possono usare il tenant corretto del club.
+              <AlertBanner tone='success' title='Profilo Matchinn attivo'>
+                Ciao <strong>{currentPlayer.profile_name}</strong>! Benvenuto nella Community di <strong>{clubDisplayName}</strong>. Qui puoi partecipare a partite gia aperte o creare una nuova partita.
               </AlertBanner>
             </div>
           ) : null}
@@ -580,30 +586,66 @@ export function PlayPage() {
                 <MatchBoard matches={openMatches} onJoin={handleJoin} onShare={handleShare} />
               </SectionCard>
 
+              {currentPlayer ? (
+                <SectionCard title='Le mie partite'>
+                  <MyMatches
+                    matches={myMatches}
+                    currentPlayerId={currentPlayer.id}
+                    onOpen={handleOpenShared}
+                    onShare={handleShare}
+                    onLeave={(match) => void handleLeave(match)}
+                    onEdit={openManagePanel}
+                    onCancel={(match) => void handleCancel(match)}
+                  />
+                </SectionCard>
+              ) : (
+                <SectionCard title='Le mie partite'>
+                  <div className='surface-muted flex items-center gap-3'>
+                    <UsersRound size={18} className='text-cyan-700' />
+                    <p className='text-sm text-slate-700'>Identificati dal pulsante `Unisciti` o `Crea nuova partita` per vedere il tuo spazio personale.</p>
+                  </div>
+                </SectionCard>
+              )}
+
+              <SectionCard
+                title='Crea nuova partita'
+                description='Scegli slot'
+              >
+                <div className='space-y-6'>
+                  <CreateMatchForm tenantSlug={tenantSlug} onCreateIntent={handleCreateIntent} />
+
+                  {suggestedMatches.length > 0 ? (
+                    <div className='space-y-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-4'>
+                      <h3 className='text-lg font-semibold text-slate-950'>Prima completa queste partite compatibili</h3>
+                      <AlertBanner tone='warning'>Il club ha gia partite compatibili da completare prima di aprirne una nuova.</AlertBanner>
+                      <MatchBoard matches={suggestedMatches} onJoin={handleJoin} onShare={handleShare} />
+                      {pendingCreateIntent ? (
+                        <button type='button' className='btn-secondary' onClick={() => void submitCreateIntent(pendingCreateIntent, true)}>
+                          Crea comunque una nuova partita
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </SectionCard>
+
               {currentPlayer && notificationSettings && notificationDraft ? (
-                <SectionCard
-                  title='Notifiche play'
-                  description='Preferenze essenziali, stato web push e feed in-app delle segnalazioni determinate del club.'
-                >
+                <SectionCard title='Preferenze notifiche'>
                   <div className='space-y-4'>
                     <div className='flex flex-wrap items-center gap-3 text-sm'>
                       <span className={`rounded-full px-3 py-1 font-semibold ${notificationSettings.unread_notifications_count > 0 ? 'bg-cyan-100 text-cyan-900' : 'bg-slate-200 text-slate-700'}`}>
                         Non lette: {notificationSettings.unread_notifications_count}
                       </span>
-                      <span className='text-slate-600'>Il feed in-app resta il fallback affidabile anche quando il browser non riceve push.</span>
                     </div>
 
-                    <AlertBanner
-                      tone={pushStatusTone}
-                      title='Stato attivazione'
-                    >
+                    <AlertBanner tone={pushStatusTone} title='Stato attivazione'>
                       {pushStatusMessage}
                     </AlertBanner>
 
-                    <div className='grid gap-4 lg:grid-cols-2'>
+                    <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start'>
                       <div className='surface-muted space-y-3'>
                         <p className='flex items-center gap-2 text-sm font-semibold text-slate-900'>
-                          <BellRing size={16} /> Preferenze essenziali
+                          <BellRing size={16} /> Preferenze notifiche
                         </p>
 
                         <label className='flex items-start gap-3 text-sm text-slate-700'>
@@ -621,7 +663,7 @@ export function PlayPage() {
                             checked={notificationDraft.web_push_enabled}
                             onChange={(event) => setNotificationDraft({ ...notificationDraft, web_push_enabled: event.target.checked })}
                           />
-                          <span>Web push abilitate quando esiste una subscription valida</span>
+                          <span>Abilita web push</span>
                         </label>
 
                         <label className='flex items-start gap-3 text-sm text-slate-700'>
@@ -665,23 +707,21 @@ export function PlayPage() {
                         </button>
                       </div>
 
-                      <div className='surface-muted space-y-4'>
-                        <div>
-                          <p className='text-sm font-semibold text-slate-900'>Web push</p>
-                          <p className='mt-2 text-sm text-slate-600'>
-                            {notificationSettings.push.push_supported
-                              ? 'Il backend espone una chiave pubblica VAPID. Se il browser supporta Push API puoi registrare o revocare la subscription dal device corrente.'
-                              : 'Le web push non sono configurate in modo completo lato server: il feed in-app resta attivo, ma la subscription web push non puo essere completata da questo ambiente.'}
-                          </p>
-                          {!browserSupportsPush ? (
-                            <p className='mt-2 text-sm text-amber-700'>Il browser o l ambiente di test corrente non supportano Service Worker + Push API.</p>
-                          ) : null}
+                      <aside className='surface-muted w-full space-y-3 lg:max-w-[17rem] lg:justify-self-end'>
+                        <div className='flex items-center justify-between gap-2'>
+                          <p className='text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500'>Web push</p>
+                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${notificationSettings.push.has_active_subscription ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                            {notificationSettings.push.has_active_subscription ? 'Attiva' : 'Off'}
+                          </span>
                         </div>
+                        {!browserSupportsPush ? (
+                          <p className='text-xs leading-5 text-amber-700'>Il browser o l ambiente di test corrente non supportano Service Worker + Push API.</p>
+                        ) : null}
 
-                        <div className='flex flex-wrap gap-3'>
+                        <div className='flex flex-col gap-2'>
                           <button
                             type='button'
-                            className='btn-primary'
+                            className='btn-primary min-h-10 rounded-full px-3 py-2 text-xs'
                             disabled={updatingPushSubscription || !browserSupportsPush || !notificationSettings.push.push_supported}
                             onClick={() => void handleEnablePush()}
                           >
@@ -689,25 +729,20 @@ export function PlayPage() {
                           </button>
                           <button
                             type='button'
-                            className='btn-secondary'
+                            className='btn-secondary min-h-10 rounded-full px-3 py-2 text-xs'
                             disabled={updatingPushSubscription}
                             onClick={() => void handleDisablePush()}
                           >
                             {updatingPushSubscription ? 'Revoca…' : 'Disattiva web push'}
                           </button>
                         </div>
-
-                        <div className='rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600'>
-                          <p><strong className='text-slate-900'>Subscription attive:</strong> {notificationSettings.push.active_subscription_count}</p>
-                          <p className='mt-2'><strong className='text-slate-900'>Cap giornaliero:</strong> massimo 3 campagne notifiche per player.</p>
-                        </div>
-                      </div>
+                      </aside>
                     </div>
 
                     <div>
                       <p className='field-label'>Ultime notifiche in-app</p>
                       {notificationSettings.recent_notifications.length === 0 ? (
-                        <div className='surface-muted text-sm text-slate-700'>Nessuna notifica recente. Il feed si popola quando il club trova match compatibili da completare.</div>
+                        <div className='surface-muted text-sm text-slate-700'>Nessuna notifica recente.</div>
                       ) : (
                         <div className='space-y-3'>
                           {notificationSettings.recent_notifications.map((item) => (
@@ -744,30 +779,6 @@ export function PlayPage() {
                   </div>
                 </SectionCard>
               ) : null}
-
-              {suggestedMatches.length > 0 ? (
-                <SectionCard
-                  title='Prima completa queste partite compatibili'
-                  description='Il backend ha trovato partite gia aperte nello stesso orario. Il force create e esplicito e separato.'
-                >
-                  <div className='space-y-4'>
-                    <AlertBanner tone='warning'>Il club ha gia partite compatibili da completare prima di aprirne una nuova.</AlertBanner>
-                    <MatchBoard matches={suggestedMatches} onJoin={handleJoin} onShare={handleShare} />
-                    {pendingCreateIntent ? (
-                      <button type='button' className='btn-secondary' onClick={() => void submitCreateIntent(pendingCreateIntent, true)}>
-                        Crea comunque una nuova partita
-                      </button>
-                    ) : null}
-                  </div>
-                </SectionCard>
-              ) : null}
-
-              <SectionCard
-                title='Crea nuova partita'
-                description='Scegli slot'
-              >
-                <CreateMatchForm tenantSlug={tenantSlug} onCreateIntent={handleCreateIntent} />
-              </SectionCard>
 
               {managedMatch ? (
                 <SectionCard
@@ -818,29 +829,6 @@ export function PlayPage() {
                 </SectionCard>
               ) : null}
 
-              {currentPlayer ? (
-                <SectionCard
-                  title='Le mie partite'
-                  description='Partite future create da te o a cui partecipi nel tenant corrente.'
-                >
-                  <MyMatches
-                    matches={myMatches}
-                    currentPlayerId={currentPlayer.id}
-                    onOpen={handleOpenShared}
-                    onShare={handleShare}
-                    onLeave={(match) => void handleLeave(match)}
-                    onEdit={openManagePanel}
-                    onCancel={(match) => void handleCancel(match)}
-                  />
-                </SectionCard>
-              ) : (
-                <SectionCard title='Le mie partite'>
-                  <div className='surface-muted flex items-center gap-3'>
-                    <UsersRound size={18} className='text-cyan-700' />
-                    <p className='text-sm text-slate-700'>Identificati dal pulsante `Unisciti` o `Crea nuova partita` per vedere il tuo spazio personale.</p>
-                  </div>
-                </SectionCard>
-              )}
             </>
           )}
         </div>

@@ -18,6 +18,12 @@ INSECURE_ADMIN_PASSWORDS = {
     'ChangeMe123!',
     'replace-with-a-strong-password',
 }
+LOCAL_PLAY_PUSH_VAPID_PUBLIC_KEY = 'BAyqaITeoSK3Iu7lZAeBxOvt8IOEMglgs3-6uaf6gSuOoAaEEAaCrkLZztYfWc90LT8lQX949DA0NA4kUS5HO1o'
+LOCAL_PLAY_PUSH_VAPID_PRIVATE_KEY = '''-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgGCy6OBZ/3Cs5MS6q
+2C7X0NhCtVYaKjWfvlm9JYpBivWhRANCAAQMqmiE3qEityLu5WQHgcTr7fCDhDIJ
+YLN/urmn+oErjqAGhBAGgq5C2c7WH1nPdC0/JUF/ePQwNDQOJFEuRzta
+-----END PRIVATE KEY-----'''
 
 
 class Settings(BaseSettings):
@@ -143,6 +149,12 @@ class Settings(BaseSettings):
                 if self.paypal_env == 'live'
                 else 'https://api-m.sandbox.paypal.com'
             )
+        if not self.is_production and (
+            self._is_blank(self.play_push_vapid_public_key)
+            or self._is_blank(self.play_push_vapid_private_key)
+        ):
+            self.play_push_vapid_public_key = LOCAL_PLAY_PUSH_VAPID_PUBLIC_KEY
+            self.play_push_vapid_private_key = LOCAL_PLAY_PUSH_VAPID_PRIVATE_KEY
         return self
 
     def insecure_production_settings(self) -> list[str]:

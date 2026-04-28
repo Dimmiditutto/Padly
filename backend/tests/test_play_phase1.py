@@ -110,6 +110,10 @@ def test_play_identify_sets_cookie_and_me_reads_player(client):
     me_response = client.get('/api/play/me')
     assert me_response.status_code == 200
     assert me_response.json()['player']['phone'] == '+393331112222'
+    push_state = me_response.json()['notification_settings']['push']
+    assert push_state['push_supported'] is True
+    assert push_state['public_vapid_key']
+    assert push_state['service_worker_path'] == '/play-service-worker.js'
 
     with SessionLocal() as db:
         stored_token = db.query(Player).filter(Player.phone == '+393331112222').one()

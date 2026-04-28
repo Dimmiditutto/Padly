@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import MatchStatus, PaymentProvider, PlayLevel
-from app.schemas.public import validate_hhmm_time
+from app.schemas.public import VALID_DURATIONS, validate_hhmm_time
 
 
 def _normalize_profile_name(value: str) -> str:
@@ -254,8 +254,8 @@ class PlayMatchCreateRequest(BaseModel):
     @field_validator('duration_minutes')
     @classmethod
     def validate_duration(cls, value: int) -> int:
-        if value != 90:
-            raise ValueError('Le partite play sono da 90 minuti')
+        if value not in VALID_DURATIONS:
+            raise ValueError('Durata non valida')
         return value
 
     @field_validator('start_time')

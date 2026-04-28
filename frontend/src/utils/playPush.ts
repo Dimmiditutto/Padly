@@ -23,10 +23,13 @@ async function ensureNotificationPermission() {
 
 async function ensureServiceWorkerRegistration(serviceWorkerPath: string) {
   const existing = await navigator.serviceWorker.getRegistration();
-  if (existing) {
+  if (existing?.active) {
     return existing;
   }
-  return navigator.serviceWorker.register(serviceWorkerPath);
+  if (!existing) {
+    await navigator.serviceWorker.register(serviceWorkerPath);
+  }
+  return navigator.serviceWorker.ready;
 }
 
 export async function subscribeBrowserToPlayPush(publicVapidKey: string, serviceWorkerPath: string): Promise<PlayPushSubscriptionPayload> {
@@ -40,10 +43,21 @@ export async function subscribeBrowserToPlayPush(publicVapidKey: string, service
 
   const registration = await ensureServiceWorkerRegistration(serviceWorkerPath);
   const existingSubscription = await registration.pushManager.getSubscription();
-  const subscription = existingSubscription || await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
-  });
+  let subscription = existingSubscription;
+  if (!subscription) {
+    try {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (/permission denied/i.test(message)) {
+        throw new Error('Questo browser non consente la registrazione web push in questo contesto. Se stai usando il browser integrato o una finestra privata, apri la pagina in Chrome o Edge normale.');
+      }
+      throw error;
+    }
+  }
   const serialized = subscription.toJSON();
 
   if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys?.auth) {

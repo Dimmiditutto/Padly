@@ -99,7 +99,7 @@ const baseAvailability: AvailabilityResponse = {
       badge_label: 'Indoor',
       slots: [
         {
-          slot_id: 'slot-1',
+          slot_id: '2026-05-10T18:00:00Z',
           court_id: 'court-1',
           court_name: 'Campo 1',
           court_badge_label: 'Indoor',
@@ -111,7 +111,7 @@ const baseAvailability: AvailabilityResponse = {
           reason: null,
         },
         {
-          slot_id: 'slot-2',
+          slot_id: '2026-05-10T18:30:00Z',
           court_id: 'court-1',
           court_name: 'Campo 1',
           court_badge_label: 'Indoor',
@@ -323,6 +323,28 @@ describe('Play phase 2 pages', () => {
     expect(prefetchAvailabilityWindow).toHaveBeenLastCalledWith(expect.any(String), 120, 'roma-club', 7);
   });
 
+  it('renders the main sections in the requested order for a recognized player', async () => {
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+
+    const completareHeading = screen.getByRole('heading', { name: 'Partite da completare' });
+    const mieHeading = screen.getByRole('heading', { name: 'Le mie partite' });
+    const createHeading = screen.getByRole('heading', { name: 'Crea nuova partita' });
+    const notificheHeading = screen.getByRole('heading', { name: 'Preferenze notifiche' });
+
+    expect(completareHeading.compareDocumentPosition(mieHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mieHeading.compareDocumentPosition(createHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(createHeading.compareDocumentPosition(notificheHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('redirects the /play alias to the canonical tenant route and keeps tenant propagation', async () => {
     renderApp('/play?tenant=roma-club');
 
@@ -359,8 +381,10 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
-    await user.type(screen.getByLabelText('Nota opzionale'), 'cerco ultimo giocatore');
-    await user.click(screen.getByRole('button', { name: 'Crea nuova partita' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Crea nuova partita' })).toBeEnabled());
+    const noteField = screen.getByLabelText('Nota opzionale');
+    await user.type(noteField, 'cerco ultimo giocatore');
+    fireEvent.submit(noteField.closest('form')!);
 
     await screen.findByRole('heading', { name: 'Identificati per creare una nuova partita' });
     await user.type(screen.getByLabelText('Nome profilo'), 'Luca Smash');
@@ -371,13 +395,39 @@ describe('Play phase 2 pages', () => {
     await waitFor(() => expect(createPlayMatch).toHaveBeenCalledWith(expect.objectContaining({
       court_id: 'court-1',
       start_time: '18:00',
-      slot_id: 'slot-1',
+      slot_id: '2026-05-10T18:00:00Z',
       duration_minutes: 90,
       level_requested: 'NO_PREFERENCE',
       note: 'cerco ultimo giocatore',
       force_create: false,
     }), 'roma-club'));
     expect(await screen.findByText('Partita play creata correttamente.')).toBeInTheDocument();
+  });
+
+  it('shows the backend detail when create fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+    vi.mocked(createPlayMatch).mockRejectedValueOnce({
+      response: {
+        data: {
+          detail: 'Puoi creare solo partite future',
+        },
+      },
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Crea nuova partita' })).toBeEnabled());
+    fireEvent.submit(screen.getByLabelText('Nota opzionale').closest('form')!);
+
+    await waitFor(() => expect(createPlayMatch).toHaveBeenCalled());
+    expect(await screen.findByText('Puoi creare solo partite future')).toBeInTheDocument();
   });
 
   it('requires privacy before accepting a community invite', async () => {
@@ -477,7 +527,8 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
-    await user.click(screen.getByRole('button', { name: 'Crea nuova partita' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Crea nuova partita' })).toBeEnabled());
+    fireEvent.submit(screen.getByLabelText('Nota opzionale').closest('form')!);
 
     expect(await screen.findByRole('heading', { name: 'Prima completa queste partite compatibili' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Crea comunque una nuova partita' }));
@@ -689,12 +740,12 @@ describe('Play phase 2 pages', () => {
     await screen.findByRole('heading', { name: 'Gestisci il tuo match' });
     await user.selectOptions(screen.getByLabelText('Livello match'), 'ADVANCED');
     await user.clear(screen.getByLabelText('Nota'));
-    await user.type(screen.getByLabelText('Nota'), 'solo ritmo alto');
+    await user.type(screen.getByLabelText('Nota'), 'solo partita mista');
     await user.click(screen.getByRole('button', { name: 'Salva modifiche' }));
 
     await waitFor(() => expect(updatePlayMatch).toHaveBeenCalledWith('match-my-edit', {
       level_requested: 'ADVANCED',
-      note: 'solo ritmo alto',
+      note: 'solo partita mista',
     }, 'roma-club'));
     expect(await screen.findByText('Partita aggiornata.')).toBeInTheDocument();
   });
@@ -749,7 +800,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Notifiche play' });
+    await screen.findByRole('heading', { name: 'Preferenze notifiche' });
     await user.click(screen.getByLabelText('Avvisami per match 2/4'));
     await user.click(screen.getByRole('button', { name: 'Salva preferenze notifiche' }));
 
@@ -773,7 +824,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Notifiche play' });
+    await screen.findByRole('heading', { name: 'Preferenze notifiche' });
     await user.click(screen.getByRole('button', { name: 'Attiva web push' }));
 
     await waitFor(() => expect(subscribeBrowserToPlayPush).toHaveBeenCalledWith('BElocalPlayPushKey', '/play-service-worker.js'));
@@ -842,7 +893,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Notifiche play' });
+    await screen.findByRole('heading', { name: 'Preferenze notifiche' });
     expect(screen.getByText('Non lette: 1')).toBeInTheDocument();
     expect(screen.getByText('Non letta')).toBeInTheDocument();
 
@@ -876,8 +927,8 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Notifiche play' });
-    expect(screen.getByText('Web push attiva su 2 browser o dispositivi collegati al tuo profilo play. Le notifiche in-app restano comunque disponibili nella pagina.')).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    expect(screen.getByText('Web push attiva su 2 dispositivi.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Disattiva web push' }));
 
@@ -908,8 +959,8 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
-    await screen.findByRole('heading', { name: 'Notifiche play' });
-    expect(screen.getByText('Il tuo profilo risulta associato a 2 subscription web push, ma questo ambiente server non puo consegnarle davvero. Il feed in-app resta disponibile finche la configurazione VAPID non viene completata.')).toBeInTheDocument();
-    expect(screen.queryByText('Web push attiva su 2 browser o dispositivi collegati al tuo profilo play. Le notifiche in-app restano comunque disponibili nella pagina.')).not.toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    expect(screen.getByText('Web push non disponibile da questo server.')).toBeInTheDocument();
+    expect(screen.queryByText('Web push attiva su 2 dispositivi.')).not.toBeInTheDocument();
   });
 });
