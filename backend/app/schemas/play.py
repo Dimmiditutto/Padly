@@ -1,9 +1,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.models import MatchStatus, PaymentProvider, PlayLevel
+from app.models import MatchStatus, PaymentProvider, PlayAccessPurpose, PlayLevel
 from app.schemas.public import VALID_DURATIONS, validate_hhmm_time
 
 
@@ -79,9 +79,91 @@ class PlayPlayerSummary(BaseModel):
     id: str
     profile_name: str
     phone: str
+    email: str | None = None
+    email_verified_at: datetime | None = None
     declared_level: PlayLevel
     privacy_accepted_at: datetime
     created_at: datetime
+
+
+class PlayAccessOtpStartRequest(BaseModel):
+    purpose: PlayAccessPurpose
+    email: EmailStr
+    profile_name: str | None = Field(default=None, min_length=2, max_length=120)
+    phone: str | None = Field(default=None, min_length=6, max_length=50)
+    declared_level: PlayLevel = PlayLevel.NO_PREFERENCE
+    privacy_accepted: bool = False
+    invite_token: str | None = None
+    group_token: str | None = None
+
+    @field_validator('profile_name', mode='before')
+    @classmethod
+    def normalize_optional_profile_name(cls, value: str | None) -> str | None:
+        if value is None or value == '':
+            return None
+        return _normalize_profile_name(value)
+
+    @field_validator('phone', mode='before')
+    @classmethod
+    def normalize_optional_phone(cls, value: str | None) -> str | None:
+        if value is None or value == '':
+            return None
+        return _normalize_phone(value)
+
+    @model_validator(mode='after')
+    def validate_payload(self):
+        if self.purpose == PlayAccessPurpose.INVITE:
+            if not self.invite_token:
+                raise ValueError('Invito community mancante')
+            if not self.privacy_accepted:
+                raise ValueError('Devi accettare la privacy')
+        if self.purpose == PlayAccessPurpose.GROUP:
+            if not self.group_token:
+                raise ValueError('Link gruppo mancante')
+            if not self.profile_name or not self.phone:
+                raise ValueError('Nome e telefono sono obbligatori')
+            if not self.privacy_accepted:
+                raise ValueError('Devi accettare la privacy')
+        if self.purpose == PlayAccessPurpose.DIRECT:
+            if not self.profile_name or not self.phone:
+                raise ValueError('Nome e telefono sono obbligatori')
+            if not self.privacy_accepted:
+                raise ValueError('Devi accettare la privacy')
+        return self
+
+
+class PlayAccessOtpStartResponse(BaseModel):
+    message: str
+    challenge_id: str
+    email_hint: str
+    expires_at: datetime
+    resend_available_at: datetime
+
+
+class PlayAccessOtpVerifyRequest(BaseModel):
+    challenge_id: str = Field(min_length=1)
+    otp_code: str = Field(min_length=6, max_length=6)
+
+    @field_validator('otp_code', mode='before')
+    @classmethod
+    def normalize_otp_code(cls, value: str) -> str:
+        normalized = ''.join(str(value).strip().split())
+        if len(normalized) != 6 or not normalized.isdigit():
+            raise ValueError('Codice OTP non valido')
+        return normalized
+
+
+class PlayAccessOtpVerifyResponse(BaseModel):
+    message: str
+    player: PlayPlayerSummary
+
+
+class PlayAccessOtpResendResponse(BaseModel):
+    message: str
+    challenge_id: str
+    email_hint: str
+    expires_at: datetime
+    resend_available_at: datetime
 
 
 class MatchParticipantSummary(BaseModel):
@@ -198,6 +280,55 @@ class AdminCommunityInviteListResponse(BaseModel):
 class AdminCommunityInviteRevokeResponse(BaseModel):
     message: str
     item: AdminCommunityInviteSummary
+
+
+CommunityAccessLinkAdminStatus = Literal['ACTIVE', 'SATURATED', 'EXPIRED', 'REVOKED']
+
+
+class AdminCommunityAccessLinkCreateRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=120)
+    max_uses: int | None = Field(default=None, ge=1)
+    expires_at: datetime | None = None
+
+    @field_validator('label', mode='before')
+    @classmethod
+    def normalize_optional_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = ' '.join(str(value).split())
+        return normalized or None
+
+
+class AdminCommunityAccessLinkCreateResponse(BaseModel):
+    message: str
+    link_id: str
+    access_token: str
+    access_path: str
+    label: str | None = None
+    max_uses: int | None = None
+    used_count: int
+    expires_at: datetime | None = None
+
+
+class AdminCommunityAccessLinkSummary(BaseModel):
+    id: str
+    label: str | None = None
+    max_uses: int | None = None
+    used_count: int
+    created_at: datetime
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+    status: CommunityAccessLinkAdminStatus
+    can_revoke: bool
+
+
+class AdminCommunityAccessLinkListResponse(BaseModel):
+    items: list[AdminCommunityAccessLinkSummary] = Field(default_factory=list)
+
+
+class AdminCommunityAccessLinkRevokeResponse(BaseModel):
+    message: str
+    item: AdminCommunityAccessLinkSummary
 
 
 class PlayMatchesResponse(BaseModel):

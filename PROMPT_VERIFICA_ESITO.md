@@ -1,79 +1,86 @@
-# VERIFICA PLAY FINAL E COERENZA DEL PERIMETRO /play
+# VERIFICA OTP COMMUNITY, LINK DI GRUPPO E RIENTRO DA HOME BOOKING
 
 ## 1. Esito sintetico generale
 
-PASS CON RISERVE
+FAIL PARZIALE
 
-Il repository e coerente nel perimetro verificato: backend, frontend, contratti API, schemi e test del blocco finale /play risultano allineati, non emergono errori dell'editor sul workspace e le validazioni eseguibili rieseguite ora sono verdi.
+L'integrazione OTP/community e stata realizzata in modo ampio e nel complesso coerente tra backend, frontend, migrazione e test mirati, ma la verifica tecnica rigorosa ha fatto emergere due criticita reali che oggi impediscono di considerare il flusso sicuro per il rilascio:
 
-Validazioni reali rieseguite durante questa verifica:
+- un profilo player esistente puo essere riassociato a una nuova email verificata partendo solo dal numero di telefono nel flusso DIRECT o GROUP
+- il challenge OTP non implementa un vero limite di tentativi per codice errato, quindi manca un lockout per-challenge richiesto dal disegno stesso del flusso
 
-- backend: D:/Padly/PadelBooking/.venv/Scripts/python.exe -m pytest tests/test_play_phase4.py tests/test_play_phase6_public_directory.py tests/test_play_phase7_public_discovery.py -q --tb=short -> PASS, 20 passed
-- frontend test: npm run test:run -- src/pages/PlayPage.test.tsx src/pages/PublicDiscoveryPages.test.tsx -> PASS, 27 passed
-- frontend build: npm run build -> PASS
-- controlli editor: nessun errore rilevato nel workspace
+Contesto reale verificato sulle modifiche recenti:
 
-Sintesi tecnica:
+- backend: estensione di `Player` con `email` ed `email_verified_at`, nuova enum `PlayAccessPurpose`, nuove entita `CommunityAccessLink` e `PlayerAccessChallenge`, nuova migrazione `20260428_0014_play_email_otp_access.py`
+- backend API: nuova superficie pubblica `/api/public/play-access/start`, `/verify`, `/{challenge_id}/resend` e nuove API admin per creare/listare/revocare i link gruppo community
+- frontend: nuova pagina `PlayAccessPage`, nuove route `/c/:clubSlug/play/access` e `/c/:clubSlug/play/access/:groupToken`, `InviteAcceptPage` trasformata in wrapper della nuova pagina, CTA di rientro in `PublicBookingPage`, CTA anonima anche in `PlayPage`, nuovo blocco admin per i link gruppo
+- test e validazioni rieseguiti durante questa verifica:
+  - backend: `../.venv/Scripts/python.exe -m pytest tests/test_play_email_otp_migration.py tests/test_play_access_otp.py tests/test_play_phase1.py -k "community_invite or admin_can_create_community_invite" -q` -> PASS
+  - frontend test: `npm run test:run -- src/pages/PlayPage.test.tsx src/pages/PublicBookingPage.test.tsx src/pages/AdminDashboardPage.test.tsx` -> PASS
+  - frontend build: `npm run build` -> PASS
 
-- il perimetro finale letto in [STATO_PLAY_FINAL.md](STATO_PLAY_FINAL.md) e coerente con i vincoli architetturali di [prompts SaaS/prompt_master.md](prompts%20SaaS/prompt_master.md) e con la baseline tenant-aware fissata in [prompts SaaS/STATO_FASE_1.MD](prompts%20SaaS/STATO_FASE_1.MD)
-- unread count, mark-as-read, ranking pubblico e discovery pubblico sono oggi coerenti end-to-end
-- le criticita discovery riportate nel vecchio report non risultano piu aperte: watchlist privata coperta da [backend/tests/test_play_phase7_public_discovery.py](backend/tests/test_play_phase7_public_discovery.py#L127), esito degradato del contact request coperto da [backend/tests/test_play_phase7_public_discovery.py](backend/tests/test_play_phase7_public_discovery.py#L296-L307), validazione nome/email chiusa in [backend/app/schemas/public.py](backend/app/schemas/public.py#L261-L295)
-- restano pero criticita reali sul canale WEB_PUSH privato: fan-out incompleto su piu dispositivi, stato deliverable non sempre rappresentato in modo coerente in UI e click della push ancora non contestuale
+Il codice quindi non e rotto: build e subset di test passano. Il problema e che la sicurezza del legame identita email-player non e ancora sufficientemente robusta.
 
 ## 2. Verifica per area
 
 ### Coerenza complessiva del codice
 
-Esito: PASS
+Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- nessun conflitto strutturale tra backend, frontend, router, schemi, tipi e build nel perimetro verificato
-- le superfici /play e discovery pubblico restano isolate dal booking pubblico su / e rispettano il boundary tenant-aware richiesto dalla baseline SaaS
-- i contratti dati nuovi sono coerenti tra [backend/app/schemas/play.py](backend/app/schemas/play.py), [backend/app/schemas/public.py](backend/app/schemas/public.py), [frontend/src/types.ts](frontend/src/types.ts), [frontend/src/services/playApi.ts](frontend/src/services/playApi.ts), [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx), [frontend/src/pages/ClubDirectoryPage.tsx](frontend/src/pages/ClubDirectoryPage.tsx) e [frontend/src/pages/PublicClubPage.tsx](frontend/src/pages/PublicClubPage.tsx)
+- modelli, schemi, router, servizi e client frontend sono coerenti nel nuovo perimetro OTP/community
+- la migrazione e allineata con i nuovi modelli e il test up/down dedicato passa
+- la nuova UX e coerente con il progetto: home booking -> accesso community dedicato -> OTP -> sessione Play
+- resta pero una incoerenza tra l'obiettivo di autenticazione individuale via email OTP e il modo in cui l'identita esistente viene risolta nel service layer
 
-Gravita:
+Gravita del problema:
 
-- nessun blocker complessivo emerso nel perimetro verificato
+- alta sul service layer di identita
 
 Impatto reale:
 
-- il progetto resta stabile sul perimetro finale /play e discovery pubblico
+- la struttura tecnica regge, ma il flusso puo attribuire il player sbagliato a una nuova email verificata
 
 ### Coerenza tra file modificati
 
-Esito: PASS CON RISERVE
+Esito: FAIL PARZIALE
 
 Problemi trovati:
 
-- il modello dati e la UI espongono uno stato aggregato multi-device tramite active_subscription_count, ma il dispatch server-side WEB_PUSH si ferma al primo invio riuscito in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L750-L758)
-- il click della push privata non riceve ancora un deep link contestuale: il payload inviato in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L719-L721) non include url, quindi il service worker ricade su / in [frontend/public/play-service-worker.js](frontend/public/play-service-worker.js#L13)
+- `backend/app/services/play_service.py` usa `_resolve_player_identity_conflict()` per agganciare un player esistente tramite telefono oppure email, ma `_upsert_player_profile()` aggiorna poi sempre `player.email` quando la nuova email e verificata
+- questo comportamento e coerente con il codice tra model/service/router, ma non e coerente con la logica di business attesa del login via email OTP, dove un profilo gia consolidato non deve poter cambiare email solo perche il chiamante conosce il telefono
+- il prompt implementativo richiedeva un challenge OTP con limite tentativi esplicito; nei file modificati non esiste nessun `attempt_count` o campo equivalente, e la verifica OTP non aggiorna nessun contatore di errori
 
-Gravita:
+Gravita del problema:
 
-- media sul fan-out multi-device
-- bassa sul deep link mancante
+- critica sul rebinding email del player
+- alta sull'assenza di limite tentativi OTP
 
 Impatto reale:
 
-- una parte del comportamento push promesso dal modello corrente resta solo parzialmente realizzata
+- il primo problema mina il boundary identitario del profilo community
+- il secondo lascia il challenge difeso solo dal rate limit HTTP generico, non da una protezione dedicata al codice OTP
 
 ### Conflitti o blocchi introdotti dai file modificati
 
-Esito: PASS CON RISERVE
+Esito: FAIL PARZIALE
 
 Problemi trovati:
 
-- non emergono conflitti di build, import, tipi o runtime immediato nel perimetro toccato
-- esiste pero un conflitto logico tra stato deliverable server-side e messaggistica UI: il backend puo dichiarare push_supported false quando manca una chiave VAPID in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L312-L315), ma la banner principale della pagina continua a basarsi solo su has_active_subscription in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L588-L589)
+- non emergono conflitti di build, import, routing o serializzazione payload
+- non emergono regressioni evidenti sul flusso invite/group/recovery coperte dai test mirati
+- esiste pero un blocco di sicurezza: l'onboarding DIRECT/GROUP puo diventare un takeover del player esistente se il numero di telefono e noto e l'email immessa e nuova
+- esiste una fragilita auth: il challenge OTP non si blocca dopo un numero limitato di codici errati e resta valido fino a scadenza, salvo il rate limit applicativo generale per path/IP
 
-Gravita:
+Gravita del problema:
 
-- media
+- critica sul takeover
+- alta sul brute-force per challenge
 
 Impatto reale:
 
-- in scenari di configurazione incompleta o chiavi ruotate il player puo vedere insieme una push "attiva" e una push "non configurata", con feedback utente contraddittorio
+- il rilascio del flusso auth/community non e ancora sicuro nonostante build e test verdi
 
 ### Criticita del progetto nel suo insieme
 
@@ -81,16 +88,18 @@ Esito: PASS CON RISERVE
 
 Problemi trovati:
 
-- non risultano errori globali dell'editor ne regressioni sui test mirati del perimetro finale
-- mancano pero coperture mirate su due casi di produzione plausibili: invio WEB_PUSH a piu subscription attive dello stesso player e mixed state push_supported false con subscription gia presenti
+- il perimetro modificato e ben isolato e non rompe booking pubblico, route Play o pannello admin
+- il rate limit middleware generale su `/api/public/**` esiste in `backend/app/main.py`, quindi c'e una protezione trasversale di base
+- manca pero una protezione specifica del challenge OTP a livello di dominio, che e il punto corretto per difendere autenticazione e recovery
+- manca inoltre una copertura frontend dedicata per `PlayAccessPage` nei rami DIRECT, RECOVERY e GROUP: oggi la copertura UI passa soprattutto da `PlayPage.test.tsx`, `PublicBookingPage.test.tsx` e `AdminDashboardPage.test.tsx`
 
-Gravita:
+Gravita del problema:
 
-- media
+- media sulla copertura test frontend
 
 Impatto reale:
 
-- queste regressioni potrebbero rientrare in futuro senza essere intercettate dai test correnti
+- i problemi di dominio maggiori sono nel backend auth; il rischio residuo sul frontend e di regressione non intercettata nella nuova pagina dedicata
 
 ### Rispetto della logica di business
 
@@ -98,74 +107,101 @@ Esito: FAIL PARZIALE
 
 Problemi trovati:
 
-- il requisito di push privato "reale" e soddisfatto in modo minimale, ma non e pienamente coerente con il modello multi-device gia esposto dalla UI: oggi il server notifica di fatto un solo device per player anche quando il profilo dichiara piu subscription attive
-- il requisito di feedback coerente su push attive e fallback in-app non e ancora pienamente rispettato nei casi di configurazione VAPID incompleta, perche lo stato deliverable e lo stato storico delle subscription possono divergere senza essere ricomposti in UI
-- il resto della logica di business attesa per fase finale risulta invece rispettato: mark-as-read, unread count, ranking pubblico read-only, nessun leak nei payload pubblici, watchlist privata discovery, validation contact request e session touch discovery
+- la logica di business richiesta dal prompt OTP diceva che, se il player esiste gia nel club, il sistema deve recuperare o riattivare lo stesso `Player` senza creare duplicati inutili; questo e stato implementato, ma in modo troppo permissivo
+- oggi il sistema considera sufficiente il match per telefono per riusare quel `Player`, e poi consente di sostituire l'email verificata con una nuova email fornita dal chiamante
+- il requisito di limite tentativi OTP esplicito non risulta rispettato nel modello dati ne nella verifica applicativa
+- il resto della business logic richiesta risulta invece centrato: sessione solo dopo verify, invito usato solo dopo verify, link gruppo distinto dall'invito singolo, CTA di rientro visibile dalla home booking, test mirati backend e frontend verdi
 
-Gravita:
+Gravita del problema:
 
-- media
+- critica sul recupero/riuso player non sufficientemente vincolato
+- alta sul requisito OTP attempt limit non rispettato
 
 Impatto reale:
 
-- il canale WEB_PUSH privato e utilizzabile, ma non ancora rifinito in modo coerente con tutte le promesse implicite del prodotto
+- il flusso e funzionale ma non ancora abbastanza affidabile sul piano identitario e di sicurezza auth
 
 ## 3. Elenco criticita
 
-### 1. Fan-out WEB_PUSH fermato al primo invio riuscito
+### 1. Takeover del player esistente tramite telefono noto e nuova email
 
 Descrizione tecnica:
 
-- il loop sulle subscription attive in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L750-L758) restituisce SENT al primo dispatch riuscito
-- lo stesso profilo player puo pero avere piu subscription attive e la UI lo espone in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L588-L590)
+- in `backend/app/services/play_service.py`, `_resolve_player_identity_conflict()` restituisce il `Player` trovato per telefono oppure per email
+- in `start_player_access_challenge()` i flussi `DIRECT` e `GROUP` associano subito il challenge a quel player se il telefono esiste gia
+- in `verify_player_access_challenge()` il challenge verificato confluisce in `_upsert_player_profile()`, che aggiorna `player.email` e `player.email_verified_at` con la nuova email verificata senza richiedere che essa coincida con l'eventuale email gia consolidata del player
 
 Perche e un problema reale:
 
-- un player con telefono e desktop registrati non riceve la stessa notifica su tutti i device attivi, pur avendo uno stato di profilo che fa intendere il contrario
+- chi conosce il numero di telefono di un player esistente puo avviare il flusso con una propria email, verificare l'OTP ricevuto sulla propria casella e prendere possesso dell'identita community di quel player
 
 Dove si manifesta:
 
-- dispatch notifiche private /play
-- stato push aggregato del profilo player
+- `backend/app/services/play_service.py`
+- funzioni coinvolte: `_resolve_player_identity_conflict()`, `start_player_access_challenge()`, `_upsert_player_profile()`, `verify_player_access_challenge()`
+
+Gravita: critica
+
+Blocca il rilascio: si
+
+### 2. Nessun limite tentativi OTP per challenge
+
+Descrizione tecnica:
+
+- il modello `PlayerAccessChallenge` contiene `resend_count`, ma non contiene `attempt_count` o un campo equivalente
+- `verify_player_access_challenge()` ritorna `409 Codice OTP non valido` in caso di codice errato, ma non incrementa nessun contatore e non invalida il challenge dopo troppi errori
+- esiste solo il rate limit middleware generale per i path pubblici in `backend/app/main.py`, non un lockout specifico sul challenge
+
+Perche e un problema reale:
+
+- l'OTP e un meccanismo auth; lasciarlo senza un attempt cap dedicato indebolisce il flusso e non rispetta il disegno richiesto dal prompt stesso
+
+Dove si manifesta:
+
+- `backend/app/models/__init__.py`
+- `backend/alembic/versions/20260428_0014_play_email_otp_access.py`
+- `backend/app/services/play_service.py`
+
+Gravita: alta
+
+Blocca il rilascio: si
+
+### 3. Copertura frontend incompleta della nuova pagina `PlayAccessPage`
+
+Descrizione tecnica:
+
+- la nuova pagina `frontend/src/pages/PlayAccessPage.tsx` concentra una parte importante della UX OTP/community
+- non esiste oggi un file test dedicato per quella pagina
+- la copertura frontend esistente valida bene i punti di integrazione principali, ma non esercita in modo diretto i rami DIRECT, RECOVERY e GROUP della nuova pagina dedicata
+
+Perche e un problema reale:
+
+- la UI principale del nuovo flusso ha molta logica locale di stato, redirect, toggle modalita, start/verify/resend OTP e riconciliazione con sessione esistente
+- senza test diretti, una regressione della pagina puo passare piu facilmente rispetto ai punti coperti solo indirettamente
+
+Dove si manifesta:
+
+- `frontend/src/pages/PlayAccessPage.tsx`
+- assenza di test dedicati in `frontend/src/pages/*`
 
 Gravita: media
 
-Blocca il rilascio: no
+Blocca il rilascio: no, ma va chiuso prima della beta pubblica del nuovo flusso
 
-### 2. Stato push attiva incoerente quando il server non puo consegnare davvero
-
-Descrizione tecnica:
-
-- il backend marca push_supported solo se esistono sia chiave pubblica sia chiave privata VAPID in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L312-L315)
-- la UI principale considera invece sufficiente has_active_subscription per mostrare il messaggio di push attiva in [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L588-L589)
-
-Perche e un problema reale:
-
-- se il runtime perde la chiave privata o parte con configurazione incompleta, il player puo vedere contemporaneamente una push dichiarata attiva e un backend che non puo inviare
-
-Dove si manifesta:
-
-- [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L309-L315)
-- [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx#L586-L636)
-
-Gravita: media
-
-Blocca il rilascio: no, se l env produzione e completo; si traduce pero in feedback fuorviante e va corretto prima di considerare chiuso il canale push
-
-### 3. Click della push privo di deep link contestuale /play
+### 4. Warning di test ancora presente nella dashboard admin
 
 Descrizione tecnica:
 
-- il service worker apre event.notification.data.url oppure ricade su / in [frontend/public/play-service-worker.js](frontend/public/play-service-worker.js#L13)
-- il payload push inviato dal backend oggi non include ancora un url dedicato in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py#L719-L721)
+- la suite `AdminDashboardPage.test.tsx` passa, ma continua a produrre warning React `act(...)` collegati a `AdminTimeSlotPicker`
 
 Perche e un problema reale:
 
-- la push consegnata porta fuori contesto: il player torna alla homepage invece che alla community /play o al match rilevante
+- non rompe il prodotto, ma rende meno pulita la suite e puo nascondere warning utili in futuro
 
 Dove si manifesta:
 
-- click sulle notifiche WEB_PUSH private /play
+- `frontend/src/pages/AdminDashboardPage.test.tsx`
+- `frontend/src/components/AdminTimeSlotPicker.tsx`
 
 Gravita: bassa
 
@@ -175,49 +211,104 @@ Blocca il rilascio: no
 
 ### Da correggere prima del rilascio
 
-- allineare lo stato UI della push con la reale deliverability server-side, cosi da non mostrare push attive quando push_supported e false
+- impedire il rebinding di un `Player` esistente a una nuova email solo sulla base del telefono
+- introdurre un vero limite tentativi OTP per challenge con lockout o invalidazione dopo troppi errori
+- aggiungere test backend mirati che dimostrino che il takeover via telefono non e piu possibile e che il challenge si blocca dopo troppi OTP errati
 
 ### Da correggere prima della beta pubblica
 
-- completare il fan-out WEB_PUSH su tutte le subscription attive dello stesso player
-- aggiungere test backend e frontend mirati sui casi mixed state push_supported false con subscription storiche e multi-device fan-out
+- aggiungere test frontend dedicati a `PlayAccessPage` per i rami DIRECT, RECOVERY e GROUP
 
 ### Miglioramenti differibili
 
-- aggiungere deep link contestuale nel payload push per far aprire /c/:clubSlug/play o la partita rilevante invece della homepage
+- ripulire i warning `act(...)` della suite admin se il fix resta locale e non invasivo
+- rimuovere o consolidare eventuali helper legacy non piu usati, come il vecchio client `acceptCommunityInvite`, solo se la pulizia resta piccola e priva di refactor laterali
 
 ## 5. Verdetto finale
 
-Il codice e quasi pronto ma richiede fix mirati sul canale WEB_PUSH privato prima di poter considerare davvero chiusa in modo pieno la fase finale /play.
+Il codice non e ancora sicuro per il rilascio del nuovo accesso community.
 
-Tutto il resto del perimetro verificato oggi regge: test e build passano, le criticita discovery del report precedente risultano chiuse e non emergono conflitti strutturali con la baseline multi-tenant del progetto. Le riserve residue non sono su ranking, unread state o discovery pubblico, ma solo sulla coerenza finale della push privata tra backend, UI e comportamento multi-device.
+La parte positiva e chiara: l'integrazione e concreta, coerente e validata con test/build mirati; non siamo davanti a una feature rotta o incompleta. La parte bloccante e altrettanto chiara: il legame tra player esistente, telefono ed email verificata e troppo permissivo, e il challenge OTP non ha ancora una protezione di tentativi adeguata. Finche questi due punti restano aperti, il flusso auth/community non va considerato chiuso.
 
 ## 6. Prompt operativo per i fix
 
-Agisci solo sul perimetro del canale WEB_PUSH privato /play. Non toccare booking pubblico, ranking pubblico, discovery pubblico o refactor architetturali non strettamente necessari.
+Agisci come un Senior Software Architect, Senior Backend Engineer FastAPI/SQLAlchemy e QA tecnico rigoroso.
 
-Obiettivi in ordine di priorita:
+Devi correggere solo le criticita reali emerse dalla verifica del nuovo flusso OTP/community. Non fare refactor ampi, non toccare booking pubblico, ranking pubblico, notifiche Play non collegate all'auth, billing o tenant resolution.
 
-1. Correggi la rappresentazione dello stato push in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py) e [frontend/src/pages/PlayPage.tsx](frontend/src/pages/PlayPage.tsx) in modo che la UI non dichiari mai "web push attiva" quando push_supported e false o quando il server non puo consegnare davvero. Mantieni la patch minima e conserva il fallback in-app attuale.
+### Contesto gia integrato da preservare
 
-2. Estendi il dispatch in [backend/app/services/play_notification_service.py](backend/app/services/play_notification_service.py) per tentare l invio su tutte le PlayerPushSubscription attive dello stesso player, senza perdere la revoca delle subscription invalide e senza introdurre refactor ampi. Mantieni NotificationLog coerente col livello player-based gia esistente.
+Le seguenti integrazioni sono gia presenti e non vanno rifatte:
 
-3. Aggiungi test mirati minimi e non ridondanti in [backend/tests/test_play_phase4.py](backend/tests/test_play_phase4.py) e, se serve, in [frontend/src/pages/PlayPage.test.tsx](frontend/src/pages/PlayPage.test.tsx) per coprire:
-- due subscription attive dello stesso player con fan-out reale verso entrambe
-- mixed state con subscription storiche presenti ma push_supported false
+- `Player` ha ora `email` ed `email_verified_at`
+- esistono `PlayAccessPurpose`, `CommunityAccessLink` e `PlayerAccessChallenge`
+- esistono le API pubbliche `/api/public/play-access/start`, `/verify`, `/{challenge_id}/resend`
+- esistono le API admin per i link gruppo community
+- esiste la pagina `frontend/src/pages/PlayAccessPage.tsx`
+- `InviteAcceptPage` e gia stata convertita a wrapper del nuovo flusso
+- `PublicBookingPage` espone gia il bottone `Entra o rientra nella community`
+- i test mirati backend/frontend e la build sono gia verdi
 
-4. Solo se resta piccolo e naturale, aggiungi un deep link contestuale al payload push e aggiorna [frontend/public/play-service-worker.js](frontend/public/play-service-worker.js) in modo che il click riporti alla community /play corretta o alla partita rilevante.
+### Obiettivi obbligatori, in ordine di priorita
 
-Vincoli operativi:
+1. Correggi il takeover del player esistente.
 
-- patch minime
-- nessun refactor inutile
-- nessuna estensione discovery pubblica
-- nessun cambiamento al modello di ranking pubblico
-- nessuna modifica ai flussi di booking non collegati al push /play
+	In `backend/app/services/play_service.py` modifica la risoluzione identitaria del flusso OTP in modo che un player gia esistente e gia consolidato con una email non possa essere riassociato a una nuova email solo perche il chiamante conosce il telefono.
 
-Validazioni richieste a fine fix:
+	Regole minime da rispettare:
 
-- backend: tests/test_play_phase4.py
-- frontend: src/pages/PlayPage.test.tsx
-- frontend build: npm run build
+	- se esiste un player per telefono e ha gia una email verificata diversa da quella fornita, il flusso DIRECT/GROUP deve fallire con un conflitto esplicito e sobrio
+	- se esiste un player per telefono e non ha ancora email consolidata, il flusso puo completare il consolidamento sulla nuova email verificata
+	- se esiste un player per email, il recovery deve continuare a riattivare quello stesso player
+	- il flusso INVITE non deve mai poter cambiare silenziosamente l'email di un player gia consolidato a una nuova email diversa
+	- evita di creare duplicati non necessari, ma non sacrificare la sicurezza del binding identitario
+
+2. Introduci un vero limite tentativi OTP per challenge.
+
+	In modello, migrazione e service layer aggiungi un contatore tentativi o equivalente per `PlayerAccessChallenge` e applica un lockout chiaro dopo un numero limitato di codici OTP errati.
+
+	Regole minime da rispettare:
+
+	- ogni OTP errato incrementa il contatore
+	- oltre il limite il challenge va invalidato o bloccato
+	- il comportamento deve restare coerente con il rate limit HTTP generale gia esistente, senza sostituirlo
+	- i messaggi di errore non devono rivelare dettagli inutili
+
+3. Aggiungi i test backend mancanti e solo quelli necessari.
+
+	Aggiorna o estendi i test in `backend/tests/test_play_access_otp.py` e, se serve, in `backend/tests/test_play_phase1.py` per coprire almeno:
+
+	- tentativo DIRECT o GROUP con telefono di un player esistente e email diversa gia non associata -> deve fallire e non deve cambiare il player esistente
+	- consolidamento consentito di un player legacy senza email
+	- challenge OTP bloccato dopo troppi tentativi errati
+	- recovery ancora funzionante sullo stesso player gia associato all'email corretta
+
+4. Aggiungi copertura frontend dedicata minima su `PlayAccessPage`.
+
+	Crea o estendi i test frontend per validare in modo diretto almeno:
+
+	- modalita RECOVERY con richiesta OTP
+	- modalita DIRECT con validazione minima dei campi e start OTP
+	- modalita GROUP con raccolta dati individuali e start OTP
+
+	Mantieni patch piccole: non fare refactor della pagina se non strettamente necessario al test.
+
+5. Solo se resta locale e naturale, riduci i warning `act(...)` della suite admin, ma questa parte non deve ritardare la chiusura dei fix di sicurezza OTP.
+
+### Vincoli operativi
+
+- patch minime e focalizzate
+- nessun refactor architetturale
+- nessuna modifica al booking pubblico fuori dalle superfici gia toccate
+- nessun cambio di contratto API non necessario
+- nessuna dipendenza nuova se non indispensabile
+- non toccare la business logic Play non collegata all'accesso OTP/community
+
+### Validazioni richieste a fine fix
+
+- backend: `../.venv/Scripts/python.exe -m pytest tests/test_play_access_otp.py tests/test_play_phase1.py -k "community_invite or admin_can_create_community_invite" -q`
+- backend migrazione: `../.venv/Scripts/python.exe -m pytest tests/test_play_email_otp_migration.py -q`
+- frontend test: `npm run test:run -- src/pages/PlayPage.test.tsx src/pages/PublicBookingPage.test.tsx src/pages/AdminDashboardPage.test.tsx` piu l'eventuale nuova suite dedicata a `PlayAccessPage`
+- frontend build: `npm run build`
+
+Chiudi il lavoro solo se i fix eliminano davvero il takeover del profilo, introducono un attempt limit OTP reale e mantengono verdi le validazioni sopra.

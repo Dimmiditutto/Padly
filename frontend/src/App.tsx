@@ -13,11 +13,12 @@ import { InviteAcceptPage } from './pages/InviteAcceptPage';
 import { PublicCancellationPage } from './pages/PublicCancellationPage';
 import { PublicClubPage } from './pages/PublicClubPage';
 import { PaymentStatusPage } from './pages/PaymentStatusPage';
+import { PlayAccessPage } from './pages/PlayAccessPage';
 import { PlayPage } from './pages/PlayPage';
 import { PublicBookingPage } from './pages/PublicBookingPage';
 import { SharedMatchPage } from './pages/SharedMatchPage';
 import { resolveTenantSlugFromLocation } from './utils/tenantContext';
-import { buildClubPlayPath, buildInviteAcceptPath, buildPlayMatchPath, DEFAULT_PLAY_ALIAS_SLUG } from './utils/play';
+import { buildClubPlayPath, buildInviteAcceptPath, buildPlayAccessPath, buildPlayMatchPath, DEFAULT_PLAY_ALIAS_SLUG } from './utils/play';
 
 function PlayAliasRedirect({ suffix = '' }: { suffix?: string }) {
   const location = useLocation();
@@ -68,6 +69,24 @@ function PlayInviteAliasRedirect() {
 }
 
 
+function PlayAccessAliasRedirect() {
+  const location = useLocation();
+  const { groupToken } = useParams();
+  const tenantSlug = resolveTenantSlugFromLocation(location);
+
+  if (!tenantSlug) {
+    return (
+      <PlayAliasTenantRequiredPage
+        title='Link accesso incompleto'
+        message='Questo accesso community richiede il club corretto. Apri la versione completa del link del circolo oppure aggiungi ?tenant=<club-slug>.'
+      />
+    );
+  }
+
+  return <Navigate to={`${buildPlayAccessPath(tenantSlug, groupToken)}${location.search}`} replace />;
+}
+
+
 function PlaySharedAliasRedirect() {
   const location = useLocation();
   const { shareToken } = useParams();
@@ -92,10 +111,14 @@ export default function App() {
       <Route path='/clubs' element={<ClubDirectoryPage />} />
       <Route path='/clubs/nearby' element={<ClubDirectoryPage autoLocateOnMount />} />
       <Route path='/play' element={<PlayAliasRedirect />} />
+      <Route path='/play/access' element={<PlayAccessAliasRedirect />} />
+      <Route path='/play/access/:groupToken' element={<PlayAccessAliasRedirect />} />
       <Route path='/play/invite/:token' element={<PlayInviteAliasRedirect />} />
       <Route path='/play/matches/:shareToken' element={<PlaySharedAliasRedirect />} />
       <Route path='/c/:clubSlug' element={<PublicClubPage />} />
       <Route path='/c/:clubSlug/play' element={<PlayPage />} />
+      <Route path='/c/:clubSlug/play/access' element={<PlayAccessPage />} />
+      <Route path='/c/:clubSlug/play/access/:groupToken' element={<PlayAccessPage />} />
       <Route path='/c/:clubSlug/play/invite/:token' element={<InviteAcceptPage />} />
       <Route path='/c/:clubSlug/play/matches/:shareToken' element={<SharedMatchPage />} />
       <Route path='/booking/cancel' element={<PublicCancellationPage />} />

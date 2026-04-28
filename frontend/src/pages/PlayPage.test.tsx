@@ -18,11 +18,14 @@ vi.mock('../services/playApi', () => ({
   joinPlayMatch: vi.fn(),
   leavePlayMatch: vi.fn(),
   markPlayNotificationRead: vi.fn(),
+  resendPlayAccessOtp: vi.fn(),
   registerPlayPushSubscription: vi.fn(),
+  startPlayAccessOtp: vi.fn(),
   revokePlayPushSubscription: vi.fn(),
   startPlayBookingCheckout: vi.fn(),
   updatePlayMatch: vi.fn(),
   updatePlayNotificationPreferences: vi.fn(),
+  verifyPlayAccessOtp: vi.fn(),
 }));
 
 vi.mock('../utils/playPush', () => ({
@@ -51,11 +54,14 @@ import {
   joinPlayMatch,
   leavePlayMatch,
   markPlayNotificationRead,
+  resendPlayAccessOtp,
   registerPlayPushSubscription,
+  startPlayAccessOtp,
   revokePlayPushSubscription,
   startPlayBookingCheckout,
   updatePlayMatch,
   updatePlayNotificationPreferences,
+  verifyPlayAccessOtp,
 } from '../services/playApi';
 import { getBrowserPlayPushEndpoint, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 
@@ -165,6 +171,10 @@ function renderApp(path: string) {
   );
 }
 
+async function expandSection(user: ReturnType<typeof userEvent.setup>, title: string) {
+  await user.click(screen.getByRole('button', { name: `Espandi ${title}` }));
+}
+
 describe('Play phase 2 pages', () => {
   beforeEach(() => {
     const assignMock = vi.fn();
@@ -209,6 +219,24 @@ describe('Play phase 2 pages', () => {
     vi.mocked(acceptCommunityInvite).mockResolvedValue({
       message: 'Ingresso community completato',
       player: { ...basePlayer },
+    });
+    vi.mocked(startPlayAccessOtp).mockResolvedValue({
+      message: 'Ti abbiamo inviato un codice via email. Inseriscilo per completare l’accesso.',
+      challenge_id: 'challenge-1',
+      email_hint: 'in*****@e***.com',
+      expires_at: '2026-05-10T18:10:00Z',
+      resend_available_at: '2026-05-10T18:00:00Z',
+    });
+    vi.mocked(verifyPlayAccessOtp).mockResolvedValue({
+      message: 'Accesso community completato.',
+      player: { ...basePlayer },
+    });
+    vi.mocked(resendPlayAccessOtp).mockResolvedValue({
+      message: 'Ti abbiamo inviato un nuovo codice via email.',
+      challenge_id: 'challenge-1',
+      email_hint: 'in*****@e***.com',
+      expires_at: '2026-05-10T18:12:00Z',
+      resend_available_at: '2026-05-10T18:02:00Z',
     });
     vi.mocked(createPlayMatch).mockResolvedValue({
       created: true,
@@ -283,9 +311,12 @@ describe('Play phase 2 pages', () => {
   });
 
   it('renders the canonical /c/:clubSlug/play route, preserves tenant slug and keeps the visual order of open matches', async () => {
+    const user = userEvent.setup();
+
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
 
     expect(getPlaySession).toHaveBeenCalledWith('roma-club');
     expect(getPlayMatches).toHaveBeenCalledWith('roma-club');
@@ -298,9 +329,12 @@ describe('Play phase 2 pages', () => {
   });
 
   it('shows the same slot-grid language as the public booking page and keeps occupied slots visible', async () => {
+    const user = userEvent.setup();
+
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
 
     expect(await screen.findByText('Orari disponibili per campo')).toBeInTheDocument();
     expect(await screen.findByText('1 slot libero • 1 slot occupato')).toBeInTheDocument();
@@ -309,11 +343,16 @@ describe('Play phase 2 pages', () => {
   });
 
   it('retries the initial availability load before showing an error in the create form', async () => {
+    const user = userEvent.setup();
+
     vi.mocked(getAvailability)
       .mockRejectedValueOnce(new Error('temporary mobile timeout'))
       .mockResolvedValueOnce({ ...baseAvailability });
 
     renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
 
     expect(await screen.findByText('Orari disponibili per campo')).toBeInTheDocument();
     expect(screen.queryByText('Non riesco a leggere gli slot disponibili per preparare una nuova partita.')).not.toBeInTheDocument();
@@ -326,6 +365,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
 
     expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY MATCHINN ROMA CLUB')).toBeInTheDocument();
     expect(screen.getByText('Prossimi 7 giorni')).toBeInTheDocument();
@@ -395,6 +435,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Crea nuova partita' })).toBeEnabled());
     const noteField = screen.getByLabelText('Nota opzionale');
     await user.type(noteField, 'cerco ultimo giocatore');
@@ -437,6 +478,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Crea nuova partita' })).toBeEnabled());
     fireEvent.submit(screen.getByLabelText('Nota opzionale').closest('form')!);
 
@@ -449,10 +491,11 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play/invite/invite-123');
 
-    await screen.findByRole('heading', { name: 'Invito community' });
-    await user.click(screen.getByRole('button', { name: 'Entra nella community' }));
+    await screen.findByRole('heading', { name: 'Completa il tuo invito community' });
+    await user.type(screen.getByLabelText('Email'), 'invite@example.com');
+    await user.click(screen.getByRole('button', { name: 'Invia codice OTP' }));
 
-    expect(acceptCommunityInvite).not.toHaveBeenCalled();
+    expect(startPlayAccessOtp).not.toHaveBeenCalled();
     expect(await screen.findByText('Per entrare nella community devi accettare la privacy.')).toBeInTheDocument();
   });
 
@@ -461,13 +504,29 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play/invite/invite-123');
 
-    await screen.findByRole('heading', { name: 'Invito community' });
-    await user.click(screen.getByText('Accetto la privacy per entrare in COMMUNITY Matchinn e conservare il mio profilo.'));
-    await user.click(screen.getByRole('button', { name: 'Entra nella community' }));
+    await screen.findByRole('heading', { name: 'Completa il tuo invito community' });
+    await user.type(screen.getByLabelText('Email'), 'invite@example.com');
+    await user.click(screen.getByText('Accetto la privacy per attivare o recuperare il mio profilo community su Matchinn.'));
+    await user.click(screen.getByRole('button', { name: 'Invia codice OTP' }));
 
-    await waitFor(() => expect(acceptCommunityInvite).toHaveBeenCalledWith(
-      'invite-123',
+    await waitFor(() => expect(startPlayAccessOtp).toHaveBeenCalledWith(
       expect.objectContaining({ privacy_accepted: true }),
+      'roma-club',
+    ));
+    expect(startPlayAccessOtp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: 'INVITE',
+        invite_token: 'invite-123',
+        email: 'invite@example.com',
+      }),
+      'roma-club',
+    );
+
+    await user.type(await screen.findByLabelText('Codice OTP'), '123456');
+    await user.click(screen.getByRole('button', { name: 'Verifica e accedi' }));
+
+    await waitFor(() => expect(verifyPlayAccessOtp).toHaveBeenCalledWith(
+      { challenge_id: 'challenge-1', otp_code: '123456' },
       'roma-club',
     ));
     await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/c/roma-club/play'));
@@ -541,6 +600,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Crea nuova partita');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Crea nuova partita' })).toBeEnabled());
     fireEvent.submit(screen.getByLabelText('Nota opzionale').closest('form')!);
 
@@ -815,6 +875,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    await expandSection(user, 'Preferenze notifiche');
     const saveButton = screen.getByRole('button', { name: 'Salva preferenze notifiche' });
     const preferencesCard = saveButton.closest('.surface-muted');
     expect(preferencesCard).not.toBeNull();
@@ -843,6 +904,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    await expandSection(user, 'Preferenze notifiche');
     const activateButton = screen.getByRole('button', { name: 'Attiva web push' });
     const pushCard = activateButton.closest('aside');
     expect(pushCard).not.toBeNull();
@@ -918,6 +980,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    await expandSection(user, 'Preferenze notifiche');
     expect(screen.getByText('Non lette: 1')).toBeInTheDocument();
     expect(screen.getByText('Non letta')).toBeInTheDocument();
 
@@ -934,6 +997,8 @@ describe('Play phase 2 pages', () => {
   });
 
   it('shows only the enable action when the profile has push on other devices but not on this browser', async () => {
+    const user = userEvent.setup();
+
     vi.mocked(getPlaySession).mockResolvedValue({
       player: { ...basePlayer },
       notification_settings: {
@@ -955,6 +1020,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+  await expandSection(user, 'Preferenze notifiche');
     expect(screen.getByText('Web push attiva su 2 dispositivi.')).toBeInTheDocument();
     expect(screen.getByText('Attiva su 2 dispositivi del tuo profilo, ma non su questo browser.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Attiva web push' })).toBeInTheDocument();
@@ -964,6 +1030,8 @@ describe('Play phase 2 pages', () => {
   });
 
   it('shows a warning when subscriptions exist but the server cannot deliver web push', async () => {
+    const user = userEvent.setup();
+
     vi.mocked(getPlaySession).mockResolvedValue({
       player: { ...basePlayer },
       notification_settings: {
@@ -986,6 +1054,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    await expandSection(user, 'Preferenze notifiche');
     expect(screen.getByText('Web push non disponibile da questo server.')).toBeInTheDocument();
     expect(screen.queryByText('Web push attiva su 2 dispositivi.')).not.toBeInTheDocument();
   });

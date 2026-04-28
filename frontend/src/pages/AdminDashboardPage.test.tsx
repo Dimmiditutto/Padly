@@ -7,15 +7,18 @@ vi.mock('../services/adminApi', () => ({
   createAdminCourt: vi.fn(),
   createAdminBooking: vi.fn(),
   createBlackout: vi.fn(),
+  createAdminCommunityAccessLink: vi.fn(),
   createAdminCommunityInvite: vi.fn(),
   createRecurring: vi.fn(),
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
+  listAdminCommunityAccessLinks: vi.fn(),
   listAdminCourts: vi.fn(),
   listAdminCommunityInvites: vi.fn(),
   listBlackouts: vi.fn(),
   logoutAdmin: vi.fn(),
   previewRecurring: vi.fn(),
+  revokeAdminCommunityAccessLink: vi.fn(),
   revokeAdminCommunityInvite: vi.fn(),
   updateAdminSettings: vi.fn(),
 }));
@@ -28,15 +31,18 @@ import {
   createAdminCourt,
   createAdminBooking,
   createBlackout,
+  createAdminCommunityAccessLink,
   createAdminCommunityInvite,
   createRecurring,
   getAdminSession,
   getAdminSettings,
+  listAdminCommunityAccessLinks,
   listAdminCommunityInvites,
   listAdminCourts,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
+  revokeAdminCommunityAccessLink,
   revokeAdminCommunityInvite,
   updateAdminSettings,
 } from '../services/adminApi';
@@ -109,6 +115,16 @@ describe('AdminDashboardPage', () => {
     vi.mocked(createAdminBooking).mockResolvedValue({} as never);
     vi.mocked(createAdminCourt).mockResolvedValue({ id: 'court-2', name: 'Campo 2', badge_label: null, sort_order: 2, is_active: true } as never);
     vi.mocked(createBlackout).mockResolvedValue({ id: 'blackout-1', message: 'ok' });
+    vi.mocked(createAdminCommunityAccessLink).mockResolvedValue({
+      message: 'Link accesso community creato.',
+      link_id: 'group-link-1',
+      access_token: 'group-token-123',
+      access_path: '/c/default-club/play/access/group-token-123',
+      label: 'Gruppo WhatsApp Open Match',
+      max_uses: 200,
+      used_count: 0,
+      expires_at: '2026-05-09T23:59:00',
+    });
     vi.mocked(createAdminCommunityInvite).mockResolvedValue({
       message: 'Invito community creato.',
       invite_id: 'invite-1',
@@ -120,10 +136,25 @@ describe('AdminDashboardPage', () => {
       expires_at: '2026-05-04T10:30:00Z',
     });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
+    vi.mocked(listAdminCommunityAccessLinks).mockResolvedValue({ items: [] });
     vi.mocked(listAdminCourts).mockResolvedValue({ items: [] });
     vi.mocked(listAdminCommunityInvites).mockResolvedValue({ items: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(previewRecurring).mockResolvedValue({ occurrences: [] });
+    vi.mocked(revokeAdminCommunityAccessLink).mockResolvedValue({
+      message: 'Link accesso community revocato.',
+      item: {
+        id: 'group-link-active',
+        label: 'Gruppo WhatsApp Open Match',
+        max_uses: 200,
+        used_count: 12,
+        created_at: '2026-04-27T09:00:00Z',
+        expires_at: '2026-05-04T09:00:00Z',
+        revoked_at: '2026-04-27T10:00:00Z',
+        status: 'REVOKED',
+        can_revoke: false,
+      },
+    });
     vi.mocked(revokeAdminCommunityInvite).mockResolvedValue({
       message: 'Invito community revocato.',
       item: {
@@ -292,7 +323,13 @@ describe('AdminDashboardPage', () => {
 
     await screen.findByText('Dashboard admin');
     fireEvent.click(screen.getByRole('button', { name: 'Espandi Serie ricorrente' }));
+    const recurringSection = screen.getByText('Serie ricorrente').closest('section');
+    expect(recurringSection).not.toBeNull();
+
+    await waitFor(() => expect(within(recurringSection as HTMLElement).getByRole('button', { name: '18:00' })).toBeInTheDocument());
+
     fireEvent.change(screen.getByLabelText('Data di partenza'), { target: { value: '2026-10-25' } });
+    await waitFor(() => expect(within(recurringSection as HTMLElement).getByRole('button', { name: '02:00 CET' })).toBeInTheDocument());
 
     expect(screen.getAllByText(/Domenica/).length).toBeGreaterThan(0);
     expect(screen.queryByText('Prima ricorrenza')).not.toBeInTheDocument();
@@ -565,6 +602,85 @@ describe('AdminDashboardPage', () => {
     expect(revokedCard).not.toBeNull();
     expect(within(revokedCard as HTMLElement).getByText('Revocato')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revoca link Marco Guest' })).not.toBeInTheDocument();
+  });
+
+  it('creates and exposes a shareable group community link from the admin section', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    fireEvent.change(screen.getByLabelText('Etichetta link gruppo'), { target: { value: 'Gruppo WhatsApp Open Match' } });
+    fireEvent.change(screen.getByLabelText('Utilizzi massimi'), { target: { value: '200' } });
+    fireEvent.change(screen.getByLabelText('Scadenza link gruppo'), { target: { value: '2026-05-09' } });
+
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Genera link gruppo community' }));
+
+    await waitFor(() => expect(createAdminCommunityAccessLink).toHaveBeenCalledWith({
+      label: 'Gruppo WhatsApp Open Match',
+      max_uses: 200,
+      expires_at: '2026-05-09T23:59:00',
+    }));
+    const expectedLinkUrl = `${window.location.origin}/c/default-club/play/access/group-token-123`;
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedLinkUrl));
+    expect(within(settingsSection as HTMLElement).getByDisplayValue(expectedLinkUrl)).toBeInTheDocument();
+    expect(within(settingsSection as HTMLElement).getByText('Link gruppo community copiato negli appunti.')).toBeInTheDocument();
+  });
+
+  it('lists issued group community links and lets admin revoke an active one', async () => {
+    vi.mocked(listAdminCommunityAccessLinks).mockResolvedValue({
+      items: [
+        {
+          id: 'group-link-active',
+          label: 'Gruppo WhatsApp Open Match',
+          max_uses: 200,
+          used_count: 12,
+          created_at: '2026-04-27T09:00:00Z',
+          expires_at: '2026-05-04T09:00:00Z',
+          revoked_at: null,
+          status: 'ACTIVE',
+          can_revoke: true,
+        },
+        {
+          id: 'group-link-expired',
+          label: 'Newsletter Open Match',
+          max_uses: null,
+          used_count: 31,
+          created_at: '2026-04-20T09:00:00Z',
+          expires_at: '2026-04-21T09:00:00Z',
+          revoked_at: null,
+          status: 'EXPIRED',
+          can_revoke: false,
+        },
+      ],
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    expect(await screen.findByText('Gruppo WhatsApp Open Match')).toBeInTheDocument();
+    const activeCard = screen.getByText('Gruppo WhatsApp Open Match').closest('div.rounded-2xl');
+    expect(activeCard).not.toBeNull();
+    expect(within(activeCard as HTMLElement).getByText('Attivo')).toBeInTheDocument();
+    expect(screen.getByText('Newsletter Open Match')).toBeInTheDocument();
+    expect(screen.getByText(/Utilizzi: 12 \/ 200/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revoca link gruppo Gruppo WhatsApp Open Match' }));
+
+    await waitFor(() => expect(revokeAdminCommunityAccessLink).toHaveBeenCalledWith('group-link-active'));
+    expect(await screen.findByText('Link accesso community revocato.')).toBeInTheDocument();
+    const revokedCard = screen.getByText('Gruppo WhatsApp Open Match').closest('div.rounded-2xl');
+    expect(revokedCard).not.toBeNull();
+    expect(within(revokedCard as HTMLElement).getByText('Revocato')).toBeInTheDocument();
   });
 
   it('filters and searches community invites by status, name and phone', async () => {

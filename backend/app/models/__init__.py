@@ -103,6 +103,13 @@ class NotificationDeliveryStatus(str, enum.Enum):
     SKIPPED = 'SKIPPED'
 
 
+class PlayAccessPurpose(str, enum.Enum):
+    INVITE = 'INVITE'
+    GROUP = 'GROUP'
+    DIRECT = 'DIRECT'
+    RECOVERY = 'RECOVERY'
+
+
 class Club(Base):
     __tablename__ = 'clubs'
 
@@ -140,7 +147,9 @@ class Club(Base):
     subscription: Mapped['ClubSubscription | None'] = relationship(back_populates='club', uselist=False)
     players: Mapped[list['Player']] = relationship(back_populates='club', cascade='all, delete-orphan')
     community_invites: Mapped[list['CommunityInviteToken']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    community_access_links: Mapped[list['CommunityAccessLink']] = relationship(back_populates='club', cascade='all, delete-orphan')
     player_access_tokens: Mapped[list['PlayerAccessToken']] = relationship(back_populates='club', cascade='all, delete-orphan')
+    player_access_challenges: Mapped[list['PlayerAccessChallenge']] = relationship(back_populates='club', cascade='all, delete-orphan')
     matches: Mapped[list['Match']] = relationship(back_populates='club', cascade='all, delete-orphan')
     play_activity_events: Mapped[list['PlayerActivityEvent']] = relationship(back_populates='club', cascade='all, delete-orphan')
     play_profiles: Mapped[list['PlayerPlayProfile']] = relationship(back_populates='club', cascade='all, delete-orphan')
@@ -203,12 +212,15 @@ class Player(Base):
     __table_args__ = (
         UniqueConstraint('club_id', 'profile_name', name='uq_players_club_profile_name'),
         UniqueConstraint('club_id', 'phone', name='uq_players_club_phone'),
+        UniqueConstraint('club_id', 'email', name='uq_players_club_email'),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
     profile_name: Mapped[str] = mapped_column(String(120), index=True)
     phone: Mapped[str] = mapped_column(String(50), index=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     declared_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
     effective_level: Mapped[PlayLevel | None] = mapped_column(Enum(PlayLevel), nullable=True)
     privacy_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -226,6 +238,7 @@ class Player(Base):
     push_subscriptions: Mapped[list['PlayerPushSubscription']] = relationship(back_populates='player', cascade='all, delete-orphan')
     notification_preference: Mapped['PlayerNotificationPreference | None'] = relationship(back_populates='player', cascade='all, delete-orphan', uselist=False)
     notifications: Mapped[list['NotificationLog']] = relationship(back_populates='player', cascade='all, delete-orphan')
+    access_challenges: Mapped[list['PlayerAccessChallenge']] = relationship(back_populates='player', cascade='all, delete-orphan')
 
 
 class CommunityInviteToken(Base):
@@ -246,6 +259,52 @@ class CommunityInviteToken(Base):
 
     club: Mapped['Club'] = relationship(back_populates='community_invites')
     accepted_player: Mapped['Player | None'] = relationship(back_populates='accepted_invites')
+    access_challenges: Mapped[list['PlayerAccessChallenge']] = relationship(back_populates='invite', cascade='all, delete-orphan')
+
+
+class CommunityAccessLink(Base):
+    __tablename__ = 'community_access_links'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='community_access_links')
+    access_challenges: Mapped[list['PlayerAccessChallenge']] = relationship(back_populates='group_link', cascade='all, delete-orphan')
+
+
+class PlayerAccessChallenge(Base):
+    __tablename__ = 'player_access_challenges'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    club_id: Mapped[str] = mapped_column(ForeignKey('clubs.id'), index=True, default=DEFAULT_CLUB_ID)
+    player_id: Mapped[str | None] = mapped_column(ForeignKey('players.id'), nullable=True, index=True)
+    invite_id: Mapped[str | None] = mapped_column(ForeignKey('community_invite_tokens.id'), nullable=True, index=True)
+    group_link_id: Mapped[str | None] = mapped_column(ForeignKey('community_access_links.id'), nullable=True, index=True)
+    purpose: Mapped[PlayAccessPurpose] = mapped_column(Enum(PlayAccessPurpose), default=PlayAccessPurpose.DIRECT, index=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    otp_code_hash: Mapped[str] = mapped_column(String(64))
+    profile_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    declared_level: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
+    privacy_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    resend_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    club: Mapped['Club'] = relationship(back_populates='player_access_challenges')
+    player: Mapped['Player | None'] = relationship(back_populates='access_challenges')
+    invite: Mapped['CommunityInviteToken | None'] = relationship(back_populates='access_challenges')
+    group_link: Mapped['CommunityAccessLink | None'] = relationship(back_populates='access_challenges')
 
 
 class PlayerAccessToken(Base):

@@ -15,6 +15,8 @@ from app.models import (
     Booking,
     BookingEventLog,
     BookingSource,
+    Club,
+    CommunityAccessLink,
     BookingStatus,
     CommunityInviteToken,
     Match,
@@ -24,9 +26,12 @@ from app.models import (
     PaymentStatus,
     Player,
     PlayerAccessToken,
+    PlayerAccessChallenge,
     PlayLevel,
+    PlayAccessPurpose,
 )
 from app.models import PlayerActivityEventType
+from app.services.email_service import email_service
 from app.services.play_notification_service import dispatch_play_notifications_for_match, record_player_activity
 from app.services.public_discovery_service import dispatch_public_watchlist_notifications_for_match
 from app.services.booking_service import acquire_single_court_lock, assert_slot_available, calculate_deposit, expire_pending_booking_if_needed, log_event, make_public_reference, resolve_slot_window
@@ -38,6 +43,10 @@ PLAYER_SESSION_COOKIE_NAME = 'padel_play_session'
 PLAYER_SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 PLAY_MATCH_SIZE = 4
 PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS = 7
+PLAY_ACCESS_OTP_TTL_MINUTES = 10
+PLAY_ACCESS_OTP_MAX_ATTEMPTS = 5
+PLAY_ACCESS_OTP_RESEND_COOLDOWN_SECONDS = 60
+PLAY_ACCESS_OTP_MAX_RESENDS = 5
 
 
 def _utcnow() -> datetime:
@@ -52,6 +61,10 @@ def _as_utc(value: datetime) -> datetime:
 
 def generate_opaque_play_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def generate_email_otp_code() -> str:
+    return f'{secrets.randbelow(1000000):06d}'
 
 
 def hash_play_token(raw_token: str) -> str:
@@ -79,6 +92,28 @@ def normalize_phone(value: str) -> str:
     return normalized
 
 
+def normalize_email(value: str) -> str:
+    normalized = str(value).strip().lower()
+    if '@' not in normalized or normalized.startswith('@') or normalized.endswith('@'):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Email non valida')
+    local_part, domain_part = normalized.split('@', 1)
+    if not local_part or '.' not in domain_part:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Email non valida')
+    return normalized
+
+
+def mask_email(value: str) -> str:
+    normalized = normalize_email(value)
+    local_part, domain_part = normalized.split('@', 1)
+    local_hint = local_part[:2] if len(local_part) > 1 else local_part[:1]
+    local_mask = '*' * max(1, len(local_part) - len(local_hint))
+    domain_name, dot, suffix = domain_part.partition('.')
+    domain_hint = domain_name[:1] if domain_name else ''
+    domain_mask = '*' * max(1, len(domain_name) - len(domain_hint)) if domain_name else '*'
+    masked_domain = f'{domain_hint}{domain_mask}{dot}{suffix}' if dot else f'{domain_hint}{domain_mask}'
+    return f'{local_hint}{local_mask}@{masked_domain}'
+
+
 def create_community_invite(
     db: Session,
     *,
@@ -102,6 +137,31 @@ def create_community_invite(
     return invite, raw_token
 
 
+def create_community_access_link(
+    db: Session,
+    *,
+    club_id: str,
+    label: str | None = None,
+    max_uses: int | None = None,
+    expires_at: datetime | None = None,
+) -> tuple[CommunityAccessLink, str]:
+    if max_uses is not None and max_uses < 1:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Numero massimo utilizzi non valido')
+
+    normalized_label = ' '.join(str(label).split()) or None if label else None
+    raw_token = generate_opaque_play_token()
+    item = CommunityAccessLink(
+        club_id=club_id,
+        token_hash=hash_play_token(raw_token),
+        label=normalized_label,
+        max_uses=max_uses,
+        expires_at=_as_utc(expires_at) if expires_at else None,
+    )
+    db.add(item)
+    db.flush()
+    return item, raw_token
+
+
 def get_community_invite_status(invite: CommunityInviteToken, *, now: datetime | None = None) -> str:
     current_time = now or _utcnow()
     if invite.revoked_at is not None:
@@ -117,12 +177,35 @@ def can_revoke_community_invite(invite: CommunityInviteToken, *, now: datetime |
     return get_community_invite_status(invite, now=now) == 'ACTIVE'
 
 
+def get_community_access_link_status(item: CommunityAccessLink, *, now: datetime | None = None) -> str:
+    current_time = now or _utcnow()
+    if item.revoked_at is not None:
+        return 'REVOKED'
+    if item.expires_at is not None and _as_utc(item.expires_at) <= current_time:
+        return 'EXPIRED'
+    if item.max_uses is not None and item.used_count >= item.max_uses:
+        return 'SATURATED'
+    return 'ACTIVE'
+
+
+def can_revoke_community_access_link(item: CommunityAccessLink, *, now: datetime | None = None) -> bool:
+    return get_community_access_link_status(item, now=now) == 'ACTIVE'
+
+
 def list_community_invites(db: Session, *, club_id: str) -> list[CommunityInviteToken]:
     return db.scalars(
         select(CommunityInviteToken)
         .options(selectinload(CommunityInviteToken.accepted_player))
         .where(CommunityInviteToken.club_id == club_id)
         .order_by(CommunityInviteToken.created_at.desc())
+    ).all()
+
+
+def list_community_access_links(db: Session, *, club_id: str) -> list[CommunityAccessLink]:
+    return db.scalars(
+        select(CommunityAccessLink)
+        .where(CommunityAccessLink.club_id == club_id)
+        .order_by(CommunityAccessLink.created_at.desc())
     ).all()
 
 
@@ -146,11 +229,69 @@ def revoke_community_invite(db: Session, *, club_id: str, invite_id: str) -> Com
     return invite
 
 
+def revoke_community_access_link(db: Session, *, club_id: str, link_id: str) -> CommunityAccessLink:
+    item = db.scalar(
+        select(CommunityAccessLink)
+        .where(
+            CommunityAccessLink.club_id == club_id,
+            CommunityAccessLink.id == link_id,
+        )
+        .limit(1)
+    )
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Link accesso community non trovato')
+    if not can_revoke_community_access_link(item):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community non piu revocabile')
+
+    item.revoked_at = _utcnow()
+    db.flush()
+    return item
+
+
 def _find_profile_name_conflict(db: Session, *, club_id: str, profile_name: str, exclude_player_id: str | None = None) -> Player | None:
     stmt = select(Player).where(Player.club_id == club_id, func.lower(Player.profile_name) == profile_name.lower())
     if exclude_player_id:
         stmt = stmt.where(Player.id != exclude_player_id)
     return db.scalar(stmt.limit(1))
+
+
+def _find_player_by_email(db: Session, *, club_id: str, email: str) -> Player | None:
+    return db.scalar(
+        select(Player)
+        .where(
+            Player.club_id == club_id,
+            func.lower(Player.email) == email.lower(),
+        )
+        .limit(1)
+    )
+
+
+def _resolve_player_identity_conflict(
+    db: Session,
+    *,
+    club_id: str,
+    normalized_phone: str,
+    normalized_email: str | None,
+) -> Player | None:
+    player_by_phone = db.scalar(select(Player).where(Player.club_id == club_id, Player.phone == normalized_phone).limit(1))
+    player_by_email = _find_player_by_email(db, club_id=club_id, email=normalized_email) if normalized_email else None
+    if player_by_phone and player_by_email and player_by_phone.id != player_by_email.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Telefono ed email risultano associati a profili diversi nel club',
+        )
+    if (
+        player_by_phone
+        and normalized_email
+        and player_by_phone.email
+        and player_by_phone.email_verified_at is not None
+        and normalize_email(player_by_phone.email) != normalized_email
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Telefono gia associato a un profilo con email diversa nel club',
+        )
+    return player_by_phone or player_by_email
 
 
 def _issue_player_access_token(db: Session, *, player: Player) -> tuple[PlayerAccessToken, str]:
@@ -177,6 +318,60 @@ def _issue_player_access_token(db: Session, *, player: Player) -> tuple[PlayerAc
     return access_token, raw_token
 
 
+def _upsert_player_profile(
+    db: Session,
+    *,
+    club_id: str,
+    profile_name: str,
+    phone: str,
+    declared_level: PlayLevel,
+    privacy_accepted_at: datetime,
+    email: str | None = None,
+    email_verified_at: datetime | None = None,
+) -> Player:
+    normalized_profile_name = normalize_profile_name(profile_name)
+    normalized_phone = normalize_phone(phone)
+    normalized_email = normalize_email(email) if email else None
+    player = _resolve_player_identity_conflict(
+        db,
+        club_id=club_id,
+        normalized_phone=normalized_phone,
+        normalized_email=normalized_email,
+    )
+
+    if player:
+        conflict = _find_profile_name_conflict(db, club_id=club_id, profile_name=normalized_profile_name, exclude_player_id=player.id)
+        if conflict:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Nome profilo gia in uso nel club')
+        player.profile_name = normalized_profile_name
+        player.phone = normalized_phone
+        player.declared_level = declared_level
+        player.privacy_accepted_at = privacy_accepted_at
+        player.is_active = True
+        if normalized_email is not None:
+            player.email = normalized_email
+        if email_verified_at is not None:
+            player.email_verified_at = email_verified_at
+        return player
+
+    if _find_profile_name_conflict(db, club_id=club_id, profile_name=normalized_profile_name):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Nome profilo gia in uso nel club')
+
+    player = Player(
+        club_id=club_id,
+        profile_name=normalized_profile_name,
+        phone=normalized_phone,
+        email=normalized_email,
+        email_verified_at=email_verified_at,
+        declared_level=declared_level,
+        privacy_accepted_at=privacy_accepted_at,
+        is_active=True,
+    )
+    db.add(player)
+    db.flush()
+    return player
+
+
 def identify_player(
     db: Session,
     *,
@@ -189,51 +384,29 @@ def identify_player(
     if not privacy_accepted:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Devi accettare la privacy')
 
-    normalized_profile_name = normalize_profile_name(profile_name)
-    normalized_phone = normalize_phone(phone)
-    player = db.scalar(select(Player).where(Player.club_id == club_id, Player.phone == normalized_phone).limit(1))
     now = _utcnow()
-
-    if player:
-        conflict = _find_profile_name_conflict(db, club_id=club_id, profile_name=normalized_profile_name, exclude_player_id=player.id)
-        if conflict:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Nome profilo gia in uso nel club')
-        player.profile_name = normalized_profile_name
-        player.phone = normalized_phone
-        player.declared_level = declared_level
-        player.privacy_accepted_at = now
-        player.is_active = True
-    else:
-        if _find_profile_name_conflict(db, club_id=club_id, profile_name=normalized_profile_name):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Nome profilo gia in uso nel club')
-        player = Player(
-            club_id=club_id,
-            profile_name=normalized_profile_name,
-            phone=normalized_phone,
-            declared_level=declared_level,
-            privacy_accepted_at=now,
-            is_active=True,
-        )
-        db.add(player)
-        db.flush()
+    player = _upsert_player_profile(
+        db,
+        club_id=club_id,
+        profile_name=profile_name,
+        phone=phone,
+        declared_level=declared_level,
+        privacy_accepted_at=now,
+    )
 
     _, raw_token = _issue_player_access_token(db, player=player)
     return player, raw_token
 
 
-def accept_community_invite(
-    db: Session,
-    *,
-    club_id: str,
-    raw_token: str,
-    declared_level: PlayLevel,
-    privacy_accepted: bool,
-) -> tuple[CommunityInviteToken, Player, str]:
+def _get_active_community_invite(db: Session, *, club_id: str, raw_token: str) -> CommunityInviteToken:
     invite = db.scalar(
-        select(CommunityInviteToken).where(
+        select(CommunityInviteToken)
+        .options(selectinload(CommunityInviteToken.accepted_player))
+        .where(
             CommunityInviteToken.club_id == club_id,
             CommunityInviteToken.token_hash == hash_play_token(raw_token),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if not invite:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Invito community non valido')
@@ -245,6 +418,284 @@ def accept_community_invite(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Invito community gia utilizzato')
     if _as_utc(invite.expires_at) <= now:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Invito community scaduto')
+    return invite
+
+
+def _get_active_community_access_link(db: Session, *, club_id: str, raw_token: str) -> CommunityAccessLink:
+    item = db.scalar(
+        select(CommunityAccessLink)
+        .where(
+            CommunityAccessLink.club_id == club_id,
+            CommunityAccessLink.token_hash == hash_play_token(raw_token),
+        )
+        .limit(1)
+    )
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Link accesso community non valido')
+
+    status_value = get_community_access_link_status(item)
+    if status_value == 'REVOKED':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community revocato')
+    if status_value == 'EXPIRED':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community scaduto')
+    if status_value == 'SATURATED':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community esaurito')
+    return item
+
+
+def _expire_open_access_challenges(db: Session, *, club_id: str, email: str) -> None:
+    now = _utcnow()
+    active_items = db.scalars(
+        select(PlayerAccessChallenge).where(
+            PlayerAccessChallenge.club_id == club_id,
+            func.lower(PlayerAccessChallenge.email) == email.lower(),
+            PlayerAccessChallenge.verified_at.is_(None),
+            PlayerAccessChallenge.expires_at > now,
+        )
+    ).all()
+    for item in active_items:
+        item.expires_at = now
+
+
+def _send_access_otp_email(db: Session, *, club: Club, challenge: PlayerAccessChallenge, otp_code: str) -> None:
+    if challenge.purpose == PlayAccessPurpose.RECOVERY and challenge.player_id is None:
+        return
+
+    delivery_status = email_service.play_access_otp(
+        db,
+        club=club,
+        to_email=challenge.email,
+        otp_code=otp_code,
+        expires_at=challenge.expires_at,
+        purpose=challenge.purpose,
+    )
+    if delivery_status == 'FAILED':
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Invio del codice non disponibile. Riprova tra poco.')
+
+
+def start_player_access_challenge(
+    db: Session,
+    *,
+    club: Club,
+    purpose: PlayAccessPurpose,
+    email: str,
+    profile_name: str | None = None,
+    phone: str | None = None,
+    declared_level: PlayLevel = PlayLevel.NO_PREFERENCE,
+    privacy_accepted: bool = False,
+    invite_token: str | None = None,
+    group_token: str | None = None,
+) -> PlayerAccessChallenge:
+    normalized_email = normalize_email(email)
+    now = _utcnow()
+    invite: CommunityInviteToken | None = None
+    group_link: CommunityAccessLink | None = None
+    player: Player | None = None
+    resolved_profile_name: str | None = None
+    resolved_phone: str | None = None
+    resolved_level = declared_level
+    privacy_accepted_at: datetime | None = None
+
+    if purpose == PlayAccessPurpose.INVITE:
+        if not privacy_accepted:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Devi accettare la privacy')
+        if not invite_token:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Invito community mancante')
+        invite = _get_active_community_invite(db, club_id=club.id, raw_token=invite_token)
+        resolved_profile_name = invite.profile_name
+        resolved_phone = invite.phone
+        resolved_level = declared_level if declared_level != PlayLevel.NO_PREFERENCE else invite.invited_level
+        privacy_accepted_at = now
+        player = _resolve_player_identity_conflict(
+            db,
+            club_id=club.id,
+            normalized_phone=resolved_phone,
+            normalized_email=normalized_email,
+        )
+    elif purpose == PlayAccessPurpose.GROUP:
+        if not privacy_accepted:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Devi accettare la privacy')
+        if not group_token:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Link gruppo mancante')
+        if not profile_name or not phone:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Nome e telefono sono obbligatori')
+        group_link = _get_active_community_access_link(db, club_id=club.id, raw_token=group_token)
+        resolved_profile_name = normalize_profile_name(profile_name)
+        resolved_phone = normalize_phone(phone)
+        privacy_accepted_at = now
+        player = _resolve_player_identity_conflict(
+            db,
+            club_id=club.id,
+            normalized_phone=resolved_phone,
+            normalized_email=normalized_email,
+        )
+    elif purpose == PlayAccessPurpose.DIRECT:
+        if not privacy_accepted:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Devi accettare la privacy')
+        if not profile_name or not phone:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Nome e telefono sono obbligatori')
+        resolved_profile_name = normalize_profile_name(profile_name)
+        resolved_phone = normalize_phone(phone)
+        privacy_accepted_at = now
+        player = _resolve_player_identity_conflict(
+            db,
+            club_id=club.id,
+            normalized_phone=resolved_phone,
+            normalized_email=normalized_email,
+        )
+    else:
+        player = _find_player_by_email(db, club_id=club.id, email=normalized_email)
+
+    _expire_open_access_challenges(db, club_id=club.id, email=normalized_email)
+    raw_otp_code = generate_email_otp_code()
+    challenge = PlayerAccessChallenge(
+        club_id=club.id,
+        player_id=player.id if player else None,
+        invite_id=invite.id if invite else None,
+        group_link_id=group_link.id if group_link else None,
+        purpose=purpose,
+        email=normalized_email,
+        otp_code_hash=hash_play_token(raw_otp_code),
+        profile_name=resolved_profile_name,
+        phone=resolved_phone,
+        declared_level=resolved_level,
+        privacy_accepted_at=privacy_accepted_at,
+        expires_at=now + timedelta(minutes=PLAY_ACCESS_OTP_TTL_MINUTES),
+        attempt_count=0,
+        last_sent_at=now,
+        resend_count=0,
+    )
+    db.add(challenge)
+    db.flush()
+    _send_access_otp_email(db, club=club, challenge=challenge, otp_code=raw_otp_code)
+    return challenge
+
+
+def _load_access_challenge(db: Session, *, club_id: str, challenge_id: str) -> PlayerAccessChallenge:
+    challenge = db.scalar(
+        select(PlayerAccessChallenge)
+        .options(
+            selectinload(PlayerAccessChallenge.player),
+            selectinload(PlayerAccessChallenge.invite),
+            selectinload(PlayerAccessChallenge.group_link),
+        )
+        .where(
+            PlayerAccessChallenge.club_id == club_id,
+            PlayerAccessChallenge.id == challenge_id,
+        )
+        .limit(1)
+    )
+    if not challenge:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Richiesta accesso non valida')
+    return challenge
+
+
+def _assert_access_challenge_available(challenge: PlayerAccessChallenge, *, allow_expired: bool = False) -> None:
+    now = _utcnow()
+    if challenge.verified_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Codice OTP gia utilizzato')
+    if not allow_expired and _as_utc(challenge.expires_at) <= now:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Codice OTP scaduto')
+    if challenge.purpose == PlayAccessPurpose.INVITE:
+        if not challenge.invite:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Invito community non disponibile')
+        if get_community_invite_status(challenge.invite, now=now) != 'ACTIVE':
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Invito community non piu disponibile')
+    if challenge.purpose == PlayAccessPurpose.GROUP:
+        if not challenge.group_link:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community non disponibile')
+        if get_community_access_link_status(challenge.group_link, now=now) != 'ACTIVE':
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community non piu disponibile')
+
+
+def verify_player_access_challenge(
+    db: Session,
+    *,
+    club_id: str,
+    challenge_id: str,
+    otp_code: str,
+) -> tuple[PlayerAccessChallenge, Player, str]:
+    challenge = _load_access_challenge(db, club_id=club_id, challenge_id=challenge_id)
+    _assert_access_challenge_available(challenge)
+    now = _utcnow()
+
+    if not secrets.compare_digest(challenge.otp_code_hash, hash_play_token(otp_code)):
+        challenge.attempt_count += 1
+        if challenge.attempt_count >= PLAY_ACCESS_OTP_MAX_ATTEMPTS:
+            challenge.expires_at = now
+            db.flush()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Troppi tentativi. Richiedi un nuovo codice')
+        db.flush()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Codice OTP non valido')
+
+    if challenge.purpose == PlayAccessPurpose.RECOVERY:
+        if not challenge.player:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Codice non valido o accesso non disponibile')
+        player = challenge.player
+        player.email = challenge.email
+        player.email_verified_at = now
+        player.is_active = True
+    else:
+        player = _upsert_player_profile(
+            db,
+            club_id=club_id,
+            profile_name=challenge.profile_name or '',
+            phone=challenge.phone or '',
+            declared_level=challenge.declared_level,
+            privacy_accepted_at=challenge.privacy_accepted_at or now,
+            email=challenge.email,
+            email_verified_at=now,
+        )
+        if challenge.purpose == PlayAccessPurpose.INVITE and challenge.invite:
+            challenge.invite.used_at = now
+            challenge.invite.privacy_accepted_at = challenge.privacy_accepted_at or now
+            challenge.invite.accepted_player_id = player.id
+        if challenge.purpose == PlayAccessPurpose.GROUP and challenge.group_link:
+            if challenge.group_link.max_uses is not None and challenge.group_link.used_count >= challenge.group_link.max_uses:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Link accesso community esaurito')
+            challenge.group_link.used_count += 1
+
+    challenge.player_id = player.id
+    challenge.verified_at = now
+    _, raw_token = _issue_player_access_token(db, player=player)
+    return challenge, player, raw_token
+
+
+def resend_player_access_challenge(db: Session, *, club: Club, challenge_id: str) -> PlayerAccessChallenge:
+    challenge = _load_access_challenge(db, club_id=club.id, challenge_id=challenge_id)
+    _assert_access_challenge_available(challenge, allow_expired=True)
+
+    now = _utcnow()
+    next_available_at = _as_utc(challenge.last_sent_at) + timedelta(seconds=PLAY_ACCESS_OTP_RESEND_COOLDOWN_SECONDS)
+    if next_available_at > now:
+        seconds_remaining = int((next_available_at - now).total_seconds()) + 1
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'Attendi {seconds_remaining} secondi prima di richiedere un nuovo codice',
+        )
+    if challenge.resend_count >= PLAY_ACCESS_OTP_MAX_RESENDS:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Hai raggiunto il numero massimo di reinvii')
+
+    raw_otp_code = generate_email_otp_code()
+    challenge.otp_code_hash = hash_play_token(raw_otp_code)
+    challenge.expires_at = now + timedelta(minutes=PLAY_ACCESS_OTP_TTL_MINUTES)
+    challenge.attempt_count = 0
+    challenge.last_sent_at = now
+    challenge.resend_count += 1
+    _send_access_otp_email(db, club=club, challenge=challenge, otp_code=raw_otp_code)
+    return challenge
+
+
+def accept_community_invite(
+    db: Session,
+    *,
+    club_id: str,
+    raw_token: str,
+    declared_level: PlayLevel,
+    privacy_accepted: bool,
+) -> tuple[CommunityInviteToken, Player, str]:
+    invite = _get_active_community_invite(db, club_id=club_id, raw_token=raw_token)
+    now = _utcnow()
 
     player, player_token = identify_player(
         db,

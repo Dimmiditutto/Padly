@@ -2,6 +2,10 @@ import { api } from './api';
 import type {
   AdminBookingStatusPayload,
   AdminBookingUpdatePayload,
+  AdminCommunityAccessLinkListResponse,
+  AdminCommunityAccessLinkPayload,
+  AdminCommunityAccessLinkResponse,
+  AdminCommunityAccessLinkRevokeResponse,
   AdminCommunityInviteListResponse,
   AdminCommunityInvitePayload,
   AdminCommunityInviteResponse,
@@ -186,6 +190,24 @@ export async function listAdminCommunityInvites() {
 
 export async function revokeAdminCommunityInvite(inviteId: string) {
   const response = await api.post<AdminCommunityInviteRevokeResponse>(`/admin/settings/community-invites/${inviteId}/revoke`);
+  return response.data;
+}
+
+
+export async function createAdminCommunityAccessLink(payload: AdminCommunityAccessLinkPayload) {
+  const response = await api.post<AdminCommunityAccessLinkResponse>('/admin/settings/community-access-links', payload);
+  return response.data;
+}
+
+
+export async function listAdminCommunityAccessLinks() {
+  const response = await api.get<AdminCommunityAccessLinkListResponse>('/admin/settings/community-access-links');
+  return response.data;
+}
+
+
+export async function revokeAdminCommunityAccessLink(linkId: string) {
+  const response = await api.post<AdminCommunityAccessLinkRevokeResponse>(`/admin/settings/community-access-links/${linkId}/revoke`);
   return response.data;
 }
 

@@ -6,6 +6,11 @@ from app.core.db import get_db
 from app.models import Admin
 from app.schemas.admin import AdminSettingsResponse, AdminSettingsUpdateRequest
 from app.schemas.play import (
+    AdminCommunityAccessLinkCreateRequest,
+    AdminCommunityAccessLinkCreateResponse,
+    AdminCommunityAccessLinkListResponse,
+    AdminCommunityAccessLinkRevokeResponse,
+    AdminCommunityAccessLinkSummary,
     AdminCommunityInviteCreateRequest,
     AdminCommunityInviteCreateResponse,
     AdminCommunityInviteListResponse,
@@ -14,10 +19,15 @@ from app.schemas.play import (
 )
 from app.services.payment_service import is_paypal_checkout_available, is_stripe_checkout_available, list_available_checkout_providers
 from app.services.play_service import (
+    can_revoke_community_access_link,
     can_revoke_community_invite,
+    create_community_access_link,
     create_community_invite,
+    get_community_access_link_status,
     get_community_invite_status,
+    list_community_access_links,
     list_community_invites,
+    revoke_community_access_link,
     revoke_community_invite,
 )
 from app.services.settings_service import get_tenant_settings, update_tenant_settings
@@ -39,6 +49,21 @@ def _build_admin_community_invite_summary(invite) -> AdminCommunityInviteSummary
         accepted_player_name=invite.accepted_player.profile_name if invite.accepted_player else None,
         status=status_value,
         can_revoke=can_revoke_community_invite(invite),
+    )
+
+
+def _build_admin_community_access_link_summary(item) -> AdminCommunityAccessLinkSummary:
+    status_value = get_community_access_link_status(item)
+    return AdminCommunityAccessLinkSummary(
+        id=item.id,
+        label=item.label,
+        max_uses=item.max_uses,
+        used_count=item.used_count,
+        created_at=item.created_at,
+        expires_at=item.expires_at,
+        revoked_at=item.revoked_at,
+        status=status_value,
+        can_revoke=can_revoke_community_access_link(item),
     )
 
 
@@ -142,4 +167,53 @@ def revoke_settings_community_invite(
     return AdminCommunityInviteRevokeResponse(
         message='Invito community revocato.',
         item=_build_admin_community_invite_summary(invite),
+    )
+
+
+@router.post('/community-access-links', response_model=AdminCommunityAccessLinkCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_settings_community_access_link(
+    payload: AdminCommunityAccessLinkCreateRequest,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminCommunityAccessLinkCreateResponse:
+    item, raw_token = create_community_access_link(
+        db,
+        club_id=admin.club_id,
+        label=payload.label,
+        max_uses=payload.max_uses,
+        expires_at=payload.expires_at,
+    )
+    db.commit()
+    return AdminCommunityAccessLinkCreateResponse(
+        message='Link accesso community creato.',
+        link_id=item.id,
+        access_token=raw_token,
+        access_path=f'/c/{admin.club.slug}/play/access/{raw_token}',
+        label=item.label,
+        max_uses=item.max_uses,
+        used_count=item.used_count,
+        expires_at=item.expires_at,
+    )
+
+
+@router.get('/community-access-links', response_model=AdminCommunityAccessLinkListResponse)
+def list_settings_community_access_links(
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminCommunityAccessLinkListResponse:
+    items = list_community_access_links(db, club_id=admin.club_id)
+    return AdminCommunityAccessLinkListResponse(items=[_build_admin_community_access_link_summary(item) for item in items])
+
+
+@router.post('/community-access-links/{link_id}/revoke', response_model=AdminCommunityAccessLinkRevokeResponse)
+def revoke_settings_community_access_link(
+    link_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminCommunityAccessLinkRevokeResponse:
+    item = revoke_community_access_link(db, club_id=admin.club_id, link_id=link_id)
+    db.commit()
+    return AdminCommunityAccessLinkRevokeResponse(
+        message='Link accesso community revocato.',
+        item=_build_admin_community_access_link_summary(item),
     )

@@ -153,6 +153,7 @@ describe('PublicBookingPage', () => {
     expect(screen.getByText('Slug: default-club • Fuso: Europe/Rome')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'help@padelbooking.app' })).toHaveAttribute('href', 'mailto:help@padelbooking.app');
     expect(screen.getByRole('link', { name: '+390101010101' })).toHaveAttribute('href', 'tel:+390101010101');
+    expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/default-club/play/access');
 
     expect(getPublicConfig).toHaveBeenCalledWith(null);
     expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90, null);
@@ -222,6 +223,7 @@ describe('PublicBookingPage', () => {
     expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90, 'roma-club');
     expect(screen.getByRole('link', { name: 'desk@roma-club.example' })).toHaveAttribute('href', 'mailto:desk@roma-club.example');
     expect(screen.getByRole('link', { name: '+39021234567' })).toHaveAttribute('href', 'tel:+39021234567');
+    expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/roma-club/play/access');
     expect(screen.getByText(/Tesserati: .*ora per giocatore/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login?tenant=roma-club');
   });

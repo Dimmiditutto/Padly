@@ -532,6 +532,46 @@ export interface AdminCommunityInviteRevokeResponse {
   item: AdminCommunityInviteSummary;
 }
 
+export interface AdminCommunityAccessLinkPayload {
+  label?: string | null;
+  max_uses?: number | null;
+  expires_at?: string | null;
+}
+
+export interface AdminCommunityAccessLinkResponse {
+  message: string;
+  link_id: string;
+  access_token: string;
+  access_path: string;
+  label?: string | null;
+  max_uses?: number | null;
+  used_count: number;
+  expires_at?: string | null;
+}
+
+export type AdminCommunityAccessLinkStatus = 'ACTIVE' | 'SATURATED' | 'EXPIRED' | 'REVOKED';
+
+export interface AdminCommunityAccessLinkSummary {
+  id: string;
+  label?: string | null;
+  max_uses?: number | null;
+  used_count: number;
+  created_at: string;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  status: AdminCommunityAccessLinkStatus;
+  can_revoke: boolean;
+}
+
+export interface AdminCommunityAccessLinkListResponse {
+  items: AdminCommunityAccessLinkSummary[];
+}
+
+export interface AdminCommunityAccessLinkRevokeResponse {
+  message: string;
+  item: AdminCommunityAccessLinkSummary;
+}
+
 export interface AdminDashboardData {
   bookings: BookingSummary[];
   report: ReportResponse;
@@ -551,11 +591,14 @@ export interface SubscriptionStatusBanner {
 
 export type PlayLevel = 'NO_PREFERENCE' | 'BEGINNER' | 'INTERMEDIATE_LOW' | 'INTERMEDIATE_MEDIUM' | 'INTERMEDIATE_HIGH' | 'ADVANCED';
 export type PlayMatchStatus = 'OPEN' | 'FULL' | 'CANCELLED';
+export type PlayAccessPurpose = 'INVITE' | 'GROUP' | 'DIRECT' | 'RECOVERY';
 
 export interface PlayPlayerSummary {
   id: string;
   profile_name: string;
   phone: string;
+  email?: string | null;
+  email_verified_at?: string | null;
   declared_level: PlayLevel;
   privacy_accepted_at: string;
   created_at: string;
@@ -653,6 +696,43 @@ export interface CommunityInviteAcceptPayload {
 export interface CommunityInviteAcceptResponse {
   message: string;
   player: PlayPlayerSummary;
+}
+
+export interface PlayAccessStartPayload {
+  purpose: PlayAccessPurpose;
+  email: string;
+  profile_name?: string | null;
+  phone?: string | null;
+  declared_level: PlayLevel;
+  privacy_accepted: boolean;
+  invite_token?: string | null;
+  group_token?: string | null;
+}
+
+export interface PlayAccessStartResponse {
+  message: string;
+  challenge_id: string;
+  email_hint: string;
+  expires_at: string;
+  resend_available_at: string;
+}
+
+export interface PlayAccessVerifyPayload {
+  challenge_id: string;
+  otp_code: string;
+}
+
+export interface PlayAccessVerifyResponse {
+  message: string;
+  player: PlayPlayerSummary;
+}
+
+export interface PlayAccessResendResponse {
+  message: string;
+  challenge_id: string;
+  email_hint: string;
+  expires_at: string;
+  resend_available_at: string;
 }
 
 export interface PlayMatchesResponse {

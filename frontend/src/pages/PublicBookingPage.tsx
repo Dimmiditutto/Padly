@@ -9,6 +9,7 @@ import { createPublicBooking, createPublicCheckout, getAvailability, getPublicCo
 import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
+import { buildPlayAccessPath } from '../utils/play';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const COLLAPSED_COURT_SLOT_COUNT = 8;
@@ -49,6 +50,7 @@ export function PublicBookingPage() {
     [courtGroups]
   );
   const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'PadelBooking';
+  const communityAccessPath = buildPlayAccessPath(publicConfig?.tenant_slug || tenantSlug || 'default-club');
   const playerRates = useMemo(() => buildPublicRateLines(publicConfig), [publicConfig]);
 
   useEffect(() => {
@@ -212,6 +214,10 @@ export function PublicBookingPage() {
                         <span>{publicConfig.support_phone}</span>
                       </a>
                     ) : null}
+                    <Link to={communityAccessPath} className='inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 font-semibold text-white transition hover:bg-white/15'>
+                      <LogIn size={16} className='text-cyan-200' />
+                      <span>Entra o rientra nella community</span>
+                    </Link>
                   </div>
                 </div>
               </div>

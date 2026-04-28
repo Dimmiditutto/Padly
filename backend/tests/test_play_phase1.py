@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from app.services import play_service as play_service_module
 from app.core.db import SessionLocal
 from app.core.security import hash_password
-from app.models import Club, ClubDomain, CommunityInviteToken, Court, DEFAULT_CLUB_ID, Match, MatchPlayer, MatchStatus, PlayLevel, Player
+from app.models import Club, ClubDomain, CommunityAccessLink, CommunityInviteToken, Court, DEFAULT_CLUB_ID, Match, MatchPlayer, MatchStatus, PlayLevel, Player
 from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, create_community_invite, hash_play_token
 
 
@@ -195,7 +196,9 @@ def test_play_matches_are_ordered_by_fill_level_and_scoped_to_current_club(clien
     assert all(match['note'] != 'tenant secondario' for match in payload['open_matches'])
 
 
-def test_community_invite_accept_supports_valid_expired_and_used_tokens(client):
+def test_community_invite_access_requires_verified_otp_before_session(client, monkeypatch):
+    monkeypatch.setattr(play_service_module, 'generate_email_otp_code', lambda: '123456')
+
     with SessionLocal() as db:
         valid_invite, valid_raw_token = create_community_invite(
             db,
@@ -221,27 +224,64 @@ def test_community_invite_accept_supports_valid_expired_and_used_tokens(client):
         db.commit()
         valid_invite_id = valid_invite.id
 
-    valid_response = client.post(
-        f'/api/public/community-invites/{valid_raw_token}/accept',
-        json={'declared_level': 'INTERMEDIATE_HIGH', 'privacy_accepted': True},
+    valid_start_response = client.post(
+        '/api/public/play-access/start',
+        json={
+            'purpose': 'INVITE',
+            'invite_token': valid_raw_token,
+            'email': 'invited@example.com',
+            'declared_level': 'INTERMEDIATE_HIGH',
+            'privacy_accepted': True,
+        },
     )
-    expired_response = client.post(
-        f'/api/public/community-invites/{expired_raw_token}/accept',
-        json={'declared_level': 'BEGINNER', 'privacy_accepted': True},
+    expired_start_response = client.post(
+        '/api/public/play-access/start',
+        json={
+            'purpose': 'INVITE',
+            'invite_token': expired_raw_token,
+            'email': 'expired@example.com',
+            'declared_level': 'BEGINNER',
+            'privacy_accepted': True,
+        },
     )
-    used_response = client.post(
-        f'/api/public/community-invites/{used_raw_token}/accept',
-        json={'declared_level': 'BEGINNER', 'privacy_accepted': True},
+    used_start_response = client.post(
+        '/api/public/play-access/start',
+        json={
+            'purpose': 'INVITE',
+            'invite_token': used_raw_token,
+            'email': 'used@example.com',
+            'declared_level': 'BEGINNER',
+            'privacy_accepted': True,
+        },
     )
 
-    assert valid_response.status_code == 200
-    assert valid_response.json()['player']['profile_name'] == 'Invited Player'
-    assert client.cookies.get(PLAYER_SESSION_COOKIE_NAME)
-    assert expired_response.status_code == 409
-    assert used_response.status_code == 409
+    assert valid_start_response.status_code == 200
+    assert valid_start_response.json()['email_hint'].startswith('in')
+    assert client.cookies.get(PLAYER_SESSION_COOKIE_NAME) is None
+    assert expired_start_response.status_code == 409
+    assert used_start_response.status_code == 409
 
     with SessionLocal() as db:
         invite = db.get(CommunityInviteToken, valid_invite_id)
+        assert invite is not None
+        assert invite.used_at is None
+
+    verify_response = client.post(
+        '/api/public/play-access/verify',
+        json={
+            'challenge_id': valid_start_response.json()['challenge_id'],
+            'otp_code': '123456',
+        },
+    )
+
+    assert verify_response.status_code == 200
+    assert verify_response.json()['player']['profile_name'] == 'Invited Player'
+    assert verify_response.json()['player']['email'] == 'invited@example.com'
+    assert client.cookies.get(PLAYER_SESSION_COOKIE_NAME)
+
+    with SessionLocal() as db:
+        invite = db.get(CommunityInviteToken, valid_invite_id)
+        assert invite is not None
         player = db.query(Player).filter(Player.phone == '3337778888').one()
         assert invite.used_at is not None
         assert invite.accepted_player_id == player.id
@@ -358,6 +398,56 @@ def test_admin_can_list_and_revoke_community_invites(client):
         invite = db.get(CommunityInviteToken, active_invite_id)
         assert invite is not None
         assert invite.revoked_at is not None
+
+
+def test_admin_can_create_list_and_revoke_community_access_links(client):
+    login_response = client.post(
+        '/api/admin/auth/login',
+        json={'email': 'admin@padelbooking.app', 'password': 'ChangeMe123!'},
+    )
+    assert login_response.status_code == 200
+
+    create_response = client.post(
+        '/api/admin/settings/community-access-links',
+        json={
+            'label': 'Gruppo WhatsApp Open Match',
+            'max_uses': 200,
+        },
+    )
+
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+    assert create_payload['message'] == 'Link accesso community creato.'
+    assert create_payload['label'] == 'Gruppo WhatsApp Open Match'
+    assert create_payload['max_uses'] == 200
+    assert create_payload['used_count'] == 0
+    assert create_payload['access_path'].startswith('/c/default-club/play/access/')
+    assert create_payload['access_token']
+
+    with SessionLocal() as db:
+        item = db.get(CommunityAccessLink, create_payload['link_id'])
+        assert item is not None
+        assert item.club_id == DEFAULT_CLUB_ID
+        assert item.token_hash == hash_play_token(create_payload['access_token'])
+
+    list_response = client.get('/api/admin/settings/community-access-links')
+
+    assert list_response.status_code == 200
+    listed_item = next(item for item in list_response.json()['items'] if item['id'] == create_payload['link_id'])
+    assert listed_item['status'] == 'ACTIVE'
+    assert listed_item['can_revoke'] is True
+
+    revoke_response = client.post(f"/api/admin/settings/community-access-links/{create_payload['link_id']}/revoke")
+
+    assert revoke_response.status_code == 200
+    assert revoke_response.json()['message'] == 'Link accesso community revocato.'
+    assert revoke_response.json()['item']['status'] == 'REVOKED'
+    assert revoke_response.json()['item']['can_revoke'] is False
+
+    with SessionLocal() as db:
+        item = db.get(CommunityAccessLink, create_payload['link_id'])
+        assert item is not None
+        assert item.revoked_at is not None
 
 
 def test_play_cookie_is_not_valid_across_tenants(client):

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Admin, Booking, BookingSource, EmailNotificationLog, PaymentProvider, PaymentStatus
+from app.models import Admin, Booking, BookingSource, Club, EmailNotificationLog, PaymentProvider, PaymentStatus, PlayAccessPurpose
 from app.services.settings_service import get_booking_rules
 from app.services.tenant_service import build_club_app_url, get_default_club_id
 
@@ -370,6 +370,53 @@ class EmailService:
             subject='Reset password area admin',
             html=html,
             club_id=admin.club_id,
+        )
+
+    def play_access_otp(
+        self,
+        db: Session,
+        *,
+        club: Club,
+        to_email: str,
+        otp_code: str,
+        expires_at: datetime,
+        purpose: PlayAccessPurpose,
+    ) -> str:
+        localized_expiry = self._localize(expires_at)
+        purpose_labels = {
+            PlayAccessPurpose.INVITE: 'Completare il tuo invito community',
+            PlayAccessPurpose.GROUP: 'Entrare nella community dal link condiviso',
+            PlayAccessPurpose.DIRECT: 'Entrare o rientrare nella community',
+            PlayAccessPurpose.RECOVERY: 'Recuperare il tuo accesso community',
+        }
+        intro = purpose_labels.get(purpose, 'Entrare o rientrare nella community')
+        html = f"""
+        <div style='background:#f8fafc;padding:32px 16px;font-family:Arial,sans-serif;color:#0f172a'>
+            <div style='max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden'>
+                <div style='padding:28px 28px 22px;background:#0f172a'>
+                    <p style='margin:0 0 8px 0;color:#bfdbfe;font-size:12px;letter-spacing:0.08em;text-transform:uppercase'>{escape(club.public_name)}</p>
+                    <h1 style='margin:0;color:#ffffff;font-size:28px;line-height:1.2'>Codice di accesso community</h1>
+                </div>
+                <div style='padding:28px'>
+                    <p style='margin:0 0 16px 0;color:#334155;font-size:16px;line-height:1.7'>{escape(intro)} su {escape(club.public_name)}.</p>
+                    <p style='margin:0 0 24px 0;color:#334155;font-size:16px;line-height:1.7'>Inserisci questo codice nella schermata di accesso. Il codice resta valido fino alle {escape(localized_expiry.strftime('%H:%M'))}.</p>
+                    <div style='margin:24px 0;padding:20px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;text-align:center'>
+                        <p style='margin:0 0 10px 0;color:#64748b;font-size:13px;letter-spacing:0.08em;text-transform:uppercase'>Codice OTP</p>
+                        <p style='margin:0;color:#0f172a;font-size:36px;font-weight:700;letter-spacing:0.24em'>{escape(otp_code)}</p>
+                    </div>
+                    <p style='margin:0;color:#475569;font-size:14px;line-height:1.7'>Se non hai richiesto tu questo accesso, puoi ignorare questa email.</p>
+                </div>
+            </div>
+        </div>
+        """
+        return self.send(
+            db,
+            booking=None,
+            to_email=to_email,
+            template='play_access_otp',
+            subject=f'Codice accesso community {club.public_name}',
+            html=html,
+            club_id=club.id,
         )
 
 

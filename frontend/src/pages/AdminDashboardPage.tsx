@@ -12,22 +12,29 @@ import {
   createAdminCourt,
   createAdminBooking,
   createBlackout,
+  createAdminCommunityAccessLink,
   createAdminCommunityInvite,
   createRecurring,
   getAdminReport,
   getAdminSession,
   getAdminSettings,
   getSubscriptionStatus,
+  listAdminCommunityAccessLinks,
   listAdminCommunityInvites,
   listAdminCourts,
   listBlackouts,
   logoutAdmin,
   previewRecurring,
+  revokeAdminCommunityAccessLink,
   revokeAdminCommunityInvite,
   updateAdminCourt,
   updateAdminSettings,
 } from '../services/adminApi';
 import type {
+  AdminCommunityAccessLinkPayload,
+  AdminCommunityAccessLinkResponse,
+  AdminCommunityAccessLinkStatus,
+  AdminCommunityAccessLinkSummary,
   AdminCommunityInvitePayload,
   AdminCommunityInviteResponse,
   AdminCommunityInviteStatus,
@@ -51,6 +58,7 @@ const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const COMMUNITY_INVITES_PAGE_SIZE = 10;
 type FeedbackState = { tone: 'error' | 'success'; message: string } | null;
 type CourtDraftState = { name: string; badge_label: string };
+type CommunityAccessLinkFormState = { label: string; max_uses: string; expires_at: string };
 type CommunityInviteStatusFilter = 'ALL' | 'ACTIVE' | 'EXPIRED' | 'REVOKED';
 
 const COMMUNITY_INVITE_FILTER_LABELS: Record<CommunityInviteStatusFilter, string> = {
@@ -70,6 +78,20 @@ const COMMUNITY_INVITE_STATUS_LABELS: Record<AdminCommunityInviteStatus, string>
 const COMMUNITY_INVITE_STATUS_STYLES: Record<AdminCommunityInviteStatus, string> = {
   ACTIVE: 'bg-emerald-100 text-emerald-700',
   USED: 'bg-sky-100 text-sky-700',
+  EXPIRED: 'bg-amber-100 text-amber-700',
+  REVOKED: 'bg-slate-200 text-slate-700',
+};
+
+const COMMUNITY_ACCESS_LINK_STATUS_LABELS: Record<AdminCommunityAccessLinkStatus, string> = {
+  ACTIVE: 'Attivo',
+  SATURATED: 'Esaurito',
+  EXPIRED: 'Scaduto',
+  REVOKED: 'Revocato',
+};
+
+const COMMUNITY_ACCESS_LINK_STATUS_STYLES: Record<AdminCommunityAccessLinkStatus, string> = {
+  ACTIVE: 'bg-emerald-100 text-emerald-700',
+  SATURATED: 'bg-sky-100 text-sky-700',
   EXPIRED: 'bg-amber-100 text-amber-700',
   REVOKED: 'bg-slate-200 text-slate-700',
 };
@@ -121,11 +143,14 @@ export function AdminDashboardPage() {
   const [settingsFeedback, setSettingsFeedback] = useState<FeedbackState>(null);
   const [courtsFeedback, setCourtsFeedback] = useState<FeedbackState>(null);
   const [communityInviteFeedback, setCommunityInviteFeedback] = useState<FeedbackState>(null);
+  const [communityAccessLinkFeedback, setCommunityAccessLinkFeedback] = useState<FeedbackState>(null);
   const [communityInvites, setCommunityInvites] = useState<AdminCommunityInviteSummary[]>([]);
+  const [communityAccessLinks, setCommunityAccessLinks] = useState<AdminCommunityAccessLinkSummary[]>([]);
   const [communityInviteStatusFilter, setCommunityInviteStatusFilter] = useState<CommunityInviteStatusFilter>('ALL');
   const [communityInviteSearchQuery, setCommunityInviteSearchQuery] = useState('');
   const [communityInvitePage, setCommunityInvitePage] = useState(1);
   const [latestCommunityInvite, setLatestCommunityInvite] = useState<AdminCommunityInviteResponse | null>(null);
+  const [latestCommunityAccessLink, setLatestCommunityAccessLink] = useState<AdminCommunityAccessLinkResponse | null>(null);
   const [courtDrafts, setCourtDrafts] = useState<Record<string, CourtDraftState>>({});
   const [newCourtName, setNewCourtName] = useState('Campo 2');
   const [newCourtBadgeLabel, setNewCourtBadgeLabel] = useState('');
@@ -133,6 +158,11 @@ export function AdminDashboardPage() {
     profile_name: '',
     phone: '',
     invited_level: 'NO_PREFERENCE',
+  });
+  const [communityAccessLinkForm, setCommunityAccessLinkForm] = useState<CommunityAccessLinkFormState>({
+    label: '',
+    max_uses: '200',
+    expires_at: '',
   });
   const [manualForm, setManualForm] = useState<AdminManualBookingPayload>({
     first_name: 'Mario',
@@ -238,7 +268,7 @@ export function AdminDashboardPage() {
     }
 
     try {
-      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadCourts(), loadSettings(), loadSubscription(), loadCommunityInvites()]);
+      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadCourts(), loadSettings(), loadSubscription(), loadCommunityInvites(), loadCommunityAccessLinks()]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
         redirectToLogin();
@@ -294,10 +324,15 @@ export function AdminDashboardPage() {
     setCommunityInvites(response.items);
   }
 
+  async function loadCommunityAccessLinks() {
+    const response = await listAdminCommunityAccessLinks();
+    setCommunityAccessLinks(response.items);
+  }
+
   async function refreshDashboard() {
     setPageFeedback(null);
     try {
-      await Promise.all([loadReport(), loadBlackouts(), loadSettings(), loadCommunityInvites()]);
+      await Promise.all([loadReport(), loadBlackouts(), loadSettings(), loadCommunityInvites(), loadCommunityAccessLinks()]);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
         redirectToLogin();
@@ -453,8 +488,12 @@ export function AdminDashboardPage() {
     }
   }
 
+  function buildAbsoluteAppUrl(path: string) {
+    return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+  }
+
   function buildAbsoluteCommunityInviteUrl(invite: AdminCommunityInviteResponse) {
-    return typeof window !== 'undefined' ? `${window.location.origin}${invite.invite_path}` : invite.invite_path;
+    return buildAbsoluteAppUrl(invite.invite_path);
   }
 
   async function copyCommunityInviteLink(invite: AdminCommunityInviteResponse) {
@@ -464,6 +503,20 @@ export function AdminDashboardPage() {
       setCommunityInviteFeedback({ tone: 'success', message: 'Link accesso community copiato negli appunti.' });
     } catch {
       setCommunityInviteFeedback({ tone: 'success', message: 'Invito creato. Copia manualmente il link qui sotto.' });
+    }
+  }
+
+  function buildAbsoluteCommunityAccessLinkUrl(item: AdminCommunityAccessLinkResponse) {
+    return buildAbsoluteAppUrl(item.access_path);
+  }
+
+  async function copyCommunityAccessLink(item: AdminCommunityAccessLinkResponse) {
+    const absoluteUrl = buildAbsoluteCommunityAccessLinkUrl(item);
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      setCommunityAccessLinkFeedback({ tone: 'success', message: 'Link gruppo community copiato negli appunti.' });
+    } catch {
+      setCommunityAccessLinkFeedback({ tone: 'success', message: 'Link gruppo creato. Copia manualmente il link qui sotto.' });
     }
   }
 
@@ -482,6 +535,26 @@ export function AdminDashboardPage() {
     }
   }
 
+  async function createCommunityAccessLink() {
+    setCommunityAccessLinkFeedback(null);
+    const payload: AdminCommunityAccessLinkPayload = {
+      label: communityAccessLinkForm.label.trim() || null,
+      max_uses: communityAccessLinkForm.max_uses.trim() ? Number(communityAccessLinkForm.max_uses) : null,
+      expires_at: communityAccessLinkForm.expires_at ? `${communityAccessLinkForm.expires_at}T23:59:00` : null,
+    };
+    try {
+      const response = await createAdminCommunityAccessLink(payload);
+      setLatestCommunityAccessLink(response);
+      setCommunityAccessLinkForm({ label: '', max_uses: '200', expires_at: '' });
+      void loadCommunityAccessLinks().catch(() => {
+        setPageFeedback({ tone: 'error', message: 'Link gruppo creato, ma l elenco non e stato aggiornato.' });
+      });
+      await copyCommunityAccessLink(response);
+    } catch (error: any) {
+      setCommunityAccessLinkFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Creazione link gruppo community non riuscita.' });
+    }
+  }
+
   async function revokeCommunityInvite(inviteId: string) {
     setCommunityInviteFeedback(null);
     try {
@@ -493,6 +566,20 @@ export function AdminDashboardPage() {
       setCommunityInviteFeedback({ tone: 'success', message: response.message });
     } catch (error: any) {
       setCommunityInviteFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Revoca invito community non riuscita.' });
+    }
+  }
+
+  async function revokeCommunityAccessLink(linkId: string) {
+    setCommunityAccessLinkFeedback(null);
+    try {
+      const response = await revokeAdminCommunityAccessLink(linkId);
+      setCommunityAccessLinks((prev) => prev.map((item) => item.id == linkId ? response.item : item));
+      if (latestCommunityAccessLink?.link_id == linkId) {
+        setLatestCommunityAccessLink(null);
+      }
+      setCommunityAccessLinkFeedback({ tone: 'success', message: response.message });
+    } catch (error: any) {
+      setCommunityAccessLinkFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Revoca link gruppo community non riuscita.' });
     }
   }
 
@@ -1093,6 +1180,101 @@ export function AdminDashboardPage() {
                           </div>
                         ))
                       )}
+                    </div>
+
+                    <div className='mt-6 rounded-2xl border border-slate-200 bg-white p-4'>
+                      <p className='text-sm font-semibold text-slate-900'>Link gruppo community</p>
+                      <p className='mt-1 text-sm leading-6 text-slate-600'>Genera un link condivisibile per gruppi WhatsApp o mailing list. Ogni persona entra poi con nome, telefono, email e OTP personale.</p>
+                      <div className='mt-4 grid gap-3 sm:grid-cols-3'>
+                        <div>
+                          <label className='field-label' htmlFor='admin-community-access-link-label'>Etichetta link gruppo</label>
+                          <input
+                            id='admin-community-access-link-label'
+                            className='text-input'
+                            value={communityAccessLinkForm.label}
+                            onChange={(event) => setCommunityAccessLinkForm((prev) => ({ ...prev, label: event.target.value }))}
+                            placeholder='Gruppo WhatsApp Open Match'
+                          />
+                        </div>
+                        <div>
+                          <label className='field-label' htmlFor='admin-community-access-link-max-uses'>Utilizzi massimi</label>
+                          <input
+                            id='admin-community-access-link-max-uses'
+                            className='text-input'
+                            type='number'
+                            min={1}
+                            value={communityAccessLinkForm.max_uses}
+                            onChange={(event) => setCommunityAccessLinkForm((prev) => ({ ...prev, max_uses: event.target.value }))}
+                            placeholder='200'
+                          />
+                        </div>
+                        <div>
+                          <label className='field-label' htmlFor='admin-community-access-link-expiry'>Scadenza link gruppo</label>
+                          <input
+                            id='admin-community-access-link-expiry'
+                            className='text-input'
+                            type='date'
+                            value={communityAccessLinkForm.expires_at}
+                            onChange={(event) => setCommunityAccessLinkForm((prev) => ({ ...prev, expires_at: event.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <div className='mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                        <p className='text-xs leading-5 text-slate-500'>Lascia vuota la scadenza per mantenere il link attivo fino a revoca. Svuota il massimo utilizzi per renderlo illimitato.</p>
+                        <button className='btn-secondary sm:w-auto' type='button' onClick={() => void createCommunityAccessLink()}>
+                          Genera link gruppo community
+                        </button>
+                      </div>
+                      {communityAccessLinkFeedback ? <div className='mt-4'><AlertBanner tone={communityAccessLinkFeedback.tone}>{communityAccessLinkFeedback.message}</AlertBanner></div> : null}
+                      {latestCommunityAccessLink ? (
+                        <div className='mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700'>
+                          <p><strong className='text-slate-900'>Etichetta:</strong> {latestCommunityAccessLink.label || 'Link gruppo community'}</p>
+                          <p className='mt-1'><strong className='text-slate-900'>Utilizzi:</strong> {latestCommunityAccessLink.max_uses ? `0 / ${latestCommunityAccessLink.max_uses}` : 'Illimitati'}</p>
+                          <p className='mt-1'><strong className='text-slate-900'>Scadenza:</strong> {latestCommunityAccessLink.expires_at ? formatDateTime(latestCommunityAccessLink.expires_at, adminTimezone) : 'Nessuna scadenza'}</p>
+                          <div className='mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
+                            <input className='text-input' readOnly value={buildAbsoluteCommunityAccessLinkUrl(latestCommunityAccessLink)} aria-label='Link gruppo community generato' />
+                            <button className='btn-secondary sm:w-auto' type='button' onClick={() => void copyCommunityAccessLink(latestCommunityAccessLink)}>
+                              Copia link gruppo
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className='mt-4 space-y-3'>
+                        {communityAccessLinks.length === 0 ? (
+                          <EmptyState icon={CalendarClock} title='Nessun link gruppo emesso' description='I link community condivisibili compariranno qui con stato attivo, esaurito, scaduto o revocato.' />
+                        ) : (
+                          communityAccessLinks.map((item) => (
+                            <div key={item.id} className='rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700'>
+                              <div className='flex flex-wrap items-start justify-between gap-3'>
+                                <div>
+                                  <p className='font-semibold text-slate-900'>{item.label || 'Link gruppo community'}</p>
+                                  <p className='mt-1 text-xs text-slate-500'>Utilizzi: {item.max_uses ? `${item.used_count} / ${item.max_uses}` : `${item.used_count} / illimitati`}</p>
+                                </div>
+                                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${COMMUNITY_ACCESS_LINK_STATUS_STYLES[item.status]}`}>
+                                  {COMMUNITY_ACCESS_LINK_STATUS_LABELS[item.status]}
+                                </span>
+                              </div>
+                              <div className='mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2'>
+                                <p><strong className='text-slate-700'>Creato:</strong> {formatDateTime(item.created_at, adminTimezone)}</p>
+                                <p><strong className='text-slate-700'>Scade:</strong> {item.expires_at ? formatDateTime(item.expires_at, adminTimezone) : 'Nessuna scadenza'}</p>
+                                {item.revoked_at ? <p><strong className='text-slate-700'>Revocato:</strong> {formatDateTime(item.revoked_at, adminTimezone)}</p> : null}
+                              </div>
+                              {item.can_revoke ? (
+                                <div className='mt-3'>
+                                  <button
+                                    className='btn-secondary sm:w-auto'
+                                    type='button'
+                                    aria-label={`Revoca link gruppo ${item.label || item.id}`}
+                                    onClick={() => void revokeCommunityAccessLink(item.id)}
+                                  >
+                                    Revoca link gruppo
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>

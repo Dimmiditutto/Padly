@@ -3,6 +3,11 @@ import type {
   CommunityInviteAcceptPayload,
   CommunityInviteAcceptResponse,
   PaymentInitResponse,
+  PlayAccessResendResponse,
+  PlayAccessStartPayload,
+  PlayAccessStartResponse,
+  PlayAccessVerifyPayload,
+  PlayAccessVerifyResponse,
   PlayBookingCheckoutPayload,
   PlayCreateMatchPayload,
   PlayCreateMatchResponse,
@@ -120,6 +125,30 @@ export async function revokePlayPushSubscription(payload: PlayPushSubscriptionRe
 
 export async function acceptCommunityInvite(inviteToken: string, payload: CommunityInviteAcceptPayload, tenantSlug?: string | null) {
   const response = await api.post<CommunityInviteAcceptResponse>(`/public/community-invites/${inviteToken}/accept`, payload, {
+    params: withTenantParams(tenantSlug),
+  });
+  return response.data;
+}
+
+
+export async function startPlayAccessOtp(payload: PlayAccessStartPayload, tenantSlug?: string | null) {
+  const response = await api.post<PlayAccessStartResponse>('/public/play-access/start', payload, {
+    params: withTenantParams(tenantSlug),
+  });
+  return response.data;
+}
+
+
+export async function verifyPlayAccessOtp(payload: PlayAccessVerifyPayload, tenantSlug?: string | null) {
+  const response = await api.post<PlayAccessVerifyResponse>('/public/play-access/verify', payload, {
+    params: withTenantParams(tenantSlug),
+  });
+  return response.data;
+}
+
+
+export async function resendPlayAccessOtp(challengeId: string, tenantSlug?: string | null) {
+  const response = await api.post<PlayAccessResendResponse>(`/public/play-access/${challengeId}/resend`, undefined, {
     params: withTenantParams(tenantSlug),
   });
   return response.data;

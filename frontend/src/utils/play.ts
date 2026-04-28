@@ -29,6 +29,14 @@ export function buildClubPlayPath(tenantSlug: string, suffix = ''): string {
 }
 
 
+export function buildPlayAccessPath(tenantSlug: string, groupToken?: string | null): string {
+  if (!groupToken) {
+    return buildClubPlayPath(tenantSlug, '/access');
+  }
+  return buildClubPlayPath(tenantSlug, `/access/${encodeURIComponent(groupToken)}`);
+}
+
+
 export function buildPlayMatchPath(tenantSlug: string, matchId: string): string {
   return buildClubPlayPath(tenantSlug, `/matches/${encodeURIComponent(matchId)}`);
 }

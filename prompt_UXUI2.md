@@ -56,7 +56,7 @@ Prima di modificare il codice, allinea ogni decisione a queste sorgenti reali de
 
 Vincoli estetici da preservare:
 
-- font attuali: Manrope e Space Grotesk
+
 - palette attuale brand/cyan/slate gia definita in Tailwind
 - linguaggio visuale attuale: card morbide, radius ampio, hero scure, accenti cyan/brand, contrasto alto sulle CTA operative
 

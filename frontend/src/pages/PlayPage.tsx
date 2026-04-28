@@ -39,7 +39,7 @@ import type {
 } from '../types';
 import { getBrowserPlayPushEndpoint, isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayMatchPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
+import { buildClubPlayPath, buildPlayAccessPath, buildPlayMatchPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
 type InlineFeedback = { tone: FeedbackTone; message: string };
@@ -549,6 +549,7 @@ export function PlayPage() {
   const hasBrowserPushSubscription = Boolean(browserPushEndpoint);
   const hasRemoteOnlyPushSubscription = Boolean(notificationSettings?.push.has_active_subscription && !hasBrowserPushSubscription);
   const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
+  const accessPath = buildPlayAccessPath(tenantSlug);
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -561,6 +562,12 @@ export function PlayPage() {
             </div>
 
             <div className='flex flex-col gap-3 sm:flex-row'>
+              {!currentPlayer ? (
+                <Link className='btn-primary' to={accessPath}>
+                  <UsersRound size={16} />
+                  <span>Entra o rientra</span>
+                </Link>
+              ) : null}
               <Link className='btn-secondary' to={buildClubPlayPath(tenantSlug)}>
                 <Sparkles size={16} />
                 <span>Ricarica la bacheca</span>
@@ -641,9 +648,12 @@ export function PlayPage() {
                 </SectionCard>
               ) : (
                 <SectionCard title='Le mie partite'>
-                  <div className='surface-muted flex items-center gap-3'>
-                    <UsersRound size={18} className='text-cyan-700' />
-                    <p className='text-sm text-slate-700'>Identificati dal pulsante `Unisciti` o `Crea nuova partita` per vedere il tuo spazio personale.</p>
+                  <div className='surface-muted flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                    <div className='flex items-center gap-3'>
+                      <UsersRound size={18} className='text-cyan-700' />
+                      <p className='text-sm text-slate-700'>Per entrare o rientrare nella community usa la pagina accesso dedicata. I pulsanti di join e creazione restano secondari.</p>
+                    </div>
+                    <Link className='btn-secondary' to={accessPath}>Apri accesso community</Link>
                   </div>
                 </SectionCard>
               )}
@@ -651,6 +661,9 @@ export function PlayPage() {
               <SectionCard
                 title='Crea nuova partita'
                 description='Scegli slot'
+                collapsible
+                defaultExpanded={false}
+                collapsedUniform
               >
                 <div className='space-y-6'>
                   <CreateMatchForm tenantSlug={tenantSlug} onCreateIntent={handleCreateIntent} />
@@ -671,7 +684,7 @@ export function PlayPage() {
               </SectionCard>
 
               {currentPlayer && notificationSettings && notificationDraft ? (
-                <SectionCard title='Preferenze notifiche'>
+                <SectionCard title='Preferenze notifiche' collapsible defaultExpanded={false} collapsedUniform>
                   <div className='space-y-4'>
                     <div className='flex flex-wrap items-center gap-3 text-sm'>
                       <span className={`rounded-full px-3 py-1 font-semibold ${notificationSettings.unread_notifications_count > 0 ? 'bg-cyan-100 text-cyan-900' : 'bg-slate-200 text-slate-700'}`}>
