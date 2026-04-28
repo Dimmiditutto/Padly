@@ -26,6 +26,7 @@ vi.mock('../services/playApi', () => ({
 }));
 
 vi.mock('../utils/playPush', () => ({
+  getBrowserPlayPushEndpoint: vi.fn(),
   isPlayPushSupported: vi.fn(() => true),
   subscribeBrowserToPlayPush: vi.fn(),
   unsubscribeBrowserFromPlayPush: vi.fn(),
@@ -56,7 +57,7 @@ import {
   updatePlayMatch,
   updatePlayNotificationPreferences,
 } from '../services/playApi';
-import { subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
+import { getBrowserPlayPushEndpoint, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 
 const basePlayer: PlayPlayerSummary = {
   id: 'player-1',
@@ -268,6 +269,7 @@ describe('Play phase 2 pages', () => {
       keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
       user_agent: 'Vitest Browser',
     });
+    vi.mocked(getBrowserPlayPushEndpoint).mockResolvedValue(null);
     vi.mocked(unsubscribeBrowserFromPlayPush).mockResolvedValue('https://push.example/sub-1');
     vi.mocked(getPlaySharedMatch).mockResolvedValue({
       player: null,
@@ -306,6 +308,18 @@ describe('Play phase 2 pages', () => {
     expect(await screen.findByRole('button', { name: '18:30' })).toBeDisabled();
   });
 
+  it('retries the initial availability load before showing an error in the create form', async () => {
+    vi.mocked(getAvailability)
+      .mockRejectedValueOnce(new Error('temporary mobile timeout'))
+      .mockResolvedValueOnce({ ...baseAvailability });
+
+    renderApp('/c/roma-club/play');
+
+    expect(await screen.findByText('Orari disponibili per campo')).toBeInTheDocument();
+    expect(screen.queryByText('Non riesco a leggere gli slot disponibili per preparare una nuova partita.')).not.toBeInTheDocument();
+    expect(getAvailability).toHaveBeenCalledTimes(2);
+  });
+
   it('shows the club name in header, exposes 7 upcoming days and lets the user change duration', async () => {
     const user = userEvent.setup();
 
@@ -320,7 +334,7 @@ describe('Play phase 2 pages', () => {
     fireEvent.change(screen.getByLabelText('Durata'), { target: { value: '120' } });
 
     await waitFor(() => expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 120, 'roma-club'));
-    expect(prefetchAvailabilityWindow).toHaveBeenLastCalledWith(expect.any(String), 120, 'roma-club', 7);
+    expect(prefetchAvailabilityWindow).toHaveBeenLastCalledWith(expect.any(String), 120, 'roma-club', 6);
   });
 
   it('renders the main sections in the requested order for a recognized player', async () => {
@@ -801,13 +815,17 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
+    const saveButton = screen.getByRole('button', { name: 'Salva preferenze notifiche' });
+    const preferencesCard = saveButton.closest('.surface-muted');
+    expect(preferencesCard).not.toBeNull();
+
     await user.click(screen.getByLabelText('Avvisami per match 2/4'));
-    await user.click(screen.getByRole('button', { name: 'Salva preferenze notifiche' }));
+    await user.click(saveButton);
 
     await waitFor(() => expect(updatePlayNotificationPreferences).toHaveBeenCalledWith(expect.objectContaining({
       notify_match_two_of_four: false,
     }), 'roma-club'));
-    expect(await screen.findByText('Preferenze notifiche aggiornate.')).toBeInTheDocument();
+    expect(await within(preferencesCard as HTMLElement).findByText('Preferenze notifiche aggiornate.')).toBeInTheDocument();
   });
 
   it('registers and revokes web push from the play panel', async () => {
@@ -825,7 +843,11 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
-    await user.click(screen.getByRole('button', { name: 'Attiva web push' }));
+    const activateButton = screen.getByRole('button', { name: 'Attiva web push' });
+    const pushCard = activateButton.closest('aside');
+    expect(pushCard).not.toBeNull();
+
+    await user.click(activateButton);
 
     await waitFor(() => expect(subscribeBrowserToPlayPush).toHaveBeenCalledWith('BElocalPlayPushKey', '/play-service-worker.js'));
     await waitFor(() => expect(registerPlayPushSubscription).toHaveBeenCalledWith({
@@ -834,11 +856,13 @@ describe('Play phase 2 pages', () => {
       user_agent: 'Vitest Browser',
     }, 'roma-club'));
 
-    await user.click(screen.getByRole('button', { name: 'Disattiva web push' }));
+    expect(await within(pushCard as HTMLElement).findByText('Subscription web push registrata.')).toBeInTheDocument();
+
+    await user.click(within(pushCard as HTMLElement).getByRole('button', { name: 'Disattiva web push' }));
 
     await waitFor(() => expect(unsubscribeBrowserFromPlayPush).toHaveBeenCalled());
     await waitFor(() => expect(revokePlayPushSubscription).toHaveBeenCalledWith({ endpoint: 'https://push.example/sub-1' }, 'roma-club'));
-    expect(await screen.findByText('Subscription web push revocata.')).toBeInTheDocument();
+    expect(await within(pushCard as HTMLElement).findByText('Subscription web push revocata.')).toBeInTheDocument();
   });
 
   it('shows unread count and marks a notification as read from the play panel', async () => {
@@ -897,16 +921,19 @@ describe('Play phase 2 pages', () => {
     expect(screen.getByText('Non lette: 1')).toBeInTheDocument();
     expect(screen.getByText('Non letta')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Segna come letta' }));
+    const readButton = screen.getByRole('button', { name: 'Segna come letta' });
+    const notificationCard = readButton.closest('.rounded-2xl');
+    expect(notificationCard).not.toBeNull();
+
+    await user.click(readButton);
 
     await waitFor(() => expect(markPlayNotificationRead).toHaveBeenCalledWith('notification-1', 'roma-club'));
-    expect(await screen.findByText('Notifica play marcata come letta.')).toBeInTheDocument();
+    expect(await within(notificationCard as HTMLElement).findByText('Notifica play marcata come letta.')).toBeInTheDocument();
     expect(screen.getByText('Non lette: 0')).toBeInTheDocument();
     expect(screen.getByText('Letta')).toBeInTheDocument();
   });
 
-  it('does not call revoke api when this browser has no active push subscription', async () => {
-    const user = userEvent.setup();
+  it('shows only the enable action when the profile has push on other devices but not on this browser', async () => {
     vi.mocked(getPlaySession).mockResolvedValue({
       player: { ...basePlayer },
       notification_settings: {
@@ -929,12 +956,11 @@ describe('Play phase 2 pages', () => {
 
     await screen.findByRole('heading', { name: 'Preferenze notifiche' });
     expect(screen.getByText('Web push attiva su 2 dispositivi.')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Disattiva web push' }));
-
-    await waitFor(() => expect(unsubscribeBrowserFromPlayPush).toHaveBeenCalled());
+    expect(screen.getByText('Attiva su 2 dispositivi del tuo profilo, ma non su questo browser.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Attiva web push' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disattiva web push' })).not.toBeInTheDocument();
     expect(revokePlayPushSubscription).not.toHaveBeenCalled();
-    expect(await screen.findByText('Non ho trovato una subscription web push registrata in questo browser. Lo stato mostrato resta aggregato sul tuo profilo play.')).toBeInTheDocument();
+    expect(unsubscribeBrowserFromPlayPush).not.toHaveBeenCalled();
   });
 
   it('shows a warning when subscriptions exist but the server cannot deliver web push', async () => {

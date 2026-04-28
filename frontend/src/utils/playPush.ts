@@ -75,6 +75,21 @@ export async function subscribeBrowserToPlayPush(publicVapidKey: string, service
 }
 
 
+export async function getBrowserPlayPushEndpoint() {
+  if (!isPlayPushSupported()) {
+    return null;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration) {
+    return null;
+  }
+
+  const subscription = await registration.pushManager.getSubscription();
+  return subscription?.endpoint || null;
+}
+
+
 export async function unsubscribeBrowserFromPlayPush() {
   if (!isPlayPushSupported()) {
     return null;

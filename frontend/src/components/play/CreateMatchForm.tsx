@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertBanner } from '../AlertBanner';
 import { DateFieldWithDay } from '../DateFieldWithDay';
 import { LoadingBlock } from '../LoadingBlock';
@@ -74,10 +74,10 @@ export function CreateMatchForm({
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const latestAvailabilityRequestRef = useRef(0);
 
   useEffect(() => {
-    void loadAvailability();
-    void prefetchAvailabilityWindow(bookingDate, durationMinutes, tenantSlug, PLAY_DATE_WINDOW_DAYS);
+    startAvailabilityLoad(true);
   }, [bookingDate, durationMinutes, tenantSlug]);
 
   const visibleCourtGroups = useMemo(
@@ -98,12 +98,22 @@ export function CreateMatchForm({
     [durationMinutes, selectedCourt, selectedSlotId]
   );
 
-  async function loadAvailability() {
+  function startAvailabilityLoad(prefetchWindow: boolean) {
+    const requestId = latestAvailabilityRequestRef.current + 1;
+    latestAvailabilityRequestRef.current = requestId;
+    void loadAvailability(requestId, prefetchWindow);
+  }
+
+  async function loadAvailability(requestId: number, prefetchWindow: boolean) {
     setLoading(true);
     setFeedback(null);
 
     try {
-      const response = await getAvailability(bookingDate, durationMinutes, tenantSlug);
+      const response = await getAvailabilityWithRetry(bookingDate, durationMinutes, tenantSlug);
+      if (requestId !== latestAvailabilityRequestRef.current) {
+        return;
+      }
+
       const normalizedCourtGroups = normalizeCourtGroups(response);
       setCourtGroups(normalizedCourtGroups);
       setExpandedCourtIds({});
@@ -111,14 +121,24 @@ export function CreateMatchForm({
       const initialSelection = findFirstAvailableSelection(normalizedCourtGroups);
       setSelectedCourtId(initialSelection?.courtId || normalizedCourtGroups[0]?.court_id || '');
       setSelectedSlotId(initialSelection?.slotId || '');
+
+      if (prefetchWindow) {
+        void prefetchAvailabilityWindow(addDaysToDateInput(bookingDate, 1), durationMinutes, tenantSlug, Math.max(PLAY_DATE_WINDOW_DAYS - 1, 0));
+      }
     } catch {
+      if (requestId !== latestAvailabilityRequestRef.current) {
+        return;
+      }
+
       setCourtGroups([]);
       setExpandedCourtIds({});
       setSelectedCourtId('');
       setSelectedSlotId('');
       setFeedback('Non riesco a leggere gli slot disponibili per preparare una nuova partita.');
     } finally {
-      setLoading(false);
+      if (requestId === latestAvailabilityRequestRef.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -170,7 +190,7 @@ export function CreateMatchForm({
     if (!Number.isNaN(selectedSlotStart) && selectedSlotStart <= Date.now()) {
       setSelectedSlotId('');
       setFeedback('Lo slot selezionato non e piu disponibile. Ho aggiornato la griglia con gli orari futuri.');
-      void loadAvailability();
+      startAvailabilityLoad(false);
       return;
     }
 
@@ -369,6 +389,20 @@ export function CreateMatchForm({
       ) : null}
     </form>
   );
+}
+
+async function getAvailabilityWithRetry(date: string, durationMinutes: number, tenantSlug: string, attempts = 2) {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await getAvailability(date, durationMinutes, tenantSlug);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 function findFirstAvailableSelection(groups: CourtAvailability[]) {

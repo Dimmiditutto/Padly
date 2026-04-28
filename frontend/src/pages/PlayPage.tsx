@@ -37,11 +37,12 @@ import type {
   PlayPlayerSummary,
   PublicConfig,
 } from '../types';
-import { isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
+import { getBrowserPlayPushEndpoint, isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
 import { buildClubPlayPath, buildPlayMatchPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
+type InlineFeedback = { tone: FeedbackTone; message: string };
 
 type PendingAction =
   | { kind: 'join'; match: PlayMatchSummary }
@@ -77,6 +78,9 @@ export function PlayPage() {
   const [currentPlayer, setCurrentPlayer] = useState<PlayPlayerSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: FeedbackTone; message: string } | null>(null);
+  const [notificationPreferenceFeedback, setNotificationPreferenceFeedback] = useState<InlineFeedback | null>(null);
+  const [pushFeedback, setPushFeedback] = useState<InlineFeedback | null>(null);
+  const [notificationItemFeedback, setNotificationItemFeedback] = useState<{ notificationId: string; tone: FeedbackTone; message: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [pendingPlayPayment, setPendingPlayPayment] = useState<PendingPlayPayment | null>(null);
   const [startingCheckoutProvider, setStartingCheckoutProvider] = useState<PaymentProvider | null>(null);
@@ -91,6 +95,7 @@ export function PlayPage() {
   const [savingNotificationPreferences, setSavingNotificationPreferences] = useState(false);
   const [updatingPushSubscription, setUpdatingPushSubscription] = useState(false);
   const [readingNotificationId, setReadingNotificationId] = useState<string | null>(null);
+  const [browserPushEndpoint, setBrowserPushEndpoint] = useState<string | null>(null);
   const browserSupportsPush = useMemo(() => isPlayPushSupported(), []);
 
   useEffect(() => {
@@ -106,6 +111,33 @@ export function PlayPage() {
     setPendingPlayPayment(null);
     void loadPlaySurface(tenantSlug);
   }, [tenantSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!browserSupportsPush || !currentPlayer || !tenantSlug) {
+      setBrowserPushEndpoint(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getBrowserPlayPushEndpoint()
+      .then((endpoint) => {
+        if (!cancelled) {
+          setBrowserPushEndpoint(endpoint);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBrowserPushEndpoint(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [browserSupportsPush, currentPlayer, tenantSlug]);
 
   const openMatches = useMemo(() => playData?.open_matches || [], [playData]);
   const myMatches = useMemo(() => playData?.my_matches || [], [playData]);
@@ -389,13 +421,14 @@ export function PlayPage() {
       return;
     }
 
+    setNotificationPreferenceFeedback(null);
     setSavingNotificationPreferences(true);
     try {
       const response = await updatePlayNotificationPreferences(notificationDraft, tenantSlug);
       applyNotificationSettings(response.settings);
-      setFeedback({ tone: 'success', message: response.message });
+      setNotificationPreferenceFeedback({ tone: 'success', message: response.message });
     } catch (error) {
-      setFeedback({
+      setNotificationPreferenceFeedback({
         tone: 'error',
         message: error instanceof Error ? error.message : 'Non riesco a salvare le preferenze notifiche.',
       });
@@ -408,12 +441,13 @@ export function PlayPage() {
     if (!tenantSlug || !currentPlayer || !notificationSettings || updatingPushSubscription) {
       return;
     }
+    setPushFeedback(null);
     if (!browserSupportsPush) {
-      setFeedback({ tone: 'error', message: 'Questo browser non supporta le web push.' });
+      setPushFeedback({ tone: 'error', message: 'Questo browser non supporta le web push.' });
       return;
     }
     if (!notificationSettings.push.public_vapid_key) {
-      setFeedback({ tone: 'warning', message: 'Web push non configurate lato server: manca la chiave pubblica VAPID.' });
+      setPushFeedback({ tone: 'warning', message: 'Web push non configurate lato server: manca la chiave pubblica VAPID.' });
       return;
     }
 
@@ -425,9 +459,10 @@ export function PlayPage() {
       );
       const response = await registerPlayPushSubscription(payload, tenantSlug);
       applyNotificationSettings(response.settings);
-      setFeedback({ tone: 'success', message: response.message });
+      setBrowserPushEndpoint(payload.endpoint);
+      setPushFeedback({ tone: 'success', message: response.message });
     } catch (error) {
-      setFeedback({
+      setPushFeedback({
         tone: 'error',
         message: error instanceof Error ? error.message : 'Non riesco ad attivare le web push.',
       });
@@ -441,13 +476,15 @@ export function PlayPage() {
       return;
     }
 
+    setNotificationItemFeedback(null);
     setReadingNotificationId(notificationId);
     try {
       const response = await markPlayNotificationRead(notificationId, tenantSlug);
       applyNotificationSettings(response.settings);
-      setFeedback({ tone: 'success', message: response.message });
+      setNotificationItemFeedback({ notificationId, tone: 'success', message: response.message });
     } catch (error) {
-      setFeedback({
+      setNotificationItemFeedback({
+        notificationId,
         tone: 'error',
         message: error instanceof Error ? error.message : 'Non riesco a marcare la notifica come letta.',
       });
@@ -461,21 +498,23 @@ export function PlayPage() {
       return;
     }
 
+    setPushFeedback(null);
     setUpdatingPushSubscription(true);
     try {
       const endpoint = await unsubscribeBrowserFromPlayPush();
       if (!endpoint) {
-        setFeedback({
+        setPushFeedback({
           tone: 'warning',
           message: 'Non ho trovato una subscription web push registrata in questo browser. Lo stato mostrato resta aggregato sul tuo profilo play.',
         });
         return;
       }
+      setBrowserPushEndpoint(null);
       const response = await revokePlayPushSubscription({ endpoint }, tenantSlug);
       applyNotificationSettings(response.settings);
-      setFeedback({ tone: 'info', message: response.message });
+      setPushFeedback({ tone: 'info', message: response.message });
     } catch (error) {
-      setFeedback({
+      setPushFeedback({
         tone: 'error',
         message: error instanceof Error ? error.message : 'Non riesco a disattivare le web push.',
       });
@@ -507,6 +546,8 @@ export function PlayPage() {
       ? `Web push attiva su ${notificationSettings.push.active_subscription_count} ${notificationSettings.push.active_subscription_count === 1 ? 'dispositivo' : 'dispositivi'}.`
       : 'Web push non disponibile da questo server.'
     : 'Web push non attiva.';
+  const hasBrowserPushSubscription = Boolean(browserPushEndpoint);
+  const hasRemoteOnlyPushSubscription = Boolean(notificationSettings?.push.has_active_subscription && !hasBrowserPushSubscription);
   const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
 
   return (
@@ -702,6 +743,8 @@ export function PlayPage() {
                           <span>Filtra solo match compatibili col mio livello</span>
                         </label>
 
+                        {notificationPreferenceFeedback ? <AlertBanner tone={notificationPreferenceFeedback.tone}>{notificationPreferenceFeedback.message}</AlertBanner> : null}
+
                         <button type='button' className='btn-primary' disabled={savingNotificationPreferences} onClick={() => void handleSaveNotificationPreferences()}>
                           {savingNotificationPreferences ? 'Salvataggio…' : 'Salva preferenze notifiche'}
                         </button>
@@ -710,31 +753,39 @@ export function PlayPage() {
                       <aside className='surface-muted w-full space-y-3 lg:max-w-[17rem] lg:justify-self-end'>
                         <div className='flex items-center justify-between gap-2'>
                           <p className='text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500'>Web push</p>
-                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${notificationSettings.push.has_active_subscription ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
-                            {notificationSettings.push.has_active_subscription ? 'Attiva' : 'Off'}
+                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${hasBrowserPushSubscription ? 'bg-emerald-100 text-emerald-800' : hasRemoteOnlyPushSubscription ? 'bg-cyan-100 text-cyan-800' : 'bg-slate-200 text-slate-600'}`}>
+                            {hasBrowserPushSubscription ? 'Questo browser' : hasRemoteOnlyPushSubscription ? 'Altri device' : 'Off'}
                           </span>
                         </div>
                         {!browserSupportsPush ? (
                           <p className='text-xs leading-5 text-amber-700'>Il browser o l ambiente di test corrente non supportano Service Worker + Push API.</p>
                         ) : null}
+                        {hasRemoteOnlyPushSubscription ? (
+                          <p className='text-xs leading-5 text-slate-500'>Attiva su {notificationSettings.push.active_subscription_count} {notificationSettings.push.active_subscription_count === 1 ? 'dispositivo del tuo profilo' : 'dispositivi del tuo profilo'}, ma non su questo browser.</p>
+                        ) : null}
+                        {pushFeedback ? <AlertBanner tone={pushFeedback.tone}>{pushFeedback.message}</AlertBanner> : null}
 
                         <div className='flex flex-col gap-2'>
-                          <button
-                            type='button'
-                            className='btn-primary min-h-10 rounded-full px-3 py-2 text-xs'
-                            disabled={updatingPushSubscription || !browserSupportsPush || !notificationSettings.push.push_supported}
-                            onClick={() => void handleEnablePush()}
-                          >
-                            {updatingPushSubscription ? 'Attivazione…' : 'Attiva web push'}
-                          </button>
-                          <button
-                            type='button'
-                            className='btn-secondary min-h-10 rounded-full px-3 py-2 text-xs'
-                            disabled={updatingPushSubscription}
-                            onClick={() => void handleDisablePush()}
-                          >
-                            {updatingPushSubscription ? 'Revoca…' : 'Disattiva web push'}
-                          </button>
+                          {!hasBrowserPushSubscription ? (
+                            <button
+                              type='button'
+                              className='btn-primary min-h-10 rounded-full px-3 py-2 text-xs'
+                              disabled={updatingPushSubscription || !browserSupportsPush || !notificationSettings.push.push_supported}
+                              onClick={() => void handleEnablePush()}
+                            >
+                              {updatingPushSubscription ? 'Attivazione…' : 'Attiva web push'}
+                            </button>
+                          ) : null}
+                          {hasBrowserPushSubscription ? (
+                            <button
+                              type='button'
+                              className='btn-secondary min-h-10 rounded-full px-3 py-2 text-xs'
+                              disabled={updatingPushSubscription}
+                              onClick={() => void handleDisablePush()}
+                            >
+                              {updatingPushSubscription ? 'Revoca…' : 'Disattiva web push'}
+                            </button>
+                          ) : null}
                         </div>
                       </aside>
                     </div>
@@ -757,6 +808,11 @@ export function PlayPage() {
                                 </div>
                               </div>
                               <p className='mt-2 text-sm text-slate-600'>{item.message}</p>
+                              {notificationItemFeedback?.notificationId === item.id ? (
+                                <div className='mt-3'>
+                                  <AlertBanner tone={notificationItemFeedback.tone}>{notificationItemFeedback.message}</AlertBanner>
+                                </div>
+                              ) : null}
                               <div className='mt-3 flex flex-wrap items-center gap-3 text-sm'>
                                 {item.read_at ? (
                                   <span className='text-slate-500'>Letta il {new Date(item.read_at).toLocaleString('it-IT')}</span>
