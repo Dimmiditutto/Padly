@@ -50,7 +50,7 @@ export function AdminBookingCard({
         </div>
         <Link to={withTenantPath(`/admin/bookings/${booking.id}`, tenantSlug)} className='btn-ghost'>Dettaglio <ArrowRight size={16} /></Link>
       </div>
-      <div className='mt-5 flex flex-wrap gap-2.5'>
+      <div className='mt-5 action-cluster-compact'>
         {!isRecurring && canMarkBalance ? <button className='btn-primary' onClick={() => void onMarkBalancePaid(booking.id)}>Saldo al campo</button> : null}
         {canComplete ? <button className='btn-soft-success' onClick={() => void onUpdateStatus(booking.id, 'COMPLETED')}>Completed</button> : null}
         {canNoShow ? <button className='btn-soft-warning' onClick={() => void onUpdateStatus(booking.id, 'NO_SHOW')}>No-show</button> : null}

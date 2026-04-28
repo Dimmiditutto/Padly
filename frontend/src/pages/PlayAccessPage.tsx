@@ -236,36 +236,36 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
   return (
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-4xl'>
-        <header className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
-            <div className='max-w-3xl'>
+        <header className='product-hero-panel'>
+          <div className='product-hero-layout'>
+            <div className='product-hero-copy'>
               <CommunityMatchinnBrand clubName={clubDisplayName} />
               <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>{title}</h1>
-              <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>{intro}</p>
+              <p className='product-hero-description'>{intro}</p>
             </div>
 
-            <div className='flex flex-col gap-3 sm:flex-row'>
-              <Link className='btn-secondary' to={bookingPath}>
+            <div className='product-hero-actions'>
+              <Link className='hero-action-secondary' to={bookingPath}>
                 <ArrowLeft size={16} />
                 <span>Torna al booking</span>
               </Link>
-              <Link className='btn-secondary' to={currentAccessPath}>
+              <Link className='hero-action-secondary' to={currentAccessPath}>
                 <KeyRound size={16} />
                 <span>Ricarica accesso</span>
               </Link>
             </div>
           </div>
 
-          <div className='mt-5 grid gap-3 sm:grid-cols-3'>
-            <div className='rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200'>
+          <div className='product-info-grid'>
+            <div className='product-info-card'>
               <Mail size={16} className='mb-2 text-cyan-200' />
               OTP via email integrata con l’infrastruttura del club.
             </div>
-            <div className='rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200'>
+            <div className='product-info-card'>
               <ShieldCheck size={16} className='mb-2 text-cyan-200' />
               La sessione Matchinn nasce solo dopo la verifica del codice.
             </div>
-            <div className='rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200'>
+            <div className='product-info-card'>
               <UsersRound size={16} className='mb-2 text-cyan-200' />
               Ogni persona mantiene un accesso individuale anche da link condivisi.
             </div>
@@ -297,7 +297,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
                   <div className='mt-4 grid gap-3 sm:grid-cols-2'>
                     <button
                       type='button'
-                      className={mode === 'RECOVERY' ? 'btn-primary justify-center' : 'btn-secondary justify-center'}
+                      className={`${mode === 'RECOVERY' ? 'selection-card selection-card-active' : 'selection-card'} inline-flex w-full items-center justify-center gap-2 font-semibold`}
                       onClick={() => {
                         setMode('RECOVERY');
                         setChallenge(null);
@@ -310,7 +310,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
                     </button>
                     <button
                       type='button'
-                      className={mode === 'DIRECT' ? 'btn-primary justify-center' : 'btn-secondary justify-center'}
+                      className={`${mode === 'DIRECT' ? 'selection-card selection-card-active' : 'selection-card'} inline-flex w-full items-center justify-center gap-2 font-semibold`}
                       onClick={() => {
                         setMode('DIRECT');
                         setChallenge(null);
@@ -356,7 +356,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
                         : 'Il codice resta valido per pochi minuti e apre la sessione community solo dopo verifica corretta.'}
                     </div>
 
-                    <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap'>
+                    <div className='action-cluster'>
                       <button type='submit' className='btn-primary' disabled={verifying || otpCode.length !== 6}>
                         {verifying ? 'Verifica in corso…' : 'Verifica e accedi'}
                       </button>
@@ -443,7 +443,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
                       </label>
                     ) : null}
 
-                    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                    <div className='action-cluster sm:justify-between'>
                       <Link className='btn-secondary' to={playPath}>Vai a Partite aperte</Link>
                       <button type='submit' className='btn-primary' disabled={sending}>
                         {sending ? 'Invio in corso…' : 'Invia codice OTP'}

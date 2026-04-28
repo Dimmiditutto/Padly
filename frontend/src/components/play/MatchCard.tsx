@@ -85,7 +85,7 @@ export function MatchCard({
       </div>
 
       {match.note ? (
-        <div className='rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+        <div className='surface-muted'>
           <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Nota</p>
           <p className='mt-2 text-sm leading-6 text-slate-700'>{match.note}</p>
         </div>
@@ -93,7 +93,7 @@ export function MatchCard({
 
       <div className='mt-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <p className='text-sm text-slate-600'>Creata da {match.creator_profile_name || 'community del club'}</p>
-        <div className='flex flex-col gap-3 sm:flex-row'>
+        <div className='action-cluster'>
           {onShare ? (
             <button type='button' className='btn-secondary' onClick={() => onShare(match)}>
               <Share2 size={16} />

@@ -367,7 +367,8 @@ describe('Play phase 2 pages', () => {
     await screen.findByRole('heading', { name: 'Partite aperte' });
     await expandSection(user, 'Crea nuova partita');
 
-    expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY MATCHINN ROMA CLUB')).toBeInTheDocument();
+    expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY matchinn ROMA CLUB')).toBeInTheDocument();
+    expect(screen.getByText('Trova match da completare ed organizza le tue partite!')).toBeInTheDocument();
     expect(screen.getByText('Prossimi 7 giorni')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Seleziona / })).toHaveLength(7);
 
@@ -378,7 +379,7 @@ describe('Play phase 2 pages', () => {
   });
 
   it('renders the main sections in the requested order for a recognized player', async () => {
-    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings, unread_notifications_count: 2 } });
     vi.mocked(getPlayMatches).mockResolvedValue({
       player: { ...basePlayer },
       open_matches: [],
@@ -397,6 +398,10 @@ describe('Play phase 2 pages', () => {
     expect(completareHeading.compareDocumentPosition(mieHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(mieHeading.compareDocumentPosition(createHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(createHeading.compareDocumentPosition(notificheHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText('Profilo Matchinn attivo')).not.toBeInTheDocument();
+    expect(screen.getByText('Scegli lo slot e gioca!')).toBeInTheDocument();
+    expect(screen.getByText((_, node) => node?.textContent === 'Scegli cosa matchinn ti notifica')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Notifiche utente (2 da visualizzare)' })).toHaveClass('hero-icon-button-alert');
   });
 
   it('redirects the /play alias to the canonical tenant route and keeps tenant propagation', async () => {

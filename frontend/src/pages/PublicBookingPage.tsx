@@ -174,14 +174,14 @@ export function PublicBookingPage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
-          <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
+          <div className='product-hero-panel'>
             <div className='flex items-center justify-center rounded-[24px] border border-white/10 bg-[#00497a] px-0 py-3'>
               <img src={logoUrl} alt='Logo BG' className='mx-auto block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
             </div>
-            <div className='mt-6 max-w-2xl'>
+            <div className='mt-6 product-hero-copy'>
               <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico tenant-aware</p>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>{tenantDisplayName}: prenota il tuo match in pochi minuti</h1>
-              <p className='mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo. Il backend mantiene il tenant attivo senza cambiare il flusso prenotazione.</p>
+              <p className='product-hero-description max-w-xl'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo. Il backend mantiene il tenant attivo senza cambiare il flusso prenotazione.</p>
             </div>
             <div className='mt-6 border-t border-white/10 pt-5'>
               <div className='grid gap-3 sm:grid-cols-3'>
@@ -191,8 +191,8 @@ export function PublicBookingPage() {
               </div>
             </div>
             {publicConfig ? (
-              <div className='mt-4 rounded-[24px] border border-white/10 bg-white/5 p-4'>
-                <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
+              <div className='product-context-panel'>
+                <div className='product-context-layout'>
                   <div>
                     <p className='text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Tenant attivo</p>
                     <div className='mt-2 flex items-center gap-2 text-lg font-semibold text-white'>
@@ -214,7 +214,7 @@ export function PublicBookingPage() {
                         <span>{publicConfig.support_phone}</span>
                       </a>
                     ) : null}
-                    <Link to={communityAccessPath} className='inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 font-semibold text-white transition hover:bg-white/15'>
+                    <Link to={communityAccessPath} className='hero-action-secondary'>
                       <LogIn size={16} className='text-cyan-200' />
                       <span>Entra o rientra nella community</span>
                     </Link>

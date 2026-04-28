@@ -1,5 +1,5 @@
 import { AxiosError } from 'axios';
-import { ArrowLeft, BellRing, Sparkles, UsersRound } from 'lucide-react';
+import { ArrowLeft, BellRing, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
@@ -550,42 +550,54 @@ export function PlayPage() {
   const hasRemoteOnlyPushSubscription = Boolean(notificationSettings?.push.has_active_subscription && !hasBrowserPushSubscription);
   const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
   const accessPath = buildPlayAccessPath(tenantSlug);
+  const unreadNotificationsCount = notificationSettings?.unread_notifications_count ?? 0;
+
+  function scrollToSection(sectionId: string) {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    document.getElementById(sectionId)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }
 
   return (
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
-        <header className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
-            <div className='max-w-3xl'>
+        <header className='product-hero-panel'>
+          <div className='product-hero-layout'>
+            <div className='product-hero-copy'>
               <CommunityMatchinnBrand clubName={clubDisplayName} />
               <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>Partite aperte</h1>
+              <p className='product-hero-description'>Trova match da completare ed organizza le tue partite!</p>
             </div>
 
-            <div className='flex flex-col gap-3 sm:flex-row'>
+            <div className='product-hero-actions'>
               {!currentPlayer ? (
-                <Link className='btn-primary' to={accessPath}>
+                <Link className='hero-action-primary' to={accessPath}>
                   <UsersRound size={16} />
                   <span>Entra o rientra</span>
                 </Link>
               ) : null}
-              <Link className='btn-secondary' to={buildClubPlayPath(tenantSlug)}>
-                <Sparkles size={16} />
-                <span>Ricarica la bacheca</span>
-              </Link>
-              <Link className='btn-secondary' to={withTenantPath('/', tenantSlug)}>
+              {currentPlayer ? (
+                <>
+                  <button type='button' className='hero-action-secondary' onClick={() => scrollToSection('play-user-section')}>
+                    <span>Utente</span>
+                  </button>
+                  <button
+                    type='button'
+                    aria-label={unreadNotificationsCount > 0 ? `Notifiche utente (${unreadNotificationsCount} da visualizzare)` : 'Notifiche utente'}
+                    className={`hero-icon-button ${unreadNotificationsCount > 0 ? 'hero-icon-button-alert' : ''}`}
+                    onClick={() => scrollToSection('play-notifications-section')}
+                  >
+                    <BellRing size={18} />
+                  </button>
+                </>
+              ) : null}
+              <Link className='hero-action-secondary' to={withTenantPath('/', tenantSlug)}>
                 <ArrowLeft size={16} />
                 <span>Torna al booking</span>
               </Link>
             </div>
           </div>
-
-          {currentPlayer ? (
-            <div className='mt-5 rounded-[24px] border border-white/10 bg-white/5 p-4'>
-              <AlertBanner tone='success' title='Profilo Matchinn attivo'>
-                Ciao <strong>{currentPlayer.profile_name}</strong>! Benvenuto nella Community di <strong>{clubDisplayName}</strong>. Qui puoi partecipare a partite gia aperte o creare una nuova partita.
-              </AlertBanner>
-            </div>
-          ) : null}
         </header>
 
         <div className='mt-6 space-y-6'>
@@ -605,7 +617,7 @@ export function PlayPage() {
 
                 <div className='surface-muted space-y-3'>
                   <p className='text-sm text-slate-700'>Il sistema ha associato il pagamento al player che ha completato il match. Dopo il checkout tornerai sul flusso standard di conferma pagamento.</p>
-                  <div className='flex flex-wrap gap-3'>
+                  <div className='action-cluster'>
                     {pendingPlayPayment.paymentAction.available_providers.map((provider) => (
                       <button
                         key={provider}
@@ -635,7 +647,7 @@ export function PlayPage() {
               </SectionCard>
 
               {currentPlayer ? (
-                <SectionCard title='Le mie partite'>
+                <SectionCard sectionId='play-user-section' title='Le mie partite'>
                   <MyMatches
                     matches={myMatches}
                     currentPlayerId={currentPlayer.id}
@@ -661,9 +673,11 @@ export function PlayPage() {
               <SectionCard
                 title='Crea nuova partita'
                 description='Scegli slot'
+                collapsedDescription='Scegli lo slot e gioca!'
                 collapsible
                 defaultExpanded={false}
                 collapsedUniform
+                collapsedClassName='section-card-collapsed-compact'
               >
                 <div className='space-y-6'>
                   <CreateMatchForm tenantSlug={tenantSlug} onCreateIntent={handleCreateIntent} />
@@ -684,7 +698,15 @@ export function PlayPage() {
               </SectionCard>
 
               {currentPlayer && notificationSettings && notificationDraft ? (
-                <SectionCard title='Preferenze notifiche' collapsible defaultExpanded={false} collapsedUniform>
+                <SectionCard
+                  sectionId='play-notifications-section'
+                  title='Preferenze notifiche'
+                  collapsedDescription={<>Scegli cosa <span className='matchinn-wordmark'><span className='matchinn-wordmark-match'>match</span><span className='matchinn-wordmark-inn'>inn</span></span> ti notifica</>}
+                  collapsible
+                  defaultExpanded={false}
+                  collapsedUniform
+                  collapsedClassName='section-card-collapsed-compact'
+                >
                   <div className='space-y-4'>
                     <div className='flex flex-wrap items-center gap-3 text-sm'>
                       <span className={`rounded-full px-3 py-1 font-semibold ${notificationSettings.unread_notifications_count > 0 ? 'bg-cyan-100 text-cyan-900' : 'bg-slate-200 text-slate-700'}`}>

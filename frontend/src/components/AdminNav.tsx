@@ -13,7 +13,7 @@ export function AdminNav(_: { session?: AdminSession | null; notificationEmail?:
   const tenantSlug = getTenantSlugFromSearchParams(new URLSearchParams(location.search));
 
   return (
-    <nav className='admin-nav'>
+    <nav className='admin-nav' aria-label='Navigazione admin principale'>
       {navItems.map((item) => {
         const isActive = location.pathname === item.to;
 
@@ -22,6 +22,7 @@ export function AdminNav(_: { session?: AdminSession | null; notificationEmail?:
             key={item.to}
             to={withTenantPath(item.to, tenantSlug)}
             className={isActive ? 'admin-nav-tab admin-nav-tab-active' : 'admin-nav-tab'}
+            aria-current={isActive ? 'page' : undefined}
           >
             <span className='admin-nav-tab-label'>{item.label}</span>
           </Link>

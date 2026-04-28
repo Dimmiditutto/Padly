@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Momo+Trust+Display&family=Space+Grotesk:wght@500;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -51,6 +51,42 @@ h4 {
     @apply relative mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8;
   }
 
+  .matchinn-wordmark {
+    font-family: 'Momo Trust Display', 'Space Grotesk', 'Manrope', ui-sans-serif, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  .matchinn-wordmark-hero .matchinn-wordmark-match {
+    color: #ffffff;
+  }
+
+  .matchinn-wordmark-hero .matchinn-wordmark-inn {
+    display: inline-block;
+    background: linear-gradient(90deg, #cffafe 0%, #0891b2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .matchinn-wordmark-hero {
+    font-size: 1.45em;
+    line-height: 1;
+  }
+
+  .matchinn-wordmark-match {
+    color: #252525;
+  }
+
+  .matchinn-wordmark-inn {
+    display: inline-block;
+    background: linear-gradient(90deg, #06b6d4 0%, #0891b2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
   .surface-card {
     @apply rounded-[28px] border border-white/60 bg-white/90 p-5 shadow-soft backdrop-blur;
   }
@@ -61,6 +97,60 @@ h4 {
 
   .surface-muted {
     @apply rounded-[24px] border border-slate-200/70 bg-slate-50/90 p-4;
+  }
+
+  .product-hero-panel {
+    @apply rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft;
+  }
+
+  .product-hero-layout {
+    @apply flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .product-hero-copy {
+    @apply max-w-3xl;
+  }
+
+  .product-hero-description {
+    @apply mt-3 text-sm leading-6 text-slate-300 sm:text-base;
+  }
+
+  .product-hero-actions {
+    @apply flex flex-col gap-3 sm:flex-row sm:flex-wrap;
+  }
+
+  .product-info-grid {
+    @apply mt-5 grid gap-3 sm:grid-cols-3;
+  }
+
+  .product-info-card {
+    @apply rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200;
+  }
+
+  .product-context-panel {
+    @apply mt-4 rounded-[24px] border border-white/10 bg-white/5 p-4;
+  }
+
+  .product-context-layout {
+    @apply flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .hero-action-primary {
+    @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .hero-action-secondary {
+    @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:border-cyan-300/60 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .hero-icon-button {
+    @apply inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/5 text-white transition hover:border-cyan-300/60 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .hero-icon-button-alert {
+    border-color: #ffdc0a;
+    color: #ffdc0a;
+    box-shadow: 0 0 0 1px rgba(255, 220, 10, 0.35), 0 0 22px rgba(255, 220, 10, 0.42);
   }
 
   .admin-hero-panel {
@@ -100,11 +190,11 @@ h4 {
   }
 
   .admin-nav {
-    @apply grid w-full gap-2 rounded-[24px] border border-white/10 bg-white/5 p-1.5 sm:grid-cols-3;
+    @apply grid w-full gap-2 rounded-[24px] border border-white/10 bg-white/5 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:grid-cols-3;
   }
 
   .admin-nav-tab {
-    @apply flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200 sm:min-h-12;
+    @apply relative flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-200 sm:min-h-12;
   }
 
   .admin-nav-tab-label {
@@ -112,7 +202,7 @@ h4 {
   }
 
   .admin-nav-tab-active {
-    @apply bg-brand-700 text-white shadow-sm hover:bg-brand-600;
+    @apply bg-brand-700 text-white shadow-[0_14px_30px_rgba(8,145,178,0.28)] ring-1 ring-cyan-200/40 hover:bg-brand-600;
   }
 
   .admin-nav-context {
@@ -133,6 +223,22 @@ h4 {
 
   .btn-pill-secondary {
     @apply inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .action-cluster {
+    @apply flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center;
+  }
+
+  .action-cluster-compact {
+    @apply flex flex-wrap gap-2.5;
+  }
+
+  .selection-card {
+    @apply rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:text-slate-950;
+  }
+
+  .selection-card-active {
+    @apply border-cyan-300 bg-cyan-50 text-cyan-900 shadow-[0_10px_28px_rgba(34,211,238,0.12)];
   }
 
   .btn-soft-success {
@@ -185,6 +291,10 @@ h4 {
 
   .section-card-collapsed-uniform {
     @apply min-h-[176px];
+  }
+
+  .section-card-collapsed-compact {
+    @apply min-h-[136px] py-4;
   }
 
   .status-pill {

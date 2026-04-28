@@ -246,7 +246,7 @@ export function CreateMatchForm({
                         type='button'
                         aria-label={`Seleziona ${option.ariaLabel}`}
                         aria-pressed={selected}
-                        className={`rounded-2xl border px-4 py-3 text-left transition ${selected ? 'border-cyan-300 bg-cyan-50 text-cyan-900' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}
+                        className={`${selected ? 'selection-card selection-card-active' : 'selection-card text-slate-700'} text-left`}
                         onClick={() => handleBookingDateChange(option.value)}
                       >
                         <span className='block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500'>{option.shortDateLabel}</span>
@@ -279,7 +279,7 @@ export function CreateMatchForm({
                     return (
                       <div
                         key={group.court_id}
-                        className={`rounded-2xl border p-4 transition ${selectedOnCourt ? 'border-cyan-300 bg-cyan-50/60' : 'border-slate-200 bg-slate-50'}`}
+                        className={`${selectedOnCourt ? 'selection-card-active' : 'border-slate-200 bg-slate-50 hover:border-slate-300'} rounded-2xl border p-4 transition`}
                       >
                         <div className='mb-3 flex items-center justify-between gap-3'>
                           <div>
