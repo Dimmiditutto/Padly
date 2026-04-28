@@ -162,6 +162,7 @@ export async function getAvailability(date: string, durationMinutes: number, ten
 
   const request = api.get<AvailabilityResponse>('/public/availability', {
     params: { date, duration_minutes: durationMinutes, ...withTenantParams(tenantSlug) },
+    timeout: 30000,
   }).then((response) => {
     setCachedAvailability(cacheKey, response.data);
     return response.data;

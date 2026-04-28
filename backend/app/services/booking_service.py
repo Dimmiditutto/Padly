@@ -357,15 +357,22 @@ def build_daily_slots(
     court_id: str | None = None,
     club_id: str | None = None,
     club_timezone: str | None = None,
+    court: Court | None = None,
+    slot_starts: list[datetime] | None = None,
+    blocking_booking_windows: list[tuple[datetime, datetime]] | None = None,
+    blocking_blackout_windows: list[tuple[datetime, datetime]] | None = None,
 ) -> list[dict]:
     slots: list[dict] = []
     now_utc = datetime.now(UTC)
     resolved_club_id = club_id or get_default_club_id(db)
-    court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
+    resolved_court = court or resolve_court(db, club_id=resolved_club_id, court_id=court_id)
     resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
     local_timezone = _slot_zoneinfo(resolved_timezone)
+    local_slot_starts = slot_starts or iter_local_slot_starts(booking_date, timezone_name=resolved_timezone)
+    booking_windows = blocking_booking_windows
+    blackout_windows = blocking_blackout_windows
 
-    for local_start in iter_local_slot_starts(booking_date, timezone_name=resolved_timezone):
+    for local_start in local_slot_starts:
         start_at = local_start.astimezone(UTC)
         start_time_value = local_start.strftime('%H:%M')
         available = False
@@ -385,11 +392,15 @@ def build_daily_slots(
             reason = None if available else 'Orario gia passato'
 
             if available:
-                try:
-                    assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id, court_id=court.id)
-                except HTTPException as exc:
-                    available = False
-                    reason = str(exc.detail)
+                if booking_windows is not None or blackout_windows is not None:
+                    reason = _find_slot_block_reason(start_at, end_at, booking_windows or [], blackout_windows or [])
+                    available = reason is None
+                else:
+                    try:
+                        assert_slot_available(db, start_at=start_at, end_at=end_at, club_id=resolved_club_id, court_id=resolved_court.id)
+                    except HTTPException as exc:
+                        available = False
+                        reason = str(exc.detail)
         except HTTPException as exc:
             reason = str(exc.detail)
 
@@ -400,9 +411,9 @@ def build_daily_slots(
                 'end_time': local_end.strftime('%H:%M'),
                 'display_start_time': slot_display_time(local_start, timezone_name=resolved_timezone),
                 'display_end_time': slot_display_time((start_at + timedelta(minutes=duration_minutes)).astimezone(local_timezone), timezone_name=resolved_timezone),
-                'court_id': court.id,
-                'court_name': court.name,
-                'court_badge_label': court.badge_label,
+                'court_id': resolved_court.id,
+                'court_name': resolved_court.name,
+                'court_badge_label': resolved_court.badge_label,
                 'available': available,
                 'reason': reason,
             }
@@ -419,7 +430,17 @@ def build_daily_slots_grouped_by_court(
     club_timezone: str | None = None,
 ) -> list[dict]:
     resolved_club_id = club_id or get_default_club_id(db)
+    resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
     courts = list_courts(db, club_id=resolved_club_id, include_inactive=False)
+    slot_starts = iter_local_slot_starts(booking_date, timezone_name=resolved_timezone)
+    booking_windows_by_court, blackout_windows_by_court = load_daily_court_block_windows(
+        db,
+        booking_date=booking_date,
+        duration_minutes=duration_minutes,
+        club_id=resolved_club_id,
+        club_timezone=resolved_timezone,
+        court_ids=[court.id for court in courts],
+    )
     return [
         {
             'court_id': court.id,
@@ -429,13 +450,81 @@ def build_daily_slots_grouped_by_court(
                 db,
                 booking_date=booking_date,
                 duration_minutes=duration_minutes,
-                court_id=court.id,
                 club_id=resolved_club_id,
-                club_timezone=club_timezone,
+                club_timezone=resolved_timezone,
+                court=court,
+                slot_starts=slot_starts,
+                blocking_booking_windows=booking_windows_by_court.get(court.id, []),
+                blocking_blackout_windows=blackout_windows_by_court.get(court.id, []),
             ),
         }
         for court in courts
     ]
+
+
+def _intervals_overlap(start_at: datetime, end_at: datetime, intervals: list[tuple[datetime, datetime]]) -> bool:
+    return any(interval_start < end_at and interval_end > start_at for interval_start, interval_end in intervals)
+
+
+def _find_slot_block_reason(
+    start_at: datetime,
+    end_at: datetime,
+    booking_windows: list[tuple[datetime, datetime]],
+    blackout_windows: list[tuple[datetime, datetime]],
+) -> str | None:
+    if _intervals_overlap(start_at, end_at, booking_windows):
+        return 'Lo slot non è più disponibile'
+    if _intervals_overlap(start_at, end_at, blackout_windows):
+        return "Fascia bloccata dall'admin"
+    return None
+
+
+def load_daily_court_block_windows(
+    db: Session,
+    *,
+    booking_date: date,
+    duration_minutes: int,
+    club_id: str,
+    club_timezone: str,
+    court_ids: list[str],
+) -> tuple[dict[str, list[tuple[datetime, datetime]]], dict[str, list[tuple[datetime, datetime]]]]:
+    booking_windows_by_court = {court_id: [] for court_id in court_ids}
+    blackout_windows_by_court = {court_id: [] for court_id in court_ids}
+
+    if not court_ids:
+        return booking_windows_by_court, blackout_windows_by_court
+
+    local_timezone = _slot_zoneinfo(club_timezone)
+    local_day_start = datetime.combine(booking_date, time(0, 0), tzinfo=local_timezone)
+    local_next_day_start = datetime.combine(booking_date + timedelta(days=1), time(0, 0), tzinfo=local_timezone)
+    window_start = local_day_start.astimezone(UTC)
+    window_end = local_next_day_start.astimezone(UTC) + timedelta(minutes=duration_minutes)
+
+    blocking_bookings = db.scalars(
+        select(Booking).where(
+            Booking.club_id == club_id,
+            Booking.court_id.in_(court_ids),
+            Booking.status.in_(BLOCKING_STATUSES),
+            Booking.start_at < window_end,
+            Booking.end_at > window_start,
+        )
+    ).all()
+    for booking in blocking_bookings:
+        booking_windows_by_court.setdefault(booking.court_id, []).append((as_utc(booking.start_at), as_utc(booking.end_at)))
+
+    blocking_blackouts = db.scalars(
+        select(BlackoutPeriod).where(
+            BlackoutPeriod.club_id == club_id,
+            BlackoutPeriod.court_id.in_(court_ids),
+            BlackoutPeriod.is_active.is_(True),
+            BlackoutPeriod.start_at < window_end,
+            BlackoutPeriod.end_at > window_start,
+        )
+    ).all()
+    for blackout in blocking_blackouts:
+        blackout_windows_by_court.setdefault(blackout.court_id, []).append((as_utc(blackout.start_at), as_utc(blackout.end_at)))
+
+    return booking_windows_by_court, blackout_windows_by_court
 
 
 def create_public_booking(
