@@ -12,10 +12,11 @@ from app.core.db import SessionLocal
 import app.main as main_module
 from app.main import app
 from app.core.scheduler import expire_pending_job, reminder_job
-from app.models import Booking, BookingEventLog, BookingPayment, BookingSource, BookingStatus, Customer, EmailNotificationLog, PaymentProvider, PaymentStatus, PaymentWebhookEvent
+from app.models import Booking, BookingEventLog, BookingPayment, BookingSource, BookingStatus, Club, Customer, EmailNotificationLog, PaymentProvider, PaymentStatus, PaymentWebhookEvent, DEFAULT_CLUB_ID
 from app.services.booking_service import expire_pending_bookings, single_court_mutex
 from app.services.email_service import email_service
 from app.services.payment_service import GATEWAYS, PaymentInitResult
+from test_admin_and_recurring import admin_login
 
 
 def future_date(days: int = 2) -> str:
@@ -125,6 +126,42 @@ def create_admin_like_booking(*, email: str, phone: str, first_name: str = 'Admi
         return booking.public_reference
 
 
+def update_public_booking_deposit_settings(
+    client: TestClient,
+    *,
+    enabled: bool = True,
+    base_amount: float = 18,
+    included_minutes: int = 90,
+    extra_amount: float = 9,
+    extra_step_minutes: int = 30,
+    extras: list[str] | None = None,
+) -> None:
+    admin_login(client)
+    response = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 15,
+            'cancellation_window_hours': 24,
+            'reminder_window_hours': 24,
+            'member_hourly_rate': 7,
+            'non_member_hourly_rate': 9,
+            'member_ninety_minute_rate': 10,
+            'non_member_ninety_minute_rate': 13,
+            'public_booking_deposit_enabled': enabled,
+            'public_booking_base_amount': base_amount,
+            'public_booking_included_minutes': included_minutes,
+            'public_booking_extra_amount': extra_amount,
+            'public_booking_extra_step_minutes': extra_step_minutes,
+            'public_booking_extras': extras or [],
+            'play_community_deposit_enabled': False,
+            'play_community_deposit_amount': 20,
+            'play_community_payment_timeout_minutes': 15,
+            'play_community_use_public_deposit': False,
+        },
+    )
+    assert response.status_code == 200
+
+
 def test_stripe_webhook_confirms_booking_and_is_idempotent(client):
     _, booking, _ = create_pending_booking(
         client,
@@ -168,6 +205,146 @@ def test_stripe_webhook_confirms_booking_and_is_idempotent(client):
         assert payments[0].provider_capture_id == 'pi_test_paid_1'
         assert len(webhooks) == 1
         assert len(emails) == 2
+
+
+def test_public_checkout_persists_custom_club_deposit_policy_amount(client):
+    update_public_booking_deposit_settings(client, extras=['Luci serali'])
+
+    _, booking = create_booking_without_checkout(
+        client,
+        provider='STRIPE',
+        email='custom-checkout@example.com',
+        phone='3331110024',
+        start_time='18:30',
+        duration_minutes=120,
+    )
+
+    checkout = client.post(f"/api/public/bookings/{booking['id']}/checkout")
+    assert checkout.status_code == 200
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == stored_booking.id))
+
+        assert float(stored_booking.deposit_amount) == 27.0
+        assert stored_booking.deposit_currency == 'EUR'
+        assert stored_booking.deposit_policy_snapshot['public_booking_extras'] == ['Luci serali']
+        assert payment is not None
+        assert float(payment.amount) == 27.0
+        assert payment.currency == 'EUR'
+        assert payment.status == PaymentStatus.INITIATED
+
+
+def test_stripe_webhook_accepts_custom_public_deposit_amount(client):
+    update_public_booking_deposit_settings(client)
+
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='stripe-custom-deposit@example.com',
+        phone='3331110025',
+        duration_minutes=120,
+    )
+
+    payload = {
+        'id': 'evt_stripe_custom_paid',
+        'type': 'checkout.session.completed',
+        'created': int(datetime.now(UTC).timestamp()),
+        'data': {
+            'object': {
+                'id': 'cs_test_custom_paid',
+                'client_reference_id': booking['public_reference'],
+                'amount_total': 2700,
+                'currency': 'eur',
+                'payment_intent': 'pi_test_custom_paid',
+            }
+        },
+    }
+
+    webhook = client.post('/api/payments/stripe/webhook', json=payload)
+    assert webhook.status_code == 200
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'CONFIRMED'
+    assert updated['payment_status'] == 'PAID'
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == stored_booking.id))
+
+        assert float(stored_booking.deposit_amount) == 27.0
+        assert float(payment.amount) == 27.0
+        assert payment.currency == 'EUR'
+        assert payment.provider_capture_id == 'pi_test_custom_paid'
+
+
+def test_paypal_webhook_accepts_custom_public_deposit_amount(client):
+    update_public_booking_deposit_settings(client)
+
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='PAYPAL',
+        email='paypal-custom-deposit@example.com',
+        phone='3331110026',
+        duration_minutes=120,
+    )
+
+    webhook = client.post(
+        '/api/payments/paypal/webhook',
+        json={
+            'id': 'WH-PAYPAL-CUSTOM',
+            'event_type': 'PAYMENT.CAPTURE.COMPLETED',
+            'resource': {
+                'id': 'capture-paypal-custom',
+                'amount': {'value': '27.00', 'currency_code': 'EUR'},
+                'create_time': datetime.now(UTC).isoformat().replace('+00:00', 'Z'),
+                'supplementary_data': {'related_ids': {'order_id': 'order-paypal-custom'}},
+                'custom_id': booking['public_reference'],
+            },
+        },
+    )
+    assert webhook.status_code == 200
+
+    updated = get_booking_status(client, booking['public_reference'])
+    assert updated['status'] == 'CONFIRMED'
+    assert updated['payment_status'] == 'PAID'
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == stored_booking.id))
+
+        assert float(stored_booking.deposit_amount) == 27.0
+        assert float(payment.amount) == 27.0
+        assert payment.currency == 'EUR'
+        assert payment.provider_order_id == 'order-paypal-custom'
+        assert payment.provider_capture_id == 'capture-paypal-custom'
+
+
+def test_mock_payment_preserves_booking_currency_in_payment_record(client):
+    with SessionLocal() as db:
+        club = db.get(Club, DEFAULT_CLUB_ID)
+        assert club is not None
+        club.currency = 'USD'
+        db.commit()
+
+    _, booking, _ = create_pending_booking(
+        client,
+        provider='STRIPE',
+        email='usd-currency@example.com',
+        phone='3331110027',
+        start_time='19:30',
+    )
+
+    response = client.get(f"/api/payments/mock/complete?booking={booking['public_reference']}&provider=stripe", follow_redirects=False)
+    assert response.status_code in {302, 307}
+
+    with SessionLocal() as db:
+        stored_booking = db.scalar(select(Booking).where(Booking.public_reference == booking['public_reference']))
+        payment = db.scalar(select(BookingPayment).where(BookingPayment.booking_id == stored_booking.id))
+
+        assert stored_booking.deposit_currency == 'USD'
+        assert payment.currency == 'USD'
+        assert float(payment.amount) == float(stored_booking.deposit_amount)
 
 
 def test_paypal_return_and_webhook_are_coherent(client):

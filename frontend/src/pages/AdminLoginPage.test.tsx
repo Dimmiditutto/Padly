@@ -56,7 +56,7 @@ describe('AdminLoginPage', () => {
 
     expect(screen.getByLabelText('Email')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveValue('');
-    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/booking');
     expect(screen.getByText("Usa l'email admin per ricevere un link di reset.")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Password dimenticata?' })).toBeInTheDocument();
   });
@@ -98,7 +98,7 @@ describe('AdminLoginPage', () => {
     const user = userEvent.setup();
     renderPage('/admin/login?tenant=roma-club');
 
-    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/booking?tenant=roma-club');
 
     await user.type(screen.getByLabelText('Email'), 'ADMIN@ROMA.EXAMPLE');
     await user.type(screen.getByLabelText('Password'), 'RomaTenant123!');

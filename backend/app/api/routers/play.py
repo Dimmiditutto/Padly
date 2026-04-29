@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Cookie, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_club, get_current_player_optional, get_current_player_required
@@ -38,6 +38,7 @@ from app.services.play_notification_service import (
 from app.services.play_service import (
     PLAYER_SESSION_COOKIE_NAME,
     PLAYER_SESSION_MAX_AGE_SECONDS,
+    build_club_player_session_cookie_name,
     cancel_play_match,
     create_play_match,
     get_play_match_detail,
@@ -56,13 +57,36 @@ from app.models import PlayerActivityEventType
 router = APIRouter(prefix='/play', tags=['Play'])
 
 
+def _set_player_session_cookies(response: Response, *, club_slug: str, raw_token: str) -> None:
+    cookie_settings = {
+        'httponly': True,
+        'secure': settings.is_production,
+        'samesite': 'lax',
+        'max_age': PLAYER_SESSION_MAX_AGE_SECONDS,
+        'path': '/',
+    }
+    response.set_cookie(key=PLAYER_SESSION_COOKIE_NAME, value=raw_token, **cookie_settings)
+    response.set_cookie(key=build_club_player_session_cookie_name(club_slug), value=raw_token, **cookie_settings)
+
+
+def _clear_player_session_cookies(response: Response, *, club_slug: str) -> None:
+    response.delete_cookie(build_club_player_session_cookie_name(club_slug), path='/')
+
+
+def _has_any_player_session_cookie(request: Request, *, club_slug: str) -> bool:
+    return bool(
+        request.cookies.get(PLAYER_SESSION_COOKIE_NAME)
+        or request.cookies.get(build_club_player_session_cookie_name(club_slug))
+    )
+
+
 @router.get('/me', response_model=PlaySessionResponse)
 def get_play_me(
+    request: Request,
     response: Response,
     current_club: Club = Depends(get_current_club),
     current_player: Player | None = Depends(get_current_player_optional),
     db: Session = Depends(get_db),
-    player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> PlaySessionResponse:
     if current_player:
         notification_settings = get_player_notification_settings(
@@ -72,8 +96,8 @@ def get_play_me(
         )
         db.commit()
         return PlaySessionResponse(player=current_player, notification_settings=notification_settings)
-    elif player_token:
-        response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
+    elif _has_any_player_session_cookie(request, club_slug=current_club.slug):
+        _clear_player_session_cookies(response, club_slug=current_club.slug)
     return PlaySessionResponse(player=current_player, notification_settings=None)
 
 
@@ -99,15 +123,7 @@ def post_play_identify(
         event_type=PlayerActivityEventType.IDENTIFIED,
         useful=False,
     )
-    response.set_cookie(
-        key=PLAYER_SESSION_COOKIE_NAME,
-        value=raw_token,
-        httponly=True,
-        secure=settings.is_production,
-        samesite='lax',
-        max_age=PLAYER_SESSION_MAX_AGE_SECONDS,
-        path='/',
-    )
+    _set_player_session_cookies(response, club_slug=current_club.slug, raw_token=raw_token)
     db.commit()
     db.refresh(player)
     return PlayerIdentifyResponse(message='Profilo play identificato', player=player)
@@ -217,48 +233,48 @@ def post_play_push_subscription_revoke(
 
 @router.get('/matches', response_model=PlayMatchesResponse)
 def get_play_matches(
+    request: Request,
     response: Response,
     current_club: Club = Depends(get_current_club),
     current_player: Player | None = Depends(get_current_player_optional),
     db: Session = Depends(get_db),
-    player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> PlayMatchesResponse:
     payload = list_play_matches(db, club_id=current_club.id, current_player=current_player)
     db.commit()
-    if not current_player and player_token:
-        response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
+    if not current_player and _has_any_player_session_cookie(request, club_slug=current_club.slug):
+        _clear_player_session_cookies(response, club_slug=current_club.slug)
     return PlayMatchesResponse(**payload)
 
 
 @router.get('/matches/{match_id}', response_model=PlayMatchDetailResponse)
 def get_play_match_detail_endpoint(
     match_id: str,
+    request: Request,
     response: Response,
     current_club: Club = Depends(get_current_club),
     current_player: Player | None = Depends(get_current_player_optional),
     db: Session = Depends(get_db),
-    player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> PlayMatchDetailResponse:
     payload = get_play_match_detail(db, club_id=current_club.id, match_id=match_id, current_player=current_player)
     db.commit()
-    if not current_player and player_token:
-        response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
+    if not current_player and _has_any_player_session_cookie(request, club_slug=current_club.slug):
+        _clear_player_session_cookies(response, club_slug=current_club.slug)
     return PlayMatchDetailResponse(**payload)
 
 
 @router.get('/shared/{share_token}', response_model=PlayMatchDetailResponse)
 def get_play_shared_match_detail_endpoint(
     share_token: str,
+    request: Request,
     response: Response,
     current_club: Club = Depends(get_current_club),
     current_player: Player | None = Depends(get_current_player_optional),
     db: Session = Depends(get_db),
-    player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> PlayMatchDetailResponse:
     payload = get_play_shared_match_detail(db, club_id=current_club.id, share_token=share_token, current_player=current_player)
     db.commit()
-    if not current_player and player_token:
-        response.delete_cookie(PLAYER_SESSION_COOKIE_NAME, path='/')
+    if not current_player and _has_any_player_session_cookie(request, club_slug=current_club.slug):
+        _clear_player_session_cookies(response, club_slug=current_club.slug)
     return PlayMatchDetailResponse(**payload)
 
 

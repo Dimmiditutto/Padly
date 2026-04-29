@@ -114,7 +114,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
   }, [publicConfig?.public_name, tenantSlug]);
 
   const playPath = tenantSlug ? buildClubPlayPath(tenantSlug) : '/play';
-  const bookingPath = withTenantPath('/', tenantSlug);
+  const bookingPath = withTenantPath('/booking', tenantSlug);
   const currentAccessPath = tenantSlug ? buildPlayAccessPath(tenantSlug, groupToken) : '/play/access';
   const redirectPath = resolveSafeRedirect(searchParams.get('redirect'), playPath);
   const isOtpLockout = feedback?.tone === 'warning';

@@ -37,6 +37,10 @@ vi.mock('../utils/playPush', () => ({
   unsubscribeBrowserFromPlayPush: vi.fn(),
 }));
 
+vi.mock('../pages/MatchinnHomePage', () => ({
+  MatchinnHomePage: () => <div>MATCHINN HOME ROUTE</div>,
+}));
+
 vi.mock('../services/publicApi', () => ({
   getAvailability: vi.fn(),
   getPublicConfig: vi.fn(),

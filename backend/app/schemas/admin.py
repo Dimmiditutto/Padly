@@ -239,9 +239,16 @@ class AdminSettingsResponse(BaseModel):
     non_member_hourly_rate: float
     member_ninety_minute_rate: float
     non_member_ninety_minute_rate: float
+    public_booking_deposit_enabled: bool
+    public_booking_base_amount: float
+    public_booking_included_minutes: int
+    public_booking_extra_amount: float
+    public_booking_extra_step_minutes: int
+    public_booking_extras: list[str] = Field(default_factory=list)
     play_community_deposit_enabled: bool
     play_community_deposit_amount: float
     play_community_payment_timeout_minutes: int
+    play_community_use_public_deposit: bool
     stripe_enabled: bool
     paypal_enabled: bool
 
@@ -265,9 +272,16 @@ class AdminSettingsUpdateRequest(BaseModel):
     non_member_hourly_rate: float = Field(ge=0, le=999)
     member_ninety_minute_rate: float = Field(ge=0, le=999)
     non_member_ninety_minute_rate: float = Field(ge=0, le=999)
+    public_booking_deposit_enabled: bool = True
+    public_booking_base_amount: float = Field(default=20, ge=0, le=999)
+    public_booking_included_minutes: int = Field(default=90, ge=0, le=600)
+    public_booking_extra_amount: float = Field(default=10, ge=0, le=999)
+    public_booking_extra_step_minutes: int = Field(default=30, ge=0, le=300)
+    public_booking_extras: list[str] = Field(default_factory=list)
     play_community_deposit_enabled: bool = False
     play_community_deposit_amount: float = Field(default=20, ge=0, le=999)
     play_community_payment_timeout_minutes: int = Field(default=15, ge=5, le=120)
+    play_community_use_public_deposit: bool = False
 
     @field_validator('notification_email', mode='before')
     @classmethod
@@ -294,6 +308,19 @@ class AdminSettingsUpdateRequest(BaseModel):
     def normalize_public_province(cls, value: object | None) -> str | None:
         normalized = _normalize_optional_string(value)
         return normalized.upper() if normalized else None
+
+    @field_validator('public_booking_extras', mode='before')
+    @classmethod
+    def normalize_public_booking_extras(cls, value: object | None) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            candidates = value.splitlines()
+        elif isinstance(value, list):
+            candidates = [str(item) for item in value]
+        else:
+            raise ValueError('Extra listino non validi')
+        return [str(item).strip() for item in candidates if str(item).strip()]
 
     @model_validator(mode='after')
     def validate_public_coordinates_pair(self) -> 'AdminSettingsUpdateRequest':

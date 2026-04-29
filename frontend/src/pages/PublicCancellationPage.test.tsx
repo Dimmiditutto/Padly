@@ -159,8 +159,8 @@ describe('PublicCancellationPage', () => {
 
     expect(getPublicCancellation).toHaveBeenCalledWith('cancel-token-1', 'roma-club');
     expect(getPublicConfig).toHaveBeenCalledWith('roma-club');
-    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
-    expect(screen.getByRole('link', { name: 'Mantieni la prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/booking?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Mantieni la prenotazione' })).toHaveAttribute('href', '/booking?tenant=roma-club');
 
     fireEvent.click(screen.getByRole('button', { name: 'Conferma annullamento e rimborso' }));
     await waitFor(() => expect(cancelPublicBooking).toHaveBeenCalledWith('cancel-token-1', 'roma-club'));

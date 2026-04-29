@@ -214,13 +214,19 @@ def test_public_availability_is_filtered_by_current_tenant(client):
     selected_date = future_date(8)
     create_booking_for_club(tenant['id'], booking_date=selected_date, start_time='18:00')
 
-    default_availability = client.get('/api/public/availability', params={'date': selected_date, 'duration_minutes': 90})
+    missing_tenant_availability = client.get('/api/public/availability', params={'date': selected_date, 'duration_minutes': 90})
+    default_availability = client.get(
+        '/api/public/availability',
+        params={'date': selected_date, 'duration_minutes': 90, 'tenant': DEFAULT_CLUB_SLUG},
+    )
     tenant_availability = client.get(
         '/api/public/availability',
         params={'date': selected_date, 'duration_minutes': 90},
         headers=tenant_headers(tenant['host']),
     )
 
+    assert missing_tenant_availability.status_code == 400
+    assert missing_tenant_availability.json()['detail'] == 'Seleziona prima il club in cui vuoi giocare.'
     assert default_availability.status_code == 200
     assert tenant_availability.status_code == 200
     assert find_slot(default_availability.json(), '18:00')['available'] is True
@@ -237,7 +243,10 @@ def test_public_availability_uses_tenant_timezone_for_dst_gap(client):
     )
     selected_date = '2027-03-28'
 
-    default_availability = client.get('/api/public/availability', params={'date': selected_date, 'duration_minutes': 60})
+    default_availability = client.get(
+        '/api/public/availability',
+        params={'date': selected_date, 'duration_minutes': 60, 'tenant': DEFAULT_CLUB_SLUG},
+    )
     tenant_availability = client.get(
         '/api/public/availability',
         params={'date': selected_date, 'duration_minutes': 60},
@@ -348,9 +357,12 @@ def test_admin_settings_and_public_config_are_tenant_scoped(client):
     assert update.json()['public_name'] == 'Roma Elite Club'
     assert update.json()['notification_email'] == 'desk@roma-elite.example'
 
-    default_public = client.get('/api/public/config')
+    missing_tenant_public = client.get('/api/public/config')
+    default_public = client.get('/api/public/config', params={'tenant': DEFAULT_CLUB_SLUG})
     tenant_public = client.get('/api/public/config', headers=tenant_headers(tenant['host']))
 
+    assert missing_tenant_public.status_code == 400
+    assert missing_tenant_public.json()['detail'] == 'Seleziona prima il club in cui vuoi giocare.'
     assert default_public.status_code == 200
     assert tenant_public.status_code == 200
     assert default_public.json()['tenant_id'] == DEFAULT_CLUB_ID

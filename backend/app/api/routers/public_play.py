@@ -17,6 +17,7 @@ from app.services.play_service import (
     PLAYER_SESSION_COOKIE_NAME,
     PLAYER_SESSION_MAX_AGE_SECONDS,
     PLAY_ACCESS_OTP_RESEND_COOLDOWN_SECONDS,
+    build_club_player_session_cookie_name,
     mask_email,
     resend_player_access_challenge,
     start_player_access_challenge,
@@ -25,6 +26,18 @@ from app.services.play_service import (
 from app.models import PlayerActivityEventType
 
 router = APIRouter(prefix='/public/play-access', tags=['Play Public'])
+
+
+def _set_player_session_cookies(response: Response, *, club_slug: str, raw_token: str) -> None:
+    cookie_settings = {
+        'httponly': True,
+        'secure': settings.is_production,
+        'samesite': 'lax',
+        'max_age': PLAYER_SESSION_MAX_AGE_SECONDS,
+        'path': '/',
+    }
+    response.set_cookie(key=PLAYER_SESSION_COOKIE_NAME, value=raw_token, **cookie_settings)
+    response.set_cookie(key=build_club_player_session_cookie_name(club_slug), value=raw_token, **cookie_settings)
 
 
 @router.post('/start', response_model=PlayAccessOtpStartResponse)
@@ -81,15 +94,7 @@ def verify_public_play_access(
         event_type=PlayerActivityEventType.IDENTIFIED,
         useful=False,
     )
-    response.set_cookie(
-        key=PLAYER_SESSION_COOKIE_NAME,
-        value=raw_player_token,
-        httponly=True,
-        secure=settings.is_production,
-        samesite='lax',
-        max_age=PLAYER_SESSION_MAX_AGE_SECONDS,
-        path='/',
-    )
+    _set_player_session_cookies(response, club_slug=current_club.slug, raw_token=raw_player_token)
     db.commit()
     db.refresh(player)
     return PlayAccessOtpVerifyResponse(message='Accesso community completato.', player=player)

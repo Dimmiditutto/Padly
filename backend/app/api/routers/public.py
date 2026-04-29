@@ -1,13 +1,13 @@
 import math
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
-    get_current_club,
-    get_current_club_enforced,
+    get_current_public_club,
+    get_current_public_club_enforced,
     get_current_public_discovery_optional,
     get_current_public_discovery_required,
 )
@@ -19,6 +19,8 @@ from app.schemas.public import (
     AvailabilityResponse,
     BookingStatusResponse,
     PaymentInitResponse,
+    MatchinnHomeCommunitiesResponse,
+    MatchinnHomeOpenMatchesResponse,
     PublicClubContactRequestCreateRequest,
     PublicClubContactRequestCreateResponse,
     PublicClubDetailResponse,
@@ -34,7 +36,7 @@ from app.schemas.public import (
     PublicDiscoveryPreferencesUpdateRequest,
     PublicDiscoverySession,
 )
-from app.services.booking_service import acquire_single_court_lock, as_utc, build_daily_slots, calculate_deposit, cancel_booking, create_public_booking, expire_pending_booking_if_needed
+from app.services.booking_service import acquire_single_court_lock, as_utc, build_daily_slots, cancel_booking, create_public_booking, expire_pending_booking_if_needed, resolve_public_booking_deposit_terms
 from app.services.booking_service import build_daily_slots_grouped_by_court
 from app.services.payment_service import (
     assert_checkout_available,
@@ -44,8 +46,15 @@ from app.services.payment_service import (
     refund_booking_payment,
     start_payment_for_booking,
 )
-from app.services.settings_service import get_booking_rules, get_public_rate_card
-from app.services.play_service import PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS, build_public_activity_index, list_public_open_matches
+from app.services.settings_service import get_booking_rules, get_public_booking_deposit_policy, get_public_rate_card
+from app.services.play_service import (
+    PLAYER_SESSION_COOKIE_NAME,
+    PLAYER_SESSION_COOKIE_PREFIX,
+    PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
+    build_public_activity_index,
+    list_player_access_tokens_from_raw_tokens,
+    list_public_open_matches,
+)
 from app.services.public_discovery_service import (
     DISCOVERY_SESSION_COOKIE_NAME,
     DISCOVERY_SESSION_MAX_AGE_SECONDS,
@@ -172,6 +181,49 @@ def _sort_public_clubs_by_distance(clubs: list[Club], *, latitude: float, longit
     )
 
 
+def _collect_player_session_tokens_from_request(request: Request) -> list[str]:
+    raw_tokens: list[str] = []
+    legacy_token = request.cookies.get(PLAYER_SESSION_COOKIE_NAME)
+    if legacy_token:
+        raw_tokens.append(legacy_token)
+
+    for cookie_name, cookie_value in request.cookies.items():
+        if cookie_name.startswith(PLAYER_SESSION_COOKIE_PREFIX) and cookie_value:
+            raw_tokens.append(cookie_value)
+
+    return list(dict.fromkeys(raw_tokens))
+
+
+def _resolve_home_coordinates(
+    *,
+    latitude: float | None,
+    longitude: float | None,
+    subscriber: PublicDiscoverySubscriber | None,
+) -> tuple[float | None, float | None, str]:
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Latitudine e longitudine devono essere valorizzate insieme')
+    if latitude is not None and longitude is not None:
+        return latitude, longitude, 'query'
+    if subscriber and subscriber.latitude is not None and subscriber.longitude is not None:
+        return float(subscriber.latitude), float(subscriber.longitude), 'discovery'
+    return None, None, 'none'
+
+
+def _normalize_home_level(subscriber: PublicDiscoverySubscriber | None) -> PlayLevel | None:
+    if not subscriber or subscriber.preferred_level == PlayLevel.NO_PREFERENCE:
+        return None
+    return subscriber.preferred_level
+
+
+def _public_match_priority(item: dict) -> int:
+    participant_count = int(item['match']['participant_count'])
+    if participant_count >= 3:
+        return 0
+    if participant_count == 2:
+        return 1
+    return 2
+
+
 def _public_cancellation_reason(booking: Booking) -> str | None:
     if booking.status == BookingStatus.CANCELLED:
         return 'Prenotazione gia annullata'
@@ -213,9 +265,10 @@ def _build_public_cancellation_response(db: Session, booking: Booking, *, messag
 
 
 @router.get('/config', response_model=PublicConfigResponse)
-def get_public_config(current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicConfigResponse:
+def get_public_config(current_club: Club = Depends(get_current_public_club), db: Session = Depends(get_db)) -> PublicConfigResponse:
     booking_rules = get_booking_rules(db, club_id=current_club.id)
     public_rate_card = get_public_rate_card(db, club_id=current_club.id)
+    public_deposit_policy = get_public_booking_deposit_policy(db, club_id=current_club.id)
     return PublicConfigResponse(
         app_name=current_club.public_name,
         tenant_id=current_club.id,
@@ -232,6 +285,12 @@ def get_public_config(current_club: Club = Depends(get_current_club), db: Sessio
         non_member_hourly_rate=public_rate_card['non_member_hourly_rate'],
         member_ninety_minute_rate=public_rate_card['member_ninety_minute_rate'],
         non_member_ninety_minute_rate=public_rate_card['non_member_ninety_minute_rate'],
+        public_booking_deposit_enabled=bool(public_deposit_policy['public_booking_deposit_enabled']),
+        public_booking_base_amount=float(public_deposit_policy['public_booking_base_amount']),
+        public_booking_included_minutes=int(public_deposit_policy['public_booking_included_minutes']),
+        public_booking_extra_amount=float(public_deposit_policy['public_booking_extra_amount']),
+        public_booking_extra_step_minutes=int(public_deposit_policy['public_booking_extra_step_minutes']),
+        public_booking_extras=[str(item) for item in public_deposit_policy['public_booking_extras']],
         stripe_enabled=is_stripe_checkout_available(),
         paypal_enabled=is_paypal_checkout_available(),
     )
@@ -317,6 +376,110 @@ def get_public_club_detail(
             level_requested=level,
             lookahead_days=PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
         ),
+    )
+
+
+@router.get('/home/communities', response_model=MatchinnHomeCommunitiesResponse)
+def get_matchinn_home_communities(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> MatchinnHomeCommunitiesResponse:
+    session_tokens = list_player_access_tokens_from_raw_tokens(
+        db,
+        raw_tokens=_collect_player_session_tokens_from_request(request),
+        touch=True,
+    )
+    unique_clubs: dict[str, Club] = {}
+    for session_token in session_tokens:
+        if session_token.club_id not in unique_clubs:
+            unique_clubs[session_token.club_id] = session_token.club
+
+    clubs = sorted(
+        unique_clubs.values(),
+        key=lambda club: (club.public_name or '').lower(),
+    )
+    club_ids = [club.id for club in clubs]
+    court_counts = _load_court_counts(db, club_ids=club_ids)
+    activity_index = build_public_activity_index(db, club_ids=club_ids)
+    db.commit()
+    return MatchinnHomeCommunitiesResponse(
+        items=[
+            _serialize_public_club(
+                club,
+                court_counts=court_counts,
+                activity_summary=activity_index.get(club.id),
+            )
+            for club in clubs
+        ]
+    )
+
+
+@router.get('/home/open-matches', response_model=MatchinnHomeOpenMatchesResponse)
+def list_matchinn_home_open_matches(
+    latitude: float | None = Query(default=None, ge=-90, le=90),
+    longitude: float | None = Query(default=None, ge=-180, le=180),
+    limit: int = Query(default=12, ge=1, le=24),
+    current_subscriber: PublicDiscoverySubscriber | None = Depends(get_current_public_discovery_optional),
+    db: Session = Depends(get_db),
+) -> MatchinnHomeOpenMatchesResponse:
+    resolved_latitude, resolved_longitude, location_source = _resolve_home_coordinates(
+        latitude=latitude,
+        longitude=longitude,
+        subscriber=current_subscriber,
+    )
+    preferred_level = _normalize_home_level(current_subscriber)
+    if resolved_latitude is None or resolved_longitude is None:
+        if current_subscriber:
+            db.commit()
+        return MatchinnHomeOpenMatchesResponse(
+            items=[],
+            location_source=location_source,
+            preferred_level=preferred_level,
+        )
+
+    clubs = _load_public_clubs(db)
+    sorted_clubs = [
+        (club, distance_km)
+        for club, distance_km in _sort_public_clubs_by_distance(clubs, latitude=resolved_latitude, longitude=resolved_longitude)
+        if distance_km is not None
+    ]
+    candidate_clubs = sorted_clubs[:8]
+    club_ids = [club.id for club, _ in candidate_clubs]
+    court_counts = _load_court_counts(db, club_ids=club_ids)
+    activity_index = build_public_activity_index(db, club_ids=club_ids)
+
+    items: list[dict] = []
+    for club, distance_km in candidate_clubs:
+        public_club = _serialize_public_club(
+            club,
+            court_counts=court_counts,
+            distance_km=distance_km,
+            activity_summary=activity_index.get(club.id),
+        )
+        open_matches = list_public_open_matches(
+            db,
+            club_id=club.id,
+            level_requested=preferred_level,
+            lookahead_days=PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS,
+        )
+        for match in open_matches[:3]:
+            items.append({'club': public_club, 'match': match})
+
+    items.sort(
+        key=lambda item: (
+            _public_match_priority(item),
+            item['club']['distance_km'] if item['club']['distance_km'] is not None else float('inf'),
+            item['match']['start_at'],
+            item['club']['club_slug'],
+            item['match']['id'],
+        )
+    )
+    if current_subscriber:
+        db.commit()
+    return MatchinnHomeOpenMatchesResponse(
+        items=items[:limit],
+        location_source=location_source,
+        preferred_level=preferred_level,
     )
 
 
@@ -476,9 +639,10 @@ def create_public_club_contact_request_route(
 def get_availability(
     booking_date: date = Query(alias='date'),
     duration_minutes: int = Query(default=90),
-    current_club: Club = Depends(get_current_club_enforced),
+    current_club: Club = Depends(get_current_public_club_enforced),
     db: Session = Depends(get_db),
 ) -> AvailabilityResponse:
+    deposit_terms = resolve_public_booking_deposit_terms(db, club_id=current_club.id, duration_minutes=duration_minutes)
     court_groups = build_daily_slots_grouped_by_court(
         db,
         booking_date=booking_date,
@@ -489,7 +653,8 @@ def get_availability(
     return AvailabilityResponse(
         date=booking_date,
         duration_minutes=duration_minutes,
-        deposit_amount=calculate_deposit(duration_minutes),
+        deposit_amount=float(deposit_terms['amount']),
+        deposit_required=bool(deposit_terms['enabled']),
         slots=court_groups[0]['slots'] if len(court_groups) == 1 else [],
         courts=court_groups,
     )
@@ -498,11 +663,10 @@ def get_availability(
 @router.post('/bookings', response_model=PublicBookingCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_booking(
     payload: PublicBookingCreateRequest,
-    current_club: Club = Depends(get_current_club_enforced),
+    current_club: Club = Depends(get_current_public_club_enforced),
     db: Session = Depends(get_db),
 ) -> PublicBookingCreateResponse:
     with acquire_single_court_lock(db):
-        assert_checkout_available(payload.payment_provider)
         booking = create_public_booking(
             db,
             club_id=current_club.id,
@@ -525,7 +689,7 @@ def create_booking(
 
 
 @router.post('/bookings/{booking_id}/checkout', response_model=PaymentInitResponse)
-def create_checkout(booking_id: str, current_club: Club = Depends(get_current_club_enforced), db: Session = Depends(get_db)) -> PaymentInitResponse:
+def create_checkout(booking_id: str, current_club: Club = Depends(get_current_public_club_enforced), db: Session = Depends(get_db)) -> PaymentInitResponse:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.id == booking_id, Booking.club_id == current_club.id))
         if not booking:
@@ -548,7 +712,7 @@ def create_checkout(booking_id: str, current_club: Club = Depends(get_current_cl
 
 
 @router.get('/bookings/{public_reference}/status', response_model=BookingStatusResponse)
-def booking_status(public_reference: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> BookingStatusResponse:
+def booking_status(public_reference: str, current_club: Club = Depends(get_current_public_club), db: Session = Depends(get_db)) -> BookingStatusResponse:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.public_reference == public_reference, Booking.club_id == current_club.id))
         if not booking:
@@ -559,7 +723,7 @@ def booking_status(public_reference: str, current_club: Club = Depends(get_curre
 
 
 @router.get('/bookings/cancel/{cancel_token}', response_model=PublicCancellationResponse)
-def get_public_cancellation(cancel_token: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicCancellationResponse:
+def get_public_cancellation(cancel_token: str, current_club: Club = Depends(get_current_public_club), db: Session = Depends(get_db)) -> PublicCancellationResponse:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token, Booking.club_id == current_club.id))
         if not booking:
@@ -571,7 +735,7 @@ def get_public_cancellation(cancel_token: str, current_club: Club = Depends(get_
 
 
 @router.post('/bookings/cancel/{cancel_token}', response_model=PublicCancellationResponse)
-def cancel_public_booking(cancel_token: str, current_club: Club = Depends(get_current_club), db: Session = Depends(get_db)) -> PublicCancellationResponse:
+def cancel_public_booking(cancel_token: str, current_club: Club = Depends(get_current_public_club), db: Session = Depends(get_db)) -> PublicCancellationResponse:
     with acquire_single_court_lock(db):
         booking = db.scalar(select(Booking).where(Booking.cancel_token == cancel_token, Booking.club_id == current_club.id))
         if not booking:

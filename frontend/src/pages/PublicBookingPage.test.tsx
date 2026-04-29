@@ -32,6 +32,12 @@ const baseConfig = {
   non_member_hourly_rate: 9,
   member_ninety_minute_rate: 10,
   non_member_ninety_minute_rate: 13,
+  public_booking_deposit_enabled: true,
+  public_booking_base_amount: 20,
+  public_booking_included_minutes: 90,
+  public_booking_extra_amount: 10,
+  public_booking_extra_step_minutes: 30,
+  public_booking_extras: [] as string[],
   stripe_enabled: true,
   paypal_enabled: true,
 } as const;
@@ -96,12 +102,11 @@ function buildHalfHourSlots(count: number) {
 }
 
 async function fillBookingForm() {
-  const user = userEvent.setup();
-  await user.type(screen.getByLabelText('Nome'), 'Luca');
-  await user.type(screen.getByLabelText('Cognome'), 'Bianchi');
-  await user.type(screen.getByLabelText('Telefono'), '3331112222');
-  await user.type(screen.getByLabelText('Email'), 'luca@example.com');
-  await user.click(screen.getByLabelText('Accetto il trattamento dei dati per la gestione della prenotazione.'));
+  fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Luca' } });
+  fireEvent.change(screen.getByLabelText('Cognome'), { target: { value: 'Bianchi' } });
+  fireEvent.change(screen.getByLabelText('Telefono'), { target: { value: '3331112222' } });
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'luca@example.com' } });
+  fireEvent.click(screen.getByLabelText('Accetto il trattamento dei dati per la gestione della prenotazione.'));
 }
 
 describe('PublicBookingPage', () => {
@@ -144,12 +149,12 @@ describe('PublicBookingPage', () => {
     expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
     expect(screen.getByText('Rimborso automatico solo se annulli prima di 24 ore. Nelle ultime 24 ore la caparra non e rimborsabile.')).toBeInTheDocument();
     expect(screen.getByText('Tempo massimo per completare il checkout.')).toBeInTheDocument();
-    expect(screen.getByText('Tariffe informative per giocatore')).toBeInTheDocument();
+    expect(screen.getByText('Tariffe del club per giocatore')).toBeInTheDocument();
     expect(screen.getByText(/Tesserati: .*ora per giocatore/)).toBeInTheDocument();
     expect(screen.getByText(/Non tesserati: .*ora per giocatore/)).toBeInTheDocument();
     expect(screen.getByText(/90 minuti: .*giocatore tesserato/)).toBeInTheDocument();
     expect(screen.getByText(/90 minuti: .*giocatore non tesserato/)).toBeInTheDocument();
-    expect(screen.getByText('Tariffe informative: non sostituiscono la caparra online.')).toBeInTheDocument();
+    expect(screen.getByText('Listini e extra sono mostrati solo nel contesto del club selezionato.')).toBeInTheDocument();
     expect(screen.getByText('Giorno')).toBeInTheDocument();
     expect(screen.getByText('Tenant attivo')).toBeInTheDocument();
     expect(screen.getByText('Slug: default-club • Fuso: Europe/Rome')).toBeInTheDocument();
@@ -216,6 +221,12 @@ describe('PublicBookingPage', () => {
       non_member_hourly_rate: 11,
       member_ninety_minute_rate: 12,
       non_member_ninety_minute_rate: 15,
+      public_booking_deposit_enabled: true,
+      public_booking_base_amount: 18,
+      public_booking_included_minutes: 90,
+      public_booking_extra_amount: 9,
+      public_booking_extra_step_minutes: 30,
+      public_booking_extras: ['Luci serali'],
     });
 
     renderPage('/?tenant=roma-club');
@@ -454,6 +465,17 @@ describe('PublicBookingPage', () => {
 
     await waitFor(() => expect(screen.getAllByText(unavailablePaymentMessage).length).toBeGreaterThan(0));
     expect(createPublicBooking).not.toHaveBeenCalled();
+  });
+
+  it('shows the club-selection message when the backend requires tenant context', async () => {
+    vi.mocked(getPublicConfig).mockRejectedValue({ response: { data: { detail: 'Seleziona prima il club in cui vuoi giocare.' } } });
+
+    renderPage('/booking');
+
+    expect(await screen.findByRole('heading', { name: 'Seleziona prima il club in cui vuoi giocare' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Apri directory club' })).toHaveAttribute('href', '/clubs');
+    expect(screen.getByRole('link', { name: 'Torna alla home Matchinn' })).toHaveAttribute('href', '/');
+    expect(getAvailability).not.toHaveBeenCalled();
   });
 
   it('shows the weekday label under the selected booking date', async () => {

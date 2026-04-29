@@ -109,9 +109,16 @@ def update_settings_payload(
         non_member_hourly_rate=payload.non_member_hourly_rate,
         member_ninety_minute_rate=payload.member_ninety_minute_rate,
         non_member_ninety_minute_rate=payload.non_member_ninety_minute_rate,
+        public_booking_deposit_enabled=payload.public_booking_deposit_enabled,
+        public_booking_base_amount=payload.public_booking_base_amount,
+        public_booking_included_minutes=payload.public_booking_included_minutes,
+        public_booking_extra_amount=payload.public_booking_extra_amount,
+        public_booking_extra_step_minutes=payload.public_booking_extra_step_minutes,
+        public_booking_extras=payload.public_booking_extras,
         play_community_deposit_enabled=payload.play_community_deposit_enabled,
         play_community_deposit_amount=payload.play_community_deposit_amount,
         play_community_payment_timeout_minutes=payload.play_community_payment_timeout_minutes,
+        play_community_use_public_deposit=payload.play_community_use_public_deposit,
     )
     db.commit()
     return AdminSettingsResponse(

@@ -36,12 +36,13 @@ from app.models import PlayerActivityEventType
 from app.services.email_service import email_service
 from app.services.play_notification_service import dispatch_play_notifications_for_match, record_player_activity
 from app.services.public_discovery_service import dispatch_public_watchlist_notifications_for_match
-from app.services.booking_service import acquire_single_court_lock, assert_slot_available, calculate_deposit, expire_pending_booking_if_needed, log_event, make_public_reference, resolve_slot_window
+from app.services.booking_service import acquire_single_court_lock, assert_slot_available, build_no_deposit_policy_snapshot, expire_pending_booking_if_needed, log_event, make_public_reference, resolve_public_booking_deposit_terms, resolve_slot_window
 from app.services.court_service import resolve_court
 from app.services.payment_service import list_available_checkout_providers, start_payment_for_booking
 from app.services.settings_service import get_play_community_payment
 
 PLAYER_SESSION_COOKIE_NAME = 'padel_play_session'
+PLAYER_SESSION_COOKIE_PREFIX = f'{PLAYER_SESSION_COOKIE_NAME}__'
 PLAYER_SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 PLAY_MATCH_SIZE = 4
 PUBLIC_PLAY_MATCH_LOOKAHEAD_DAYS = 7
@@ -71,6 +72,12 @@ def generate_email_otp_code() -> str:
 
 def hash_play_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
+
+
+def build_club_player_session_cookie_name(club_slug: str) -> str:
+    normalized_slug = club_slug.strip().lower()
+    sanitized_slug = ''.join(character if character.isalnum() or character in {'-', '_'} else '-' for character in normalized_slug)
+    return f'{PLAYER_SESSION_COOKIE_PREFIX}{sanitized_slug or "default-club"}'
 
 
 def generate_match_share_token_nonce() -> str:
@@ -749,6 +756,41 @@ def get_player_from_access_token(db: Session, *, club_id: str, raw_token: str | 
     return token.player
 
 
+def list_player_access_tokens_from_raw_tokens(
+    db: Session,
+    *,
+    raw_tokens: list[str],
+    touch: bool = False,
+) -> list[PlayerAccessToken]:
+    unique_raw_tokens = [value for value in dict.fromkeys(token.strip() for token in raw_tokens if token and token.strip())]
+    if not unique_raw_tokens:
+        return []
+
+    now = _utcnow()
+    tokens = db.scalars(
+        select(PlayerAccessToken)
+        .options(
+            selectinload(PlayerAccessToken.player),
+            selectinload(PlayerAccessToken.club),
+        )
+        .join(Player, Player.id == PlayerAccessToken.player_id)
+        .join(Club, Club.id == PlayerAccessToken.club_id)
+        .where(
+            PlayerAccessToken.token_hash.in_([hash_play_token(raw_token) for raw_token in unique_raw_tokens]),
+            PlayerAccessToken.revoked_at.is_(None),
+            PlayerAccessToken.expires_at > now,
+            Player.club_id == PlayerAccessToken.club_id,
+            Player.is_active.is_(True),
+            Club.is_active.is_(True),
+        )
+        .order_by(PlayerAccessToken.created_at.desc())
+    ).all()
+    if touch:
+        for token in tokens:
+            token.last_used_at = now
+    return tokens
+
+
 def _match_query(db: Session, *, club_id: str):
     return (
         select(Match)
@@ -995,6 +1037,52 @@ def _get_play_community_payment_settings(db: Session, *, club_id: str) -> dict[s
         'enabled': bool(payload['play_community_deposit_enabled']),
         'deposit_amount': Decimal(str(payload['play_community_deposit_amount'])).quantize(Decimal('0.01')),
         'payment_timeout_minutes': int(payload['play_community_payment_timeout_minutes']),
+        'use_public_deposit': bool(payload['play_community_use_public_deposit']),
+    }
+
+
+def _resolve_play_community_deposit_terms(db: Session, *, club_id: str, duration_minutes: int) -> dict[str, object]:
+    community_payment = _get_play_community_payment_settings(db, club_id=club_id)
+    public_deposit_terms = resolve_public_booking_deposit_terms(db, club_id=club_id, duration_minutes=duration_minutes)
+    currency = str(public_deposit_terms['currency'])
+
+    if bool(community_payment['use_public_deposit']):
+        return {
+            'enabled': bool(public_deposit_terms['enabled']),
+            'deposit_amount': Decimal(str(public_deposit_terms['amount'])).quantize(Decimal('0.01')),
+            'payment_timeout_minutes': int(community_payment['payment_timeout_minutes']),
+            'currency': currency,
+            'use_public_deposit': True,
+            'policy_snapshot': {
+                **dict(public_deposit_terms['policy_snapshot']),
+                'policy_type': 'PLAY_COMMUNITY_INHERITED_PUBLIC_DEPOSIT',
+            },
+        }
+
+    enabled = bool(community_payment['enabled'])
+    deposit_amount = Decimal(str(community_payment['deposit_amount'])).quantize(Decimal('0.01')) if enabled else Decimal('0.00')
+    policy_snapshot = build_no_deposit_policy_snapshot(
+        currency=currency,
+        source='PLAY_COMMUNITY',
+        reason='Caparra community non attiva',
+    )
+    if enabled:
+        policy_snapshot = {
+            'policy_type': 'PLAY_COMMUNITY_FIXED_DEPOSIT',
+            'play_community_deposit_enabled': True,
+            'play_community_deposit_amount': float(deposit_amount),
+            'play_community_payment_timeout_minutes': int(community_payment['payment_timeout_minutes']),
+            'play_community_use_public_deposit': False,
+            'currency': currency,
+        }
+
+    return {
+        'enabled': enabled,
+        'deposit_amount': deposit_amount,
+        'payment_timeout_minutes': int(community_payment['payment_timeout_minutes']),
+        'currency': currency,
+        'use_public_deposit': False,
+        'policy_snapshot': policy_snapshot,
     }
 
 
@@ -1072,7 +1160,7 @@ def _complete_match_booking(
         court_id=match.court_id,
         club_id=club_id,
     )
-    community_payment = _get_play_community_payment_settings(db, club_id=club_id)
+    community_payment = _resolve_play_community_deposit_terms(db, club_id=club_id, duration_minutes=match.duration_minutes)
     community_payment_enabled = bool(community_payment['enabled'])
     available_providers = list_available_checkout_providers() if community_payment_enabled else []
     deposit_amount = Decimal('0.00')
@@ -1080,6 +1168,8 @@ def _complete_match_booking(
     payment_provider = PaymentProvider.NONE
     expires_at = None
     payment_timeout_minutes = int(community_payment['payment_timeout_minutes'])
+    deposit_currency = str(community_payment['currency'])
+    deposit_policy_snapshot = dict(community_payment['policy_snapshot'])
 
     if community_payment_enabled:
         deposit_amount = Decimal(str(community_payment['deposit_amount'])).quantize(Decimal('0.01'))
@@ -1103,6 +1193,8 @@ def _complete_match_booking(
         booking_date_local=_build_booking_date_local(match.start_at, club_timezone=club_timezone),
         status=booking_status,
         deposit_amount=deposit_amount,
+        deposit_currency=deposit_currency,
+        deposit_policy_snapshot=deposit_policy_snapshot,
         payment_provider=payment_provider,
         payment_status=PaymentStatus.UNPAID,
         expires_at=expires_at,
@@ -1123,6 +1215,7 @@ def _complete_match_booking(
             'player_ids': [participant.player_id for participant in sorted(match.participants, key=lambda item: item.created_at)],
             'payer_player_id': actor_player_id,
             'community_payment_enabled': community_payment_enabled,
+            'community_payment_use_public_deposit': bool(community_payment['use_public_deposit']),
             'deposit_amount': float(deposit_amount),
             'payment_timeout_minutes': payment_timeout_minutes,
         },

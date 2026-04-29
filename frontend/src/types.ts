@@ -113,6 +113,12 @@ export interface PublicConfig {
   non_member_hourly_rate: number;
   member_ninety_minute_rate: number;
   non_member_ninety_minute_rate: number;
+  public_booking_deposit_enabled?: boolean;
+  public_booking_base_amount?: number;
+  public_booking_included_minutes?: number;
+  public_booking_extra_amount?: number;
+  public_booking_extra_step_minutes?: number;
+  public_booking_extras?: string[];
   stripe_enabled: boolean;
   paypal_enabled: boolean;
 }
@@ -166,6 +172,21 @@ export interface PublicClubDetailResponse {
   support_phone?: string | null;
   public_match_window_days: number;
   open_matches: PublicClubOpenMatchSummary[];
+}
+
+export interface MatchinnHomeCommunitiesResponse {
+  items: PublicClubSummary[];
+}
+
+export interface MatchinnHomeOpenMatchItem {
+  club: PublicClubSummary;
+  match: PublicClubOpenMatchSummary;
+}
+
+export interface MatchinnHomeOpenMatchesResponse {
+  items: MatchinnHomeOpenMatchItem[];
+  location_source: 'query' | 'discovery' | 'none' | string;
+  preferred_level?: PlayLevel | null;
 }
 
 export type PublicDiscoveryTimeSlot = 'morning' | 'afternoon' | 'evening';
@@ -260,6 +281,7 @@ export interface AvailabilityResponse {
   date: string;
   duration_minutes: number;
   deposit_amount: number;
+  deposit_required?: boolean;
   slots: TimeSlot[];
   courts?: CourtAvailability[];
 }
@@ -462,9 +484,16 @@ export interface AdminSettings {
   non_member_hourly_rate: number;
   member_ninety_minute_rate: number;
   non_member_ninety_minute_rate: number;
+  public_booking_deposit_enabled?: boolean;
+  public_booking_base_amount?: number;
+  public_booking_included_minutes?: number;
+  public_booking_extra_amount?: number;
+  public_booking_extra_step_minutes?: number;
+  public_booking_extras?: string[];
   play_community_deposit_enabled: boolean;
   play_community_deposit_amount: number;
   play_community_payment_timeout_minutes: number;
+  play_community_use_public_deposit?: boolean;
   stripe_enabled: boolean;
   paypal_enabled: boolean;
 }
@@ -488,9 +517,16 @@ export interface AdminSettingsUpdatePayload {
   non_member_hourly_rate: number;
   member_ninety_minute_rate: number;
   non_member_ninety_minute_rate: number;
+  public_booking_deposit_enabled: boolean;
+  public_booking_base_amount: number;
+  public_booking_included_minutes: number;
+  public_booking_extra_amount: number;
+  public_booking_extra_step_minutes: number;
+  public_booking_extras: string[];
   play_community_deposit_enabled: boolean;
   play_community_deposit_amount: number;
   play_community_payment_timeout_minutes: number;
+  play_community_use_public_deposit: boolean;
 }
 
 export interface AdminCommunityInvitePayload {

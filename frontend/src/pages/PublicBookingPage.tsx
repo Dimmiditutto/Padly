@@ -20,6 +20,8 @@ const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
 const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
 type FeedbackState = { tone: 'error' | 'success' | 'info' | 'warning'; message: string } | null;
+type PublicContextState = 'loading' | 'ready' | 'required' | 'error';
+const CLUB_SELECTION_REQUIRED_MESSAGE = 'Seleziona prima il club in cui vuoi giocare.';
 
 export function PublicBookingPage() {
   const [searchParams] = useSearchParams();
@@ -28,7 +30,9 @@ export function PublicBookingPage() {
   const [duration, setDuration] = useState(90);
   const [courtGroups, setCourtGroups] = useState<CourtAvailability[]>([]);
   const [depositAmount, setDepositAmount] = useState<number>(20);
+  const [depositRequired, setDepositRequired] = useState(true);
   const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
+  const [publicContextState, setPublicContextState] = useState<PublicContextState>('loading');
   const [selectedCourtId, setSelectedCourtId] = useState('');
   const [selectedSlotId, setSelectedSlotId] = useState('');
   const [expandedCourtIds, setExpandedCourtIds] = useState<Record<string, boolean>>({});
@@ -55,26 +59,31 @@ export function PublicBookingPage() {
     () => courtGroups.map((group) => ({ ...group, slots: group.slots.filter(isSlotWithinOpeningHours) })),
     [courtGroups]
   );
-  const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'PadelBooking';
-  const communityAccessPath = buildPlayAccessPath(publicConfig?.tenant_slug || tenantSlug || 'default-club');
+  const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'Booking pubblico';
+  const communityAccessPath = publicConfig ? buildPlayAccessPath(publicConfig.tenant_slug) : null;
   const playerRates = useMemo(() => buildPublicRateLines(publicConfig), [publicConfig]);
+  const publicBookingDepositEnabled = useMemo(() => hasEnabledPublicBookingDeposit(publicConfig), [publicConfig]);
+  const publicBookingExtras = publicConfig?.public_booking_extras || [];
 
   useEffect(() => {
     void loadConfig();
   }, [tenantSlug]);
 
   useEffect(() => {
+    if (publicContextState !== 'ready' || !publicConfig) {
+      return;
+    }
     void loadAvailability();
-  }, [bookingDate, duration, tenantSlug]);
+  }, [bookingDate, duration, publicConfig, publicContextState, tenantSlug]);
 
   const availableProviders = useMemo<PaymentProvider[]>(() => {
-    if (!publicConfig) return [];
+    if (!publicConfig || !publicBookingDepositEnabled) return [];
 
     const providers: PaymentProvider[] = [];
     if (publicConfig.stripe_enabled) providers.push('STRIPE');
     if (publicConfig.paypal_enabled) providers.push('PAYPAL');
     return providers;
-  }, [publicConfig]);
+  }, [publicBookingDepositEnabled, publicConfig]);
 
   useEffect(() => {
     if (availableProviders.length === 0) {
@@ -91,17 +100,31 @@ export function PublicBookingPage() {
 
   async function loadConfig() {
     setLoadingConfig(true);
+    setPublicContextState('loading');
+    setPublicConfig(null);
     try {
       const config = await getPublicConfig(tenantSlug);
       setPublicConfig(config);
-    } catch {
-      setFeedback({ tone: 'error', message: 'Non riesco a caricare la configurazione pubblica del booking.' });
+      setPublicContextState('ready');
+      setFeedback(null);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      if (detail === CLUB_SELECTION_REQUIRED_MESSAGE) {
+        setPublicContextState('required');
+        setFeedback({ tone: 'info', message: CLUB_SELECTION_REQUIRED_MESSAGE });
+      } else {
+        setPublicContextState('error');
+        setFeedback({ tone: 'error', message: detail || 'Non riesco a caricare la configurazione pubblica del booking.' });
+      }
     } finally {
       setLoadingConfig(false);
     }
   }
 
   async function loadAvailability() {
+    if (!publicConfig) {
+      return;
+    }
     setLoadingSlots(true);
     setFeedback(null);
     setSelectedSlotId('');
@@ -111,6 +134,7 @@ export function PublicBookingPage() {
       const response = await getAvailability(bookingDate, duration, tenantSlug);
       setCourtGroups(normalizeCourtGroups(response));
       setDepositAmount(Number(response.deposit_amount));
+      setDepositRequired(Boolean(response.deposit_required ?? publicBookingDepositEnabled));
     } catch (error) {
       setFeedback({ tone: 'error', message: 'Non riesco a caricare gli slot disponibili in questo momento.' });
       setCourtGroups([]);
@@ -181,7 +205,7 @@ export function PublicBookingPage() {
       return;
     }
 
-    if (availableProviders.length === 0 || paymentProvider === 'NONE') {
+    if (depositRequired && (availableProviders.length === 0 || paymentProvider === 'NONE')) {
       setFeedback({ tone: 'error', message: 'Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.' });
       return;
     }
@@ -198,20 +222,50 @@ export function PublicBookingPage() {
           start_time: selectedSlot.start_time,
           slot_id: selectedSlot.slot_id,
           duration_minutes: duration,
-          payment_provider: paymentProvider,
+          payment_provider: depositRequired ? paymentProvider : 'NONE',
         },
         tenantSlug,
       );
 
       const booking = bookingResponse.booking;
       setLastBooking(booking);
-      const checkoutResponse = await createPublicCheckout(booking.id, tenantSlug);
-      window.location.assign(checkoutResponse.checkout_url);
+      if (booking.status === 'PENDING_PAYMENT') {
+        const checkoutResponse = await createPublicCheckout(booking.id, tenantSlug);
+        window.location.assign(checkoutResponse.checkout_url);
+        return;
+      }
+      setFeedback({ tone: 'success', message: `Prenotazione ${booking.public_reference} confermata. Nessuna caparra online richiesta per questo club.` });
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.response?.data?.detail || 'Non è stato possibile avviare la prenotazione.' });
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (publicContextState === 'required') {
+    return (
+      <div className='min-h-screen text-slate-900'>
+        <div className='page-shell max-w-4xl space-y-6'>
+          <header className='product-hero-panel'>
+            <div className='product-hero-copy'>
+              <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico</p>
+              <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Seleziona prima il club in cui vuoi giocare</h1>
+              <p className='product-hero-description max-w-2xl'>Il booking non parte piu senza contesto club. Prima scegli il circolo giusto, poi apri il booking con listini e caparra corretti per quel club.</p>
+            </div>
+          </header>
+
+          {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
+
+          <SectionCard title='Scegli il club' description='Apri la directory pubblica o la scheda del club per entrare nel booking tenant-aware.' elevated>
+            <div className='action-cluster'>
+              <Link className='btn-primary' to='/clubs'>Apri directory club</Link>
+              <Link className='btn-secondary' to='/clubs/nearby'>Cerca club vicini</Link>
+              <Link className='btn-secondary' to='/'>Torna alla home Matchinn</Link>
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -225,12 +279,16 @@ export function PublicBookingPage() {
             <div className='mt-6 product-hero-copy'>
               <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico tenant-aware</p>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>{tenantDisplayName}: prenota il tuo match in pochi minuti</h1>
-              <p className='product-hero-description max-w-xl'>Scegli data, orario e durata. Paghi online solo la caparra, il saldo lo versi comodamente al campo. Il backend mantiene il tenant attivo senza cambiare il flusso prenotazione.</p>
+              <p className='product-hero-description max-w-xl'>
+                {depositRequired
+                  ? 'Scegli data, orario e durata. Paghi online solo la caparra del club, il saldo lo versi comodamente al campo.'
+                  : 'Scegli data, orario e durata. Per questo club non e prevista una caparra online: la prenotazione viene confermata direttamente con le regole del circolo.'}
+              </p>
             </div>
             <div className='mt-6 border-t border-white/10 pt-5'>
               <div className='grid gap-3 sm:grid-cols-3'>
                 <InfoPill icon={<Clock3 size={16} />} title='Campo aperto' text='Da Lunedì a Domenica dalle 7 alle 24' />
-                <InfoPill icon={<CreditCard size={16} />} title='Caparra online' text='Stripe o PayPal' />
+                <InfoPill icon={<CreditCard size={16} />} title={depositRequired ? 'Caparra online' : 'Prenotazione'} text={depositRequired ? 'Stripe o PayPal' : 'Conferma diretta'} />
                 <InfoPill icon={<ShieldCheck size={16} />} title='Conferma rapida' text='Slot protetto server-side' />
               </div>
             </div>
@@ -258,10 +316,12 @@ export function PublicBookingPage() {
                         <span>{publicConfig.support_phone}</span>
                       </a>
                     ) : null}
-                    <Link to={communityAccessPath} className='hero-action-secondary'>
-                      <LogIn size={16} className='text-cyan-200' />
-                      <span>Entra o rientra nella community</span>
-                    </Link>
+                    {communityAccessPath ? (
+                      <Link to={communityAccessPath} className='hero-action-secondary'>
+                        <LogIn size={16} className='text-cyan-200' />
+                        <span>Entra o rientra nella community</span>
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -269,9 +329,13 @@ export function PublicBookingPage() {
           </div>
 
           <div className='surface-card bg-gradient-to-br from-white to-cyan-50'>
-            <p className='text-base font-semibold text-cyan-700'>Caparra online</p>
-            <div className='mt-2 text-4xl font-bold text-slate-950'>{formatCurrency(depositAmount)}</div>
-            <p className='mt-2 text-base leading-6 text-slate-600'>Fino a 90 minuti paghi €20. Poi si aggiungono €10 per ogni ulteriore blocco da 30 minuti.</p>
+            <p className='text-base font-semibold text-cyan-700'>{depositRequired ? 'Caparra online' : 'Tariffe e regole del club'}</p>
+            {depositRequired ? <div className='mt-2 text-4xl font-bold text-slate-950'>{formatCurrency(depositAmount)}</div> : null}
+            <p className='mt-2 text-base leading-6 text-slate-600'>
+              {depositRequired
+                ? buildPublicDepositRuleText(publicConfig, depositAmount)
+                : 'Per questo club la caparra online non e attiva. Vedi listino ed eventuali extra direttamente sotto.'}
+            </p>
             {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' labelClassName='text-base' /></div> : null}
             {publicConfig ? (
               <div className='mt-4 grid gap-3 sm:grid-cols-2'>
@@ -288,13 +352,23 @@ export function PublicBookingPage() {
               </div>
             ) : null}
             <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-base text-slate-100'>
-              <p className='font-semibold'>Tariffe informative per giocatore</p>
+              <p className='font-semibold'>Tariffe del club per giocatore</p>
               <ul className='mt-2 space-y-1 text-slate-300'>
                 {playerRates.map((rate) => (
                   <li key={rate}>• {rate}</li>
                 ))}
               </ul>
-              <p className='mt-3 text-sm leading-5 text-slate-400'>Tariffe informative: non sostituiscono la caparra online.</p>
+              {publicBookingExtras.length > 0 ? (
+                <div className='mt-4'>
+                  <p className='text-sm font-semibold text-slate-100'>Extra del club</p>
+                  <ul className='mt-2 space-y-1 text-slate-300'>
+                    {publicBookingExtras.map((extra) => (
+                      <li key={extra}>• {extra}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <p className='mt-3 text-sm leading-5 text-slate-400'>Listini e extra sono mostrati solo nel contesto del club selezionato.</p>
             </div>
           </div>
         </header>
@@ -304,7 +378,7 @@ export function PublicBookingPage() {
             <div className='grid gap-3 sm:grid-cols-3'>
               <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
               <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
-              <StepCard index='3' title='Versa la caparra' description='Completa il checkout e ricevi subito la conferma.' />
+              <StepCard index='3' title={depositRequired ? 'Versa la caparra' : 'Conferma la prenotazione'} description={depositRequired ? 'Completa il checkout e ricevi subito la conferma.' : 'Invia la richiesta e ricevi subito la conferma del booking.'} />
             </div>
           </SectionCard>
 
@@ -460,11 +534,13 @@ export function PublicBookingPage() {
             </section>
 
             <section>
-              <SectionCard title='Completa la prenotazione' description='Inserisci i tuoi dati e scegli come versare la caparra.' elevated>
+              <SectionCard title='Completa la prenotazione' description={depositRequired ? 'Inserisci i tuoi dati e scegli come versare la caparra.' : 'Inserisci i tuoi dati e conferma la prenotazione del club selezionato.'} elevated>
               {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
               {lastBooking && !feedback ? (
-                <AlertBanner tone='success' title='Richiesta creata'>
-                  Codice {lastBooking.public_reference}. Ti sto reindirizzando al checkout della caparra.
+                <AlertBanner tone='success' title={lastBooking.status === 'PENDING_PAYMENT' ? 'Richiesta creata' : 'Prenotazione confermata'}>
+                  {lastBooking.status === 'PENDING_PAYMENT'
+                    ? `Codice ${lastBooking.public_reference}. Ti sto reindirizzando al checkout della caparra.`
+                    : `Codice ${lastBooking.public_reference}. Il club non richiede caparra online per questo booking.`}
                 </AlertBanner>
               ) : null}
 
@@ -493,26 +569,28 @@ export function PublicBookingPage() {
                   <textarea id='public-note' className='text-input min-h-24' value={formData.note} onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))} />
                 </div>
 
-                <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
-                  <p className={secondarySectionTitleClassName}>Metodo pagamento caparra</p>                 
-                  {availableProviders.length === 0 ? (
-                    <div className='mt-3'>
-                      <AlertBanner tone='error'>Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.</AlertBanner>
+                {depositRequired ? (
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className={secondarySectionTitleClassName}>Metodo pagamento caparra</p>
+                    {availableProviders.length === 0 ? (
+                      <div className='mt-3'>
+                        <AlertBanner tone='error'>Il pagamento online non è disponibile in questo momento. Contatta il campo prima di completare la prenotazione.</AlertBanner>
+                      </div>
+                    ) : null}
+                    <div className='mt-3 grid gap-2 sm:grid-cols-2'>
+                      {availableProviders.map((provider) => (
+                        <button
+                          type='button'
+                          key={provider}
+                          onClick={() => setPaymentProvider(provider)}
+                          className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${paymentProvider === provider ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+                        >
+                          {provider === 'STRIPE' ? 'Stripe' : 'PayPal'}
+                        </button>
+                      ))}
                     </div>
-                  ) : null}
-                  <div className='mt-3 grid gap-2 sm:grid-cols-2'>
-                    {availableProviders.map((provider) => (
-                      <button
-                        type='button'
-                        key={provider}
-                        onClick={() => setPaymentProvider(provider)}
-                        className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${paymentProvider === provider ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
-                      >
-                        {provider === 'STRIPE' ? 'Stripe' : 'PayPal'}
-                      </button>
-                    ))}
                   </div>
-                </div>
+                ) : null}
 
                 <div className='rounded-2xl bg-cyan-50 p-4 text-sm text-slate-700'>
                   <p className={secondarySectionTitleClassName}>Riepilogo</p>
@@ -520,8 +598,8 @@ export function PublicBookingPage() {
                   <p>Campo: <strong>{selectedCourt?.court_name || 'Seleziona uno slot'}</strong></p>
                   <p>Inizio: <strong>{selectedSlot?.display_start_time || 'Seleziona uno slot'}</strong></p>
                   <p>Durata: <strong>{duration} minuti</strong></p>
-                  <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p>
-                  <p className='mt-2 text-sm leading-6 text-slate-600'>Il saldo residuo viene pagato direttamente al campo. Nessuna registrazione obbligatoria.</p>
+                  {depositRequired ? <p>Caparra online: <strong>{formatCurrency(depositAmount)}</strong></p> : null}
+                  <p className='mt-2 text-sm leading-6 text-slate-600'>{depositRequired ? 'Il saldo residuo viene pagato direttamente al campo. Nessuna registrazione obbligatoria.' : 'Nessuna caparra online prevista: il club gestisce l intero incasso secondo le proprie regole operative.'}</p>
                 </div>
 
                 <label className='flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
@@ -535,8 +613,8 @@ export function PublicBookingPage() {
                   <span>Accetto il trattamento dei dati per la gestione della prenotazione.</span>
                 </label>
 
-                <button className='btn-primary w-full' type='submit' disabled={submitting || loadingSlots || availableProviders.length === 0}>
-                  {submitting ? 'Sto preparando il checkout…' : 'Continua al pagamento della caparra'}
+                <button className='btn-primary w-full' type='submit' disabled={submitting || loadingSlots || (depositRequired && availableProviders.length === 0)}>
+                  {submitting ? (depositRequired ? 'Sto preparando il checkout…' : 'Sto confermando il booking…') : (depositRequired ? 'Continua al pagamento della caparra' : 'Conferma prenotazione')}
                 </button>
               </form>
             </SectionCard>
@@ -590,10 +668,14 @@ function formatDistance(distanceKm: number | null | undefined) {
 }
 
 function buildPublicRateLines(config: PublicConfig | null) {
-  const memberHourlyRate = config?.member_hourly_rate ?? 7;
-  const nonMemberHourlyRate = config?.non_member_hourly_rate ?? 9;
-  const memberNinetyMinuteRate = config?.member_ninety_minute_rate ?? 10;
-  const nonMemberNinetyMinuteRate = config?.non_member_ninety_minute_rate ?? 13;
+  if (!config) {
+    return [];
+  }
+
+  const memberHourlyRate = config.member_hourly_rate;
+  const nonMemberHourlyRate = config.non_member_hourly_rate;
+  const memberNinetyMinuteRate = config.member_ninety_minute_rate;
+  const nonMemberNinetyMinuteRate = config.non_member_ninety_minute_rate;
 
   return [
     `Tesserati: ${formatCurrency(memberHourlyRate)}/ora per giocatore`,
@@ -601,6 +683,37 @@ function buildPublicRateLines(config: PublicConfig | null) {
     `90 minuti: ${formatCurrency(memberNinetyMinuteRate)} per giocatore tesserato`,
     `90 minuti: ${formatCurrency(nonMemberNinetyMinuteRate)} per giocatore non tesserato`,
   ];
+}
+
+function hasEnabledPublicBookingDeposit(config: PublicConfig | null) {
+  if (!config) {
+    return false;
+  }
+
+  const enabled = config.public_booking_deposit_enabled ?? true;
+  const baseAmount = config.public_booking_base_amount ?? 20;
+  const includedMinutes = config.public_booking_included_minutes ?? 90;
+
+  return Boolean(enabled)
+    && Number(baseAmount) > 0
+    && Number(includedMinutes) > 0;
+}
+
+function buildPublicDepositRuleText(config: PublicConfig | null, currentDepositAmount: number) {
+  if (!config || !hasEnabledPublicBookingDeposit(config)) {
+    return 'Nessuna caparra online prevista per questo club.';
+  }
+
+  const baseAmount = Number(config.public_booking_base_amount ?? 20);
+  const includedMinutes = Number(config.public_booking_included_minutes ?? 90);
+  const extraAmount = Number(config.public_booking_extra_amount ?? 10);
+  const extraStepMinutes = Number(config.public_booking_extra_step_minutes ?? 30);
+
+  if (extraAmount > 0 && extraStepMinutes > 0) {
+    return `${formatCurrency(baseAmount)} fino a ${includedMinutes} minuti. Poi si aggiungono ${formatCurrency(extraAmount)} ogni ${extraStepMinutes} minuti successivi. Importo attuale: ${formatCurrency(currentDepositAmount)}.`;
+  }
+
+  return `${formatCurrency(baseAmount)} fino a ${includedMinutes} minuti. Nessun extra oltre la soglia configurata dal club.`;
 }
 
 function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability[] {

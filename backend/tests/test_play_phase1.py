@@ -7,7 +7,7 @@ from app.services import play_service as play_service_module
 from app.core.db import SessionLocal
 from app.core.security import hash_password
 from app.models import Club, ClubDomain, CommunityAccessLink, CommunityInviteToken, Court, DEFAULT_CLUB_ID, Match, MatchPlayer, MatchStatus, PlayLevel, Player
-from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, create_community_invite, hash_play_token
+from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, build_club_player_session_cookie_name, create_community_invite, hash_play_token
 
 
 def tenant_headers(host: str) -> dict[str, str]:
@@ -463,8 +463,15 @@ def test_play_cookie_is_not_valid_across_tenants(client):
         },
     )
     assert identify_response.status_code == 200
+    legacy_cookie = client.cookies.get(PLAYER_SESSION_COOKIE_NAME)
+    default_club_cookie = client.cookies.get(build_club_player_session_cookie_name('default-club'))
+
+    assert legacy_cookie
+    assert default_club_cookie == legacy_cookie
 
     cross_tenant_me = client.get('/api/play/me', headers=tenant_headers(secondary['host']))
 
     assert cross_tenant_me.status_code == 200
     assert cross_tenant_me.json()['player'] is None
+    assert client.cookies.get(PLAYER_SESSION_COOKIE_NAME) == legacy_cookie
+    assert client.cookies.get(build_club_player_session_cookie_name('default-club')) == default_club_cookie

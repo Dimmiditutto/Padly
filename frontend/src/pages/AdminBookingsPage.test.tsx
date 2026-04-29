@@ -185,14 +185,14 @@ describe('AdminBookingsPage', () => {
     renderPage();
 
     await screen.findByText('Ricerca avanzata e gestione ricorrenze');
+    expect(await screen.findByText('Corso serale')).toBeInTheDocument();
+    expect(await screen.findByText('Cliente Singolo')).toBeInTheDocument();
     expect(screen.queryByText('Tenant attivo: PadelBooking')).not.toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Prenotazioni Attuali' })[0]).toHaveAttribute('href', '/admin/prenotazioni-attuali');
     expect(screen.getByRole('link', { name: 'Elenco Prenotazioni' })).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.queryByRole('link', { name: 'Log' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Aggiorna pagina' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
-    expect(screen.getByText('Corso serale')).toBeInTheDocument();
-    expect(screen.getByText('Cliente Singolo')).toBeInTheDocument();
     expect(screen.queryByText('PB-BOOK-100')).not.toBeInTheDocument();
     expect(screen.getAllByText('Durata 90 minuti').length).toBeGreaterThan(0);
 

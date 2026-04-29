@@ -10,6 +10,7 @@ import { AdminLogsPage } from './pages/AdminLogsPage';
 import { AdminPasswordResetPage } from './pages/AdminPasswordResetPage';
 import { ClubDirectoryPage } from './pages/ClubDirectoryPage';
 import { InviteAcceptPage } from './pages/InviteAcceptPage';
+import { MatchinnHomePage } from './pages/MatchinnHomePage';
 import { PublicCancellationPage } from './pages/PublicCancellationPage';
 import { PublicClubPage } from './pages/PublicClubPage';
 import { PaymentStatusPage } from './pages/PaymentStatusPage';
@@ -43,7 +44,7 @@ function PlayAliasTenantRequiredPage({
           <AlertBanner tone='error'>{message}</AlertBanner>
         </div>
         <div className='mt-6 flex flex-col gap-3 sm:flex-row'>
-          <Link className='btn-secondary' to='/'>Torna al booking</Link>
+          <Link className='btn-secondary' to='/booking'>Torna al booking</Link>
         </div>
       </section>
     </div>
@@ -107,7 +108,8 @@ function PlaySharedAliasRedirect() {
 export default function App() {
   return (
     <Routes>
-      <Route path='/' element={<PublicBookingPage />} />
+      <Route path='/' element={<MatchinnHomePage />} />
+      <Route path='/booking' element={<PublicBookingPage />} />
       <Route path='/clubs' element={<ClubDirectoryPage />} />
       <Route path='/clubs/nearby' element={<ClubDirectoryPage autoLocateOnMount />} />
       <Route path='/play' element={<PlayAliasRedirect />} />

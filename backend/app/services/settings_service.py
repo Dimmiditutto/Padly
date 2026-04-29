@@ -11,6 +11,7 @@ from app.services.tenant_service import get_default_club_id
 
 BOOKING_RULES_KEY = 'booking_rules'
 PUBLIC_RATE_CARD_KEY = 'public_rate_card'
+PUBLIC_BOOKING_DEPOSIT_POLICY_KEY = 'public_booking_deposit_policy'
 PLAY_COMMUNITY_PAYMENT_KEY = 'play_community_payment'
 
 
@@ -31,12 +32,40 @@ def default_public_rate_card() -> dict[str, float]:
     }
 
 
+def default_public_booking_deposit_policy() -> dict[str, object]:
+    return {
+        'public_booking_deposit_enabled': True,
+        'public_booking_base_amount': 20.0,
+        'public_booking_included_minutes': 90,
+        'public_booking_extra_amount': 10.0,
+        'public_booking_extra_step_minutes': 30,
+        'public_booking_extras': [],
+    }
+
+
 def default_play_community_payment() -> dict[str, object]:
     return {
         'play_community_deposit_enabled': False,
         'play_community_deposit_amount': 20.0,
         'play_community_payment_timeout_minutes': settings.booking_hold_minutes,
+        'play_community_use_public_deposit': False,
     }
+
+
+def _normalize_pricing_extras(value: object | None) -> list[str]:
+    if isinstance(value, str):
+        candidates = value.splitlines()
+    elif isinstance(value, list):
+        candidates = [str(item) for item in value]
+    else:
+        return []
+
+    normalized: list[str] = []
+    for item in candidates:
+        cleaned = str(item).strip()
+        if cleaned:
+            normalized.append(cleaned)
+    return normalized
 
 
 def get_booking_rules(db: Session, *, club_id: str | None = None) -> dict[str, int]:
@@ -118,6 +147,69 @@ def update_public_rate_card(
     return value
 
 
+def get_public_booking_deposit_policy(db: Session, *, club_id: str | None = None) -> dict[str, object]:
+    defaults = default_public_booking_deposit_policy()
+    resolved_club_id = club_id or get_default_club_id(db)
+    record = db.scalar(select(AppSetting).where(AppSetting.club_id == resolved_club_id, AppSetting.key == PUBLIC_BOOKING_DEPOSIT_POLICY_KEY))
+    if not record:
+        return defaults
+
+    merged = defaults.copy()
+    value = record.value if isinstance(record.value, dict) else {}
+
+    enabled = value.get('public_booking_deposit_enabled')
+    if isinstance(enabled, bool):
+        merged['public_booking_deposit_enabled'] = enabled
+
+    for key in ('public_booking_base_amount', 'public_booking_extra_amount'):
+        raw_value = value.get(key)
+        try:
+            if raw_value is not None:
+                merged[key] = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+
+    for key in ('public_booking_included_minutes', 'public_booking_extra_step_minutes'):
+        raw_value = value.get(key)
+        try:
+            if raw_value is not None:
+                merged[key] = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+
+    merged['public_booking_extras'] = _normalize_pricing_extras(value.get('public_booking_extras'))
+    return merged
+
+
+def update_public_booking_deposit_policy(
+    db: Session,
+    *,
+    public_booking_deposit_enabled: bool,
+    public_booking_base_amount: float,
+    public_booking_included_minutes: int,
+    public_booking_extra_amount: float,
+    public_booking_extra_step_minutes: int,
+    public_booking_extras: list[str] | None = None,
+    club_id: str | None = None,
+) -> dict[str, object]:
+    value = {
+        'public_booking_deposit_enabled': bool(public_booking_deposit_enabled),
+        'public_booking_base_amount': float(public_booking_base_amount),
+        'public_booking_included_minutes': int(public_booking_included_minutes),
+        'public_booking_extra_amount': float(public_booking_extra_amount),
+        'public_booking_extra_step_minutes': int(public_booking_extra_step_minutes),
+        'public_booking_extras': _normalize_pricing_extras(public_booking_extras),
+    }
+    resolved_club_id = club_id or get_default_club_id(db)
+    record = db.scalar(select(AppSetting).where(AppSetting.club_id == resolved_club_id, AppSetting.key == PUBLIC_BOOKING_DEPOSIT_POLICY_KEY))
+    if record:
+        record.value = value
+    else:
+        db.add(AppSetting(club_id=resolved_club_id, key=PUBLIC_BOOKING_DEPOSIT_POLICY_KEY, value=value))
+    db.flush()
+    return value
+
+
 def get_play_community_payment(db: Session, *, club_id: str | None = None) -> dict[str, object]:
     defaults = default_play_community_payment()
     resolved_club_id = club_id or get_default_club_id(db)
@@ -145,6 +237,10 @@ def get_play_community_payment(db: Session, *, club_id: str | None = None) -> di
     except (TypeError, ValueError):
         pass
 
+    use_public_deposit = value.get('use_public_deposit')
+    if isinstance(use_public_deposit, bool):
+        merged['play_community_use_public_deposit'] = use_public_deposit
+
     return merged
 
 
@@ -154,12 +250,14 @@ def update_play_community_payment(
     enabled: bool,
     deposit_amount: float,
     payment_timeout_minutes: int,
+    use_public_deposit: bool,
     club_id: str | None = None,
 ) -> dict[str, object]:
     value = {
         'enabled': enabled,
         'deposit_amount': float(deposit_amount),
         'payment_timeout_minutes': int(payment_timeout_minutes),
+        'use_public_deposit': bool(use_public_deposit),
     }
     resolved_club_id = club_id or get_default_club_id(db)
     record = db.scalar(select(AppSetting).where(AppSetting.club_id == resolved_club_id, AppSetting.key == PLAY_COMMUNITY_PAYMENT_KEY))
@@ -174,6 +272,7 @@ def update_play_community_payment(
 def get_tenant_settings(db: Session, *, club: Club) -> dict[str, object]:
     payload: dict[str, object] = get_booking_rules(db, club_id=club.id)
     payload.update(get_public_rate_card(db, club_id=club.id))
+    payload.update(get_public_booking_deposit_policy(db, club_id=club.id))
     payload.update(get_play_community_payment(db, club_id=club.id))
     payload.update(
         {
@@ -219,9 +318,16 @@ def update_tenant_settings(
     non_member_hourly_rate: float,
     member_ninety_minute_rate: float,
     non_member_ninety_minute_rate: float,
+    public_booking_deposit_enabled: bool,
+    public_booking_base_amount: float,
+    public_booking_included_minutes: int,
+    public_booking_extra_amount: float,
+    public_booking_extra_step_minutes: int,
+    public_booking_extras: list[str] | None,
     play_community_deposit_enabled: bool,
     play_community_deposit_amount: float,
     play_community_payment_timeout_minutes: int,
+    play_community_use_public_deposit: bool,
 ) -> dict[str, object]:
     update_booking_rules(
         db,
@@ -238,11 +344,22 @@ def update_tenant_settings(
         non_member_ninety_minute_rate=non_member_ninety_minute_rate,
         club_id=club.id,
     )
+    update_public_booking_deposit_policy(
+        db,
+        public_booking_deposit_enabled=public_booking_deposit_enabled,
+        public_booking_base_amount=public_booking_base_amount,
+        public_booking_included_minutes=public_booking_included_minutes,
+        public_booking_extra_amount=public_booking_extra_amount,
+        public_booking_extra_step_minutes=public_booking_extra_step_minutes,
+        public_booking_extras=public_booking_extras,
+        club_id=club.id,
+    )
     update_play_community_payment(
         db,
         enabled=play_community_deposit_enabled,
         deposit_amount=play_community_deposit_amount,
         payment_timeout_minutes=play_community_payment_timeout_minutes,
+        use_public_deposit=play_community_use_public_deposit,
         club_id=club.id,
     )
     if public_name is not None:

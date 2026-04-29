@@ -104,6 +104,7 @@ def update_play_community_payment_settings(
     enabled: bool,
     deposit_amount: float = 20,
     payment_timeout_minutes: int = 30,
+    use_public_deposit: bool = False,
 ) -> None:
     admin_login(client)
     response = client.put(
@@ -116,9 +117,16 @@ def update_play_community_payment_settings(
             'non_member_hourly_rate': 9,
             'member_ninety_minute_rate': 10,
             'non_member_ninety_minute_rate': 13,
+            'public_booking_deposit_enabled': True,
+            'public_booking_base_amount': 20,
+            'public_booking_included_minutes': 90,
+            'public_booking_extra_amount': 10,
+            'public_booking_extra_step_minutes': 30,
+            'public_booking_extras': [],
             'play_community_deposit_enabled': enabled,
             'play_community_deposit_amount': deposit_amount,
             'play_community_payment_timeout_minutes': payment_timeout_minutes,
+            'play_community_use_public_deposit': use_public_deposit,
         },
     )
     assert response.status_code == 200
@@ -491,6 +499,78 @@ def test_play_fourth_join_requires_community_deposit_when_enabled(client):
         assert booking.payment_provider == PaymentProvider.NONE
         assert booking.payment_status == PaymentStatus.UNPAID
         assert booking.expires_at is not None
+
+
+def test_play_fourth_join_can_inherit_public_deposit_policy(client):
+    admin_login(client)
+    settings_response = client.put(
+        '/api/admin/settings',
+        json={
+            'booking_hold_minutes': 15,
+            'cancellation_window_hours': 24,
+            'reminder_window_hours': 24,
+            'member_hourly_rate': 7,
+            'non_member_hourly_rate': 9,
+            'member_ninety_minute_rate': 10,
+            'non_member_ninety_minute_rate': 13,
+            'public_booking_deposit_enabled': True,
+            'public_booking_base_amount': 18,
+            'public_booking_included_minutes': 90,
+            'public_booking_extra_amount': 9,
+            'public_booking_extra_step_minutes': 30,
+            'public_booking_extras': ['Luci serali'],
+            'play_community_deposit_enabled': False,
+            'play_community_deposit_amount': 0,
+            'play_community_payment_timeout_minutes': 35,
+            'play_community_use_public_deposit': True,
+        },
+    )
+    assert settings_response.status_code == 200
+
+    creator = identify_as(client, profile_name='Creator Inherit', phone='3337311001')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Inherit 1', phone='3337311002')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Inherit 2', phone='3337311003')
+    fourth_player = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Fourth Inherit', phone='3337311004')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=12, duration_minutes=120)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='3 su 4 eredita caparra pubblica',
+    )
+
+    identify_as(client, profile_name='Fourth Inherit', phone='3337311004')
+    completion_response = client.post(f'/api/play/matches/{match_id}/join')
+
+    assert completion_response.status_code == 200
+    completion_payload = completion_response.json()
+    assert completion_payload['action'] == 'COMPLETED'
+    assert completion_payload['booking']['status'] == 'PENDING_PAYMENT'
+    assert completion_payload['booking']['deposit_amount'] == 27
+    assert completion_payload['payment_action'] == {
+        'required': True,
+        'payer_player_id': fourth_player,
+        'deposit_amount': 27.0,
+        'payment_timeout_minutes': 35,
+        'expires_at': completion_payload['booking']['expires_at'],
+        'available_providers': ['STRIPE', 'PAYPAL'],
+        'selected_provider': None,
+    }
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match is not None
+        booking = db.get(Booking, match.booking_id)
+        assert booking is not None
+        assert booking.status == BookingStatus.PENDING_PAYMENT
+        assert float(booking.deposit_amount) == 27.0
+        assert booking.deposit_policy_snapshot['policy_type'] == 'PLAY_COMMUNITY_INHERITED_PUBLIC_DEPOSIT'
+        assert booking.deposit_policy_snapshot['public_booking_extras'] == ['Luci serali']
 
 
 def test_play_checkout_requires_completing_player_and_starts_selected_provider(client):

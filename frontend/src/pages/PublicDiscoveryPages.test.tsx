@@ -9,6 +9,10 @@ vi.mock('../pages/PublicBookingPage', () => ({
   PublicBookingPage: () => <div>PUBLIC BOOKING ROUTE</div>,
 }));
 
+vi.mock('../pages/MatchinnHomePage', () => ({
+  MatchinnHomePage: () => <div>MATCHINN HOME ROUTE</div>,
+}));
+
 vi.mock('../pages/PlayPage', () => ({
   PlayPage: () => <div>PLAY COMMUNITY ROUTE</div>,
 }));
@@ -186,8 +190,11 @@ describe('Public discovery routes', () => {
     });
   });
 
-  it('keeps existing public booking and private play routes intact in App', async () => {
+  it('keeps matchinn home, explicit booking and private play routes intact in App', async () => {
     renderApp('/');
+    expect(await screen.findByText('MATCHINN HOME ROUTE')).toBeInTheDocument();
+
+    renderApp('/booking');
     expect(await screen.findByText('PUBLIC BOOKING ROUTE')).toBeInTheDocument();
 
     renderApp('/c/roma-club/play');

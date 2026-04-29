@@ -66,7 +66,7 @@ export function AdminLoginPage() {
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
       <div className='surface-card w-full max-w-md'>
-        <Link to={withTenantPath('/', tenantSlug)} className='btn-secondary inline-flex'>
+        <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary inline-flex'>
           <ArrowLeft size={16} /> Torna alla prenotazione
         </Link>
         <AppBrand />

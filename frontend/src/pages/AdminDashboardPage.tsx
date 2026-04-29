@@ -445,9 +445,16 @@ export function AdminDashboardPage() {
         non_member_hourly_rate: settings.non_member_hourly_rate,
         member_ninety_minute_rate: settings.member_ninety_minute_rate,
         non_member_ninety_minute_rate: settings.non_member_ninety_minute_rate,
+        public_booking_deposit_enabled: settings.public_booking_deposit_enabled ?? true,
+        public_booking_base_amount: settings.public_booking_base_amount ?? 20,
+        public_booking_included_minutes: settings.public_booking_included_minutes ?? 90,
+        public_booking_extra_amount: settings.public_booking_extra_amount ?? 10,
+        public_booking_extra_step_minutes: settings.public_booking_extra_step_minutes ?? 30,
+        public_booking_extras: settings.public_booking_extras || [],
         play_community_deposit_enabled: settings.play_community_deposit_enabled,
         play_community_deposit_amount: settings.play_community_deposit_amount,
         play_community_payment_timeout_minutes: settings.play_community_payment_timeout_minutes,
+        play_community_use_public_deposit: settings.play_community_use_public_deposit ?? false,
       });
       setSettings(response);
       setSettingsFeedback({ tone: 'success', message: 'Regole operative aggiornate.' });
@@ -992,12 +999,65 @@ export function AdminDashboardPage() {
                     </div>
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                    <p className='text-sm font-semibold text-slate-900'>Caparra booking pubblico</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Configura la caparra solo per questo club. Se la disattivi o lasci importo base/minuti inclusi a zero, il booking non mostra alcuna scheda caparra e la prenotazione viene confermata senza checkout.</p>
+                    <label className='mt-4 flex items-start gap-3 text-sm text-slate-700'>
+                      <input
+                        type='checkbox'
+                        checked={settings.public_booking_deposit_enabled ?? true}
+                        onChange={(event) => setSettings((prev) => prev ? { ...prev, public_booking_deposit_enabled: event.target.checked } : prev)}
+                      />
+                      <span>Attiva caparra booking pubblico</span>
+                    </label>
+                    <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-booking-base-amount'>Importo base</label>
+                        <input id='admin-settings-public-booking-base-amount' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.public_booking_base_amount ?? 20} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_booking_base_amount: Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-booking-included-minutes'>Minuti inclusi</label>
+                        <input id='admin-settings-public-booking-included-minutes' className='text-input' type='number' min={0} max={600} step='30' value={settings.public_booking_included_minutes ?? 90} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_booking_included_minutes: Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-booking-extra-amount'>Importo extra</label>
+                        <input id='admin-settings-public-booking-extra-amount' className='text-input' type='number' min={0} max={999} step='0.5' value={settings.public_booking_extra_amount ?? 10} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_booking_extra_amount: Number(event.target.value) } : prev)} />
+                      </div>
+                      <div>
+                        <label className='field-label' htmlFor='admin-settings-public-booking-extra-step'>Step extra minuti</label>
+                        <input id='admin-settings-public-booking-extra-step' className='text-input' type='number' min={0} max={300} step='30' value={settings.public_booking_extra_step_minutes ?? 30} onChange={(event) => setSettings((prev) => prev ? { ...prev, public_booking_extra_step_minutes: Number(event.target.value) } : prev)} />
+                      </div>
+                    </div>
+                    <div className='mt-4'>
+                      <label className='field-label' htmlFor='admin-settings-public-booking-extras'>Extra del club</label>
+                      <textarea
+                        id='admin-settings-public-booking-extras'
+                        className='text-input min-h-24'
+                        value={(settings.public_booking_extras || []).join('\n')}
+                        onChange={(event) => setSettings((prev) => prev ? { ...prev, public_booking_extras: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean) } : prev)}
+                        placeholder={'Noleggio racchette\nLuci serali\nOrario premium'}
+                      />
+                    </div>
+                  </div>
+                  <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Caparra community /play</p>
-                    <p className='mt-1 text-sm leading-6 text-slate-600'>Per default il match 4/4 resta confermato con saldo al circolo. Se attivi la caparra community, paga solo il quarto player che completa la partita.</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Per default il match 4/4 resta confermato con saldo al circolo. Puoi mantenere una caparra community dedicata oppure far ereditare la stessa caparra del booking pubblico del club.</p>
+                    <label className='mt-4 flex items-start gap-3 text-sm text-slate-700'>
+                      <input
+                        type='checkbox'
+                        checked={Boolean(settings.play_community_use_public_deposit)}
+                        onChange={(event) => setSettings((prev) => prev ? {
+                          ...prev,
+                          play_community_use_public_deposit: event.target.checked,
+                          play_community_deposit_enabled: event.target.checked ? false : prev.play_community_deposit_enabled,
+                        } : prev)}
+                      />
+                      <span>Usa la stessa caparra del booking pubblico del club</span>
+                    </label>
                     <label className='mt-4 flex items-start gap-3 text-sm text-slate-700'>
                       <input
                         type='checkbox'
                         checked={settings.play_community_deposit_enabled}
+                        disabled={Boolean(settings.play_community_use_public_deposit)}
                         onChange={(event) => setSettings((prev) => prev ? { ...prev, play_community_deposit_enabled: event.target.checked } : prev)}
                       />
                       <span>Attiva caparra community online sul quarto player</span>
@@ -1012,7 +1072,7 @@ export function AdminDashboardPage() {
                           min={0}
                           max={999}
                           step='0.5'
-                          disabled={!settings.play_community_deposit_enabled}
+                          disabled={!settings.play_community_deposit_enabled || Boolean(settings.play_community_use_public_deposit)}
                           value={settings.play_community_deposit_amount}
                           onChange={(event) => setSettings((prev) => prev ? { ...prev, play_community_deposit_amount: Number(event.target.value) } : prev)}
                         />
@@ -1025,12 +1085,12 @@ export function AdminDashboardPage() {
                           type='number'
                           min={5}
                           max={120}
-                          disabled={!settings.play_community_deposit_enabled}
                           value={settings.play_community_payment_timeout_minutes}
                           onChange={(event) => setSettings((prev) => prev ? { ...prev, play_community_payment_timeout_minutes: Number(event.target.value) } : prev)}
                         />
                       </div>
                     </div>
+                    {settings.play_community_use_public_deposit ? <p className='mt-3 text-sm text-slate-600'>La caparra Play usera la stessa policy del booking pubblico del club, ma manterra il timeout checkout community configurato qui.</p> : null}
                     <p className='mt-3 text-sm text-slate-600'>Provider online disponibili ora: Stripe <strong>{settings.stripe_enabled ? 'attivo' : 'non disponibile'}</strong> • PayPal <strong>{settings.paypal_enabled ? 'attivo' : 'non disponibile'}</strong>.</p>
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>

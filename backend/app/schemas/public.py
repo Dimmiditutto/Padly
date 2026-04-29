@@ -21,6 +21,7 @@ class AvailabilityResponse(BaseModel):
     date: date
     duration_minutes: int
     deposit_amount: float
+    deposit_required: bool = True
     slots: list[TimeSlot] = Field(default_factory=list)
     courts: list[CourtAvailability] = Field(default_factory=list)
 
@@ -31,7 +32,7 @@ class PublicBookingCreateRequest(BookingCustomerData):
     start_time: str = Field(pattern=r'^\d{2}:\d{2}$')
     slot_id: str | None = None
     duration_minutes: int
-    payment_provider: PaymentProvider
+    payment_provider: PaymentProvider = PaymentProvider.NONE
     privacy_accepted: bool
 
     @field_validator('duration_minutes')
@@ -49,7 +50,7 @@ class PublicBookingCreateRequest(BookingCustomerData):
     @field_validator('payment_provider')
     @classmethod
     def validate_provider(cls, value: PaymentProvider) -> PaymentProvider:
-        if value not in {PaymentProvider.STRIPE, PaymentProvider.PAYPAL}:
+        if value not in {PaymentProvider.STRIPE, PaymentProvider.PAYPAL, PaymentProvider.NONE}:
             raise ValueError('Metodo pagamento non valido')
         return value
 
@@ -97,6 +98,12 @@ class PublicConfigResponse(BaseModel):
     non_member_hourly_rate: float
     member_ninety_minute_rate: float
     non_member_ninety_minute_rate: float
+    public_booking_deposit_enabled: bool
+    public_booking_base_amount: float
+    public_booking_included_minutes: int
+    public_booking_extra_amount: float
+    public_booking_extra_step_minutes: int
+    public_booking_extras: list[str] = Field(default_factory=list)
     stripe_enabled: bool
     paypal_enabled: bool
 
@@ -150,6 +157,21 @@ class PublicClubDetailResponse(BaseModel):
     support_phone: str | None = None
     public_match_window_days: int
     open_matches: list[PublicClubOpenMatchSummary] = Field(default_factory=list)
+
+
+class MatchinnHomeCommunitiesResponse(BaseModel):
+    items: list[PublicClubSummary] = Field(default_factory=list)
+
+
+class MatchinnHomeOpenMatchItem(BaseModel):
+    club: PublicClubSummary
+    match: PublicClubOpenMatchSummary
+
+
+class MatchinnHomeOpenMatchesResponse(BaseModel):
+    items: list[MatchinnHomeOpenMatchItem] = Field(default_factory=list)
+    location_source: str = 'none'
+    preferred_level: PlayLevel | None = None
 
 
 class PublicDiscoveryIdentifyRequest(BaseModel):

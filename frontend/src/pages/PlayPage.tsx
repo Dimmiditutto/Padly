@@ -635,7 +635,7 @@ export function PlayPage() {
                   </button>
                 </>
               ) : null}
-              <Link className='hero-action-secondary' to={withTenantPath('/', tenantSlug)}>
+              <Link className='hero-action-secondary' to={withTenantPath('/booking', tenantSlug)}>
                 <ArrowLeft size={16} />
                 <span>Torna al booking</span>
               </Link>

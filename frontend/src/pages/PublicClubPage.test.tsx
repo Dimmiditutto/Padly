@@ -129,6 +129,7 @@ describe('PublicClubPage', () => {
     expect(screen.getByText('Da chiudere subito')).toBeInTheDocument();
     expect(screen.getByText('Buone occasioni')).toBeInTheDocument();
     expect(screen.getByText('Da monitorare')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Prenota nel club' })).toHaveAttribute('href', '/booking?tenant=test-club');
     expect(screen.getByRole('link', { name: 'Entra nella community' })).toHaveAttribute('href', '/c/test-club/play');
 
     const cards = screen.getAllByTestId('public-open-match-card');

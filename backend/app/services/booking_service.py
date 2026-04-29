@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import secrets
 import string
 import hashlib
@@ -30,7 +31,7 @@ from app.models import (
 )
 from app.services.court_service import list_courts, resolve_court
 from app.services.email_service import email_service
-from app.services.settings_service import get_booking_rules
+from app.services.settings_service import get_booking_rules, get_public_booking_deposit_policy
 from app.services.tenant_service import get_default_club_id
 
 VALID_DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300]
@@ -71,13 +72,92 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def calculate_deposit(duration_minutes: int) -> Decimal:
+def _money(value: Decimal | float | int | str) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal('0.01'))
+
+
+def is_public_booking_deposit_enabled(policy: dict[str, object]) -> bool:
+    if not bool(policy.get('public_booking_deposit_enabled')):
+        return False
+    try:
+        base_amount = _money(policy.get('public_booking_base_amount', 0))
+        included_minutes = int(policy.get('public_booking_included_minutes', 0))
+    except (TypeError, ValueError, ArithmeticError):
+        return False
+    return base_amount > Decimal('0.00') and included_minutes > 0
+
+
+def calculate_public_booking_deposit(duration_minutes: int, policy: dict[str, object]) -> Decimal:
     if duration_minutes not in VALID_DURATIONS:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Durata non valida')
-    if duration_minutes <= 90:
-        return Decimal('20.00')
-    extra_blocks = (duration_minutes - 90) // 30
-    return Decimal(str(20 + (extra_blocks * 10)))
+    if not is_public_booking_deposit_enabled(policy):
+        return Decimal('0.00')
+
+    base_amount = _money(policy.get('public_booking_base_amount', 0))
+    included_minutes = int(policy.get('public_booking_included_minutes', 0))
+    extra_amount = _money(policy.get('public_booking_extra_amount', 0))
+    extra_step_minutes = int(policy.get('public_booking_extra_step_minutes', 0))
+
+    if duration_minutes <= included_minutes or extra_amount <= Decimal('0.00') or extra_step_minutes <= 0:
+        return base_amount
+
+    extra_minutes = duration_minutes - included_minutes
+    extra_blocks = math.ceil(extra_minutes / extra_step_minutes)
+    return (base_amount + (extra_amount * extra_blocks)).quantize(Decimal('0.01'))
+
+
+def calculate_deposit(duration_minutes: int) -> Decimal:
+    return calculate_public_booking_deposit(
+        duration_minutes,
+        {
+            'public_booking_deposit_enabled': True,
+            'public_booking_base_amount': 20.0,
+            'public_booking_included_minutes': 90,
+            'public_booking_extra_amount': 10.0,
+            'public_booking_extra_step_minutes': 30,
+        },
+    )
+
+
+def _build_public_booking_deposit_snapshot(*, policy: dict[str, object], computed_amount: Decimal, currency: str) -> dict[str, object]:
+    return {
+        'policy_type': 'PUBLIC_BOOKING_DEPOSIT',
+        'public_booking_deposit_enabled': bool(policy.get('public_booking_deposit_enabled')),
+        'public_booking_base_amount': float(policy.get('public_booking_base_amount', 0) or 0),
+        'public_booking_included_minutes': int(policy.get('public_booking_included_minutes', 0) or 0),
+        'public_booking_extra_amount': float(policy.get('public_booking_extra_amount', 0) or 0),
+        'public_booking_extra_step_minutes': int(policy.get('public_booking_extra_step_minutes', 0) or 0),
+        'public_booking_extras': [str(item) for item in (policy.get('public_booking_extras') or []) if str(item).strip()],
+        'computed_amount': float(computed_amount),
+        'currency': currency,
+    }
+
+
+def build_no_deposit_policy_snapshot(*, currency: str, source: str, reason: str) -> dict[str, object]:
+    return {
+        'policy_type': 'NO_DEPOSIT',
+        'source': source,
+        'reason': reason,
+        'computed_amount': 0.0,
+        'currency': currency,
+    }
+
+
+def _get_club_currency(db: Session, *, club_id: str) -> str:
+    currency = db.scalar(select(Club.currency).where(Club.id == club_id).limit(1))
+    return str(currency or 'EUR')
+
+
+def resolve_public_booking_deposit_terms(db: Session, *, club_id: str, duration_minutes: int) -> dict[str, object]:
+    policy = get_public_booking_deposit_policy(db, club_id=club_id)
+    currency = _get_club_currency(db, club_id=club_id)
+    amount = calculate_public_booking_deposit(duration_minutes, policy)
+    return {
+        'enabled': is_public_booking_deposit_enabled(policy),
+        'amount': amount,
+        'currency': currency,
+        'policy_snapshot': _build_public_booking_deposit_snapshot(policy=policy, computed_amount=amount, currency=currency),
+    }
 
 
 def make_public_reference() -> str:
@@ -548,7 +628,11 @@ def create_public_booking(
     court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
     with acquire_single_court_lock(db, court.id):
         resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
-        if not _is_public_provider_available(payment_provider):
+        deposit_terms = resolve_public_booking_deposit_terms(db, club_id=resolved_club_id, duration_minutes=duration_minutes)
+        deposit_required = bool(deposit_terms['enabled'])
+        if deposit_required and payment_provider == PaymentProvider.NONE:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Seleziona un provider di pagamento per la caparra online')
+        if deposit_required and not _is_public_provider_available(payment_provider):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_public_provider_unavailable_detail(payment_provider))
 
         local_start, start_at, end_at = parse_slot(
@@ -570,13 +654,15 @@ def create_public_booking(
             end_at=end_at,
             duration_minutes=duration_minutes,
             booking_date_local=local_start.date(),
-            status=BookingStatus.PENDING_PAYMENT,
-            deposit_amount=calculate_deposit(duration_minutes),
-            payment_provider=payment_provider,
+            status=BookingStatus.PENDING_PAYMENT if deposit_required else BookingStatus.CONFIRMED,
+            deposit_amount=deposit_terms['amount'],
+            deposit_currency=str(deposit_terms['currency']),
+            deposit_policy_snapshot=dict(deposit_terms['policy_snapshot']),
+            payment_provider=payment_provider if deposit_required else PaymentProvider.NONE,
             payment_status=PaymentStatus.UNPAID,
             note=note,
             cancel_token=make_cancel_token(),
-            expires_at=datetime.now(UTC) + timedelta(minutes=get_booking_rules(db, club_id=resolved_club_id)['booking_hold_minutes']),
+            expires_at=(datetime.now(UTC) + timedelta(minutes=get_booking_rules(db, club_id=resolved_club_id)['booking_hold_minutes'])) if deposit_required else None,
             created_by='public',
             source=BookingSource.PUBLIC,
         )
@@ -610,6 +696,7 @@ def create_admin_booking(
     court = resolve_court(db, club_id=resolved_club_id, court_id=court_id)
     with acquire_single_court_lock(db, court.id):
         resolved_timezone = _resolve_slot_timezone_name(db=db, club_id=resolved_club_id, club_timezone=club_timezone)
+        deposit_terms = resolve_public_booking_deposit_terms(db, club_id=resolved_club_id, duration_minutes=duration_minutes)
         local_start, start_at, end_at = parse_slot(
             booking_date,
             start_time_value,
@@ -630,8 +717,10 @@ def create_admin_booking(
             duration_minutes=duration_minutes,
             booking_date_local=local_start.date(),
             status=BookingStatus.CONFIRMED,
-            deposit_amount=calculate_deposit(duration_minutes),
-            payment_provider=payment_provider,
+            deposit_amount=deposit_terms['amount'],
+            deposit_currency=str(deposit_terms['currency']),
+            deposit_policy_snapshot=dict(deposit_terms['policy_snapshot']),
+            payment_provider=payment_provider if bool(deposit_terms['enabled']) else PaymentProvider.NONE,
             payment_status=PaymentStatus.UNPAID,
             note=note,
             created_by=actor,
@@ -686,14 +775,6 @@ def update_booking_by_admin(
         slot_id=slot_id,
         timezone_name=resolved_timezone,
     )
-    new_deposit = calculate_deposit(duration_minutes)
-    current_deposit = Decimal(str(booking.deposit_amount)).quantize(Decimal('0.01'))
-
-    if booking.payment_status == PaymentStatus.PAID and new_deposit != current_deposit:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Durata non modificabile: cambierebbe la caparra già incassata',
-        )
 
     assert_slot_available(db, start_at=start_at, end_at=end_at, exclude_booking_id=booking.id, club_id=booking.club_id, court_id=court.id)
 
@@ -712,8 +793,6 @@ def update_booking_by_admin(
     booking.booking_date_local = local_start.date()
     booking.duration_minutes = duration_minutes
     booking.note = note
-    if booking.payment_status != PaymentStatus.PAID:
-        booking.deposit_amount = new_deposit
 
     log_event(
         db,
@@ -1249,6 +1328,8 @@ def create_recurring_series(
                 booking_date_local=local_start.date(),
                 status=BookingStatus.CONFIRMED,
                 deposit_amount=Decimal('0.00'),
+                deposit_currency=_get_club_currency(db, club_id=resolved_club_id),
+                deposit_policy_snapshot=build_no_deposit_policy_snapshot(currency=_get_club_currency(db, club_id=resolved_club_id), source='ADMIN_RECURRING', reason='Serie ricorrente senza caparra'),
                 payment_provider=PaymentProvider.NONE,
                 payment_status=PaymentStatus.UNPAID,
                 note=f'Serie ricorrente: {label}',
@@ -1415,6 +1496,8 @@ def update_recurring_series(
                 booking_date_local=local_start.date(),
                 status=BookingStatus.CONFIRMED,
                 deposit_amount=Decimal('0.00'),
+                deposit_currency=_get_club_currency(db, club_id=resolved_club_id),
+                deposit_policy_snapshot=build_no_deposit_policy_snapshot(currency=_get_club_currency(db, club_id=resolved_club_id), source='ADMIN_RECURRING', reason='Serie ricorrente senza caparra'),
                 payment_provider=PaymentProvider.NONE,
                 payment_status=PaymentStatus.UNPAID,
                 note=f'Serie ricorrente: {label}',

@@ -15,6 +15,7 @@ import {
   unfollowPublicClub,
 } from '../services/publicApi';
 import type { PlayLevel, PublicClubDetailResponse, PublicClubWatchSummary, PublicDiscoveryMeResponse } from '../types';
+import { withTenantPath } from '../utils/tenantContext';
 import { formatDate, formatTimeValue } from '../utils/format';
 import { buildClubPlayPath, formatPlayLevel, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
@@ -192,6 +193,9 @@ export function PublicClubPage() {
                   <Link className='btn-secondary' to='/clubs'>
                     <ArrowLeft size={16} />
                     <span>Torna ai club</span>
+                  </Link>
+                  <Link className='btn-secondary' to={withTenantPath('/booking', detail.club.club_slug)}>
+                    <span>Prenota nel club</span>
                   </Link>
                   {detail.club.is_community_open ? (
                     <Link className='btn-primary' to={buildClubPlayPath(detail.club.club_slug)}>

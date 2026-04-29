@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import Booking, BookingPayment, BookingStatus, PaymentProvider, PaymentStatus, PaymentWebhookEvent
-from app.services.booking_service import as_utc, calculate_deposit, expire_pending_booking_if_needed, log_event, mark_booking_paid
+from app.services.booking_service import as_utc, expire_pending_booking_if_needed, log_event, mark_booking_paid
 from app.services.email_service import email_service
 from app.services.settings_service import get_booking_rules
 from app.services.tenant_service import build_club_app_url
@@ -63,6 +63,8 @@ class StripeGateway:
     provider = PaymentProvider.STRIPE
 
     def create_checkout(self, booking: Booking) -> PaymentInitResult:
+        amount = _expected_booking_amount(booking)
+        currency = _booking_payment_currency(booking).lower()
         if not settings.stripe_secret_key:
             if not is_mock_payments_enabled():
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_provider_unavailable_detail(self.provider))
@@ -84,8 +86,8 @@ class StripeGateway:
                 {
                     'quantity': 1,
                     'price_data': {
-                        'currency': 'eur',
-                        'unit_amount': int(Decimal(booking.deposit_amount) * 100),
+                        'currency': currency,
+                        'unit_amount': int(amount * 100),
                         'product_data': {
                             'name': 'Caparra campo padel',
                             'description': f'Prenotazione {booking.public_reference} - {booking.duration_minutes} minuti',
@@ -155,6 +157,8 @@ class PayPalGateway:
         return response.json()['access_token']
 
     def create_checkout(self, booking: Booking) -> PaymentInitResult:
+        amount = _expected_booking_amount(booking)
+        currency = _booking_payment_currency(booking)
         token = self._access_token()
         if not token:
             if not is_mock_payments_enabled():
@@ -174,7 +178,7 @@ class PayPalGateway:
                     'custom_id': booking.public_reference,
                     'invoice_id': booking.public_reference,
                     'description': f'Caparra prenotazione {booking.public_reference}',
-                    'amount': {'currency_code': 'EUR', 'value': f'{booking.deposit_amount:.2f}'},
+                    'amount': {'currency_code': currency, 'value': f'{amount:.2f}'},
                 }
             ],
             'application_context': {
@@ -200,6 +204,7 @@ class PayPalGateway:
     def refund_payment(self, booking: Booking, payment: BookingPayment) -> RefundResult:
         capture_id = payment.provider_capture_id
         amount = _to_decimal(payment.amount or booking.deposit_amount)
+        currency = _booking_payment_currency(booking)
         if not capture_id or amount is None:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Riferimento PayPal non disponibile per il rimborso')
 
@@ -219,7 +224,7 @@ class PayPalGateway:
             f'{settings.paypal_base_url}/v2/payments/captures/{capture_id}/refund',
             headers={**self._headers(), 'Authorization': f'Bearer {token}'},
             json={
-                'amount': {'value': f'{amount:.2f}', 'currency_code': 'EUR'},
+                'amount': {'value': f'{amount:.2f}', 'currency_code': currency},
                 'note_to_payer': f'Rimborso caparra prenotazione {booking.public_reference}',
             },
             timeout=20,
@@ -399,18 +404,21 @@ def _parse_provider_datetime(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _booking_payment_currency(booking: Booking) -> str:
+    currency = str(getattr(booking, 'deposit_currency', '') or '').strip().upper()
+    if currency:
+        return currency
+
+    club = getattr(booking, 'club', None)
+    club_currency = str(getattr(club, 'currency', '') or '').strip().upper()
+    return club_currency or 'EUR'
+
+
 def _expected_booking_amount(booking: Booking) -> Decimal:
     current = _to_decimal(booking.deposit_amount)
     if current is None or current <= Decimal('0.00'):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Importo caparra non disponibile per questa prenotazione')
-
-    if str(booking.created_by or '').startswith('play:'):
-        return current
-
-    expected = _to_decimal(calculate_deposit(booking.duration_minutes))
-    if current != expected:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Importo caparra non coerente con la durata prenotata')
-    return expected
+    return current
 
 
 def _assert_valid_provider(provider: PaymentProvider) -> None:
@@ -418,8 +426,10 @@ def _assert_valid_provider(provider: PaymentProvider) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Provider pagamento non supportato')
 
 
-def _assert_payment_amount(booking: Booking, *, amount: Decimal | str | int | float | None, currency: str = 'EUR') -> Decimal:
-    if currency.upper() != 'EUR':
+def _assert_payment_amount(booking: Booking, *, amount: Decimal | str | int | float | None, currency: str | None = None) -> Decimal:
+    expected_currency = _booking_payment_currency(booking)
+    actual_currency = str(currency or expected_currency).strip().upper()
+    if actual_currency != expected_currency:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Valuta pagamento non valida')
 
     expected = _expected_booking_amount(booking)
@@ -480,20 +490,24 @@ def _ensure_booking_payment(
     provider_order_id: str | None = None,
     checkout_url: str | None = None,
 ) -> BookingPayment:
+    expected_amount = _expected_booking_amount(booking)
+    expected_currency = _booking_payment_currency(booking)
     payment = _find_booking_payment(db, booking, provider=provider, provider_order_id=provider_order_id)
     if payment:
         if provider_order_id:
             payment.provider_order_id = provider_order_id
         if checkout_url:
             payment.checkout_url = checkout_url
+        payment.amount = expected_amount
+        payment.currency = expected_currency
         return payment
 
     payment = BookingPayment(
         booking_id=booking.id,
         provider=provider,
         status=PaymentStatus.INITIATED,
-        amount=_expected_booking_amount(booking),
-        currency='EUR',
+        amount=expected_amount,
+        currency=expected_currency,
         provider_order_id=provider_order_id,
         checkout_url=checkout_url,
     )
@@ -655,10 +669,11 @@ def _confirm_payment(
     provider_order_id: str | None,
     provider_capture_id: str | None,
     amount: Decimal | str | int | float | None,
-    currency: str = 'EUR',
+    currency: str | None = None,
     occurred_at: datetime | None = None,
 ) -> bool:
     actual_amount = _assert_payment_amount(booking, amount=amount, currency=currency)
+    normalized_currency = _booking_payment_currency(booking)
     payment = _ensure_booking_payment(
         db,
         booking,
@@ -666,7 +681,7 @@ def _confirm_payment(
         provider_order_id=provider_order_id,
     )
     payment.amount = actual_amount
-    payment.currency = currency.upper()
+    payment.currency = normalized_currency
     if provider_order_id:
         payment.provider_order_id = provider_order_id
     if provider_capture_id:
@@ -894,7 +909,7 @@ def handle_mock_payment(db: Session, booking_reference: str, provider: PaymentPr
         provider_order_id=booking.payment_reference,
         provider_capture_id=f'mock-{provider.value.lower()}-{booking.public_reference}',
         amount=booking.deposit_amount,
-        currency='EUR',
+        currency=_booking_payment_currency(booking),
         occurred_at=datetime.now(UTC),
     )
     _notify_booking_confirmed(db, booking, was_confirmed=was_confirmed)

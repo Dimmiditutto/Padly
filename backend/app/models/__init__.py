@@ -629,6 +629,8 @@ class Booking(Base):
     booking_date_local: Mapped[date] = mapped_column(Date, index=True)
     status: Mapped[BookingStatus] = mapped_column(Enum(BookingStatus), index=True)
     deposit_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal('0.00'))
+    deposit_currency: Mapped[str] = mapped_column(String(3), default='EUR')
+    deposit_policy_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     payment_provider: Mapped[PaymentProvider] = mapped_column(Enum(PaymentProvider), default=PaymentProvider.NONE, index=True)
     payment_status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.UNPAID, index=True)
     payment_reference: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)

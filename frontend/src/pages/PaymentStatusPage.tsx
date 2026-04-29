@@ -183,7 +183,7 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
         )}
 
         <div className='mt-6'>
-          <Link to={withTenantPath('/', tenantSlug)} className='btn-primary'>Torna alla prenotazione</Link>
+          <Link to={withTenantPath('/booking', tenantSlug)} className='btn-primary'>Torna alla prenotazione</Link>
         </div>
       </div>
     </div>

@@ -8,11 +8,12 @@ from app.core.observability import bind_observability_context
 from app.core.db import get_db
 from app.core.security import COOKIE_NAME, decode_admin_token, password_hash_fingerprint
 from app.models import Admin, Club, Player, PublicDiscoverySubscriber
-from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, get_player_from_access_token
+from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, build_club_player_session_cookie_name, get_player_from_access_token
 from app.services.public_discovery_service import DISCOVERY_SESSION_COOKIE_NAME, get_public_discovery_subscriber_from_access_token
 from app.services.tenant_service import TenantContext, resolve_tenant_context
 
 logger = logging.getLogger(__name__)
+PUBLIC_TENANT_REQUIRED_DETAIL = 'Seleziona prima il club in cui vuoi giocare.'
 
 
 def get_tenant_context(request: Request, db: Session = Depends(get_db)) -> TenantContext:
@@ -24,7 +25,28 @@ def get_tenant_context(request: Request, db: Session = Depends(get_db)) -> Tenan
     return tenant_context
 
 
+def get_public_tenant_context(request: Request, db: Session = Depends(get_db)) -> TenantContext:
+    requested_slug = request.headers.get('x-tenant-slug') or request.query_params.get('tenant') or request.query_params.get('club')
+    try:
+        tenant_context = resolve_tenant_context(db, host=request.headers.get('host'), slug=requested_slug, allow_default_fallback=False)
+    except LookupError:
+        active_clubs = db.scalar(select(func.count(Club.id)).where(Club.is_active.is_(True))) or 0
+        if active_clubs <= 1:
+            tenant_context = resolve_tenant_context(db, host=request.headers.get('host'), slug=requested_slug, allow_default_fallback=True)
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=PUBLIC_TENANT_REQUIRED_DETAIL) from None
+
+    request.state.tenant_slug = tenant_context.club.slug
+    request.state.club_id = tenant_context.club.id
+    bind_observability_context(tenant_slug=tenant_context.club.slug, club_id=tenant_context.club.id)
+    return tenant_context
+
+
 def get_current_club(tenant_context: TenantContext = Depends(get_tenant_context)) -> Club:
+    return tenant_context.club
+
+
+def get_current_public_club(tenant_context: TenantContext = Depends(get_public_tenant_context)) -> Club:
     return tenant_context.club
 
 
@@ -35,6 +57,15 @@ def get_current_club_enforced(
     """Restituisce il club corrente dopo aver verificato lo stato subscription.
     Usa questa dep sulle route pubbliche critiche (booking, checkout).
     """
+    from app.services.billing_service import enforce_subscription
+    enforce_subscription(db, tenant_context.club)
+    return tenant_context.club
+
+
+def get_current_public_club_enforced(
+    tenant_context: TenantContext = Depends(get_public_tenant_context),
+    db: Session = Depends(get_db),
+) -> Club:
     from app.services.billing_service import enforce_subscription
     enforce_subscription(db, tenant_context.club)
     return tenant_context.club
@@ -86,11 +117,18 @@ def get_current_admin_enforced(
 
 
 def get_current_player_optional(
+    request: Request,
     current_club: Club = Depends(get_current_club),
     db: Session = Depends(get_db),
     player_token: str | None = Cookie(default=None, alias=PLAYER_SESSION_COOKIE_NAME),
 ) -> Player | None:
-    return get_player_from_access_token(db, club_id=current_club.id, raw_token=player_token, touch=True)
+    club_scoped_token = request.cookies.get(build_club_player_session_cookie_name(current_club.slug))
+    return get_player_from_access_token(
+        db,
+        club_id=current_club.id,
+        raw_token=club_scoped_token or player_token,
+        touch=True,
+    )
 
 
 def get_current_player_required(

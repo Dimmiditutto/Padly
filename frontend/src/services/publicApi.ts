@@ -3,6 +3,8 @@ import type {
   ApiMessage,
   AvailabilityResponse,
   BookingStatusResponse,
+  MatchinnHomeCommunitiesResponse,
+  MatchinnHomeOpenMatchesResponse,
   PaymentInitResponse,
   PublicClubContactRequestPayload,
   PublicClubContactRequestResponse,
@@ -104,6 +106,26 @@ export async function listPublicClubsNearby(latitude: number, longitude: number,
 export async function getPublicClubDetail(clubSlug: string, level?: string | null) {
   const response = await api.get<PublicClubDetailResponse>(`/public/clubs/${clubSlug}`, {
     params: level ? { level } : undefined,
+  });
+  return response.data;
+}
+
+export async function getMatchinnHomeCommunities() {
+  const response = await api.get<MatchinnHomeCommunitiesResponse>('/public/home/communities');
+  return response.data;
+}
+
+export async function getMatchinnHomeOpenMatches(params?: {
+  latitude?: number | null;
+  longitude?: number | null;
+  limit?: number;
+}) {
+  const response = await api.get<MatchinnHomeOpenMatchesResponse>('/public/home/open-matches', {
+    params: {
+      ...(params?.latitude != null ? { latitude: params.latitude } : {}),
+      ...(params?.longitude != null ? { longitude: params.longitude } : {}),
+      ...(params?.limit != null ? { limit: params.limit } : {}),
+    },
   });
   return response.data;
 }

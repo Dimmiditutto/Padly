@@ -115,6 +115,6 @@ describe('PaymentStatusPage', () => {
     await waitFor(() => expect(screen.getByText('Pagamento ricevuto')).toBeInTheDocument());
     expect(getPublicBookingStatus).toHaveBeenCalledWith('PB-REF-123', 'roma-club');
     expect(screen.getByRole('link', { name: 'Apri annullamento self-service' })).toHaveAttribute('href', '/booking/cancel?token=cancel-token-123&tenant=roma-club');
-    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/?tenant=roma-club');
+    expect(screen.getByRole('link', { name: 'Torna alla prenotazione' })).toHaveAttribute('href', '/booking?tenant=roma-club');
   });
 });

@@ -81,9 +81,16 @@ const adminSettings = {
   non_member_hourly_rate: 9,
   member_ninety_minute_rate: 10,
   non_member_ninety_minute_rate: 13,
+  public_booking_deposit_enabled: true,
+  public_booking_base_amount: 20,
+  public_booking_included_minutes: 90,
+  public_booking_extra_amount: 10,
+  public_booking_extra_step_minutes: 30,
+  public_booking_extras: [] as string[],
   play_community_deposit_enabled: false,
   play_community_deposit_amount: 20,
   play_community_payment_timeout_minutes: 15,
+  play_community_use_public_deposit: false,
   stripe_enabled: true,
   paypal_enabled: true,
 } as const;
@@ -458,9 +465,16 @@ describe('AdminDashboardPage', () => {
       non_member_hourly_rate: 11,
       member_ninety_minute_rate: 12,
       non_member_ninety_minute_rate: 15,
+      public_booking_deposit_enabled: true,
+      public_booking_base_amount: 20,
+      public_booking_included_minutes: 90,
+      public_booking_extra_amount: 10,
+      public_booking_extra_step_minutes: 30,
+      public_booking_extras: [],
       play_community_deposit_enabled: false,
       play_community_deposit_amount: 20,
       play_community_payment_timeout_minutes: 15,
+      play_community_use_public_deposit: false,
     }));
     await waitFor(() => expect(within(settingsSection as HTMLElement).getByText('Regole operative aggiornate.')).toBeInTheDocument());
   });
@@ -514,6 +528,34 @@ describe('AdminDashboardPage', () => {
       play_community_deposit_enabled: true,
       play_community_deposit_amount: 12.5,
       play_community_payment_timeout_minutes: 45,
+    })));
+  });
+
+  it('saves the public booking deposit policy and lets Play inherit it', async () => {
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    fireEvent.change(screen.getByLabelText('Importo base'), { target: { value: '18' } });
+    fireEvent.change(screen.getByLabelText('Minuti inclusi'), { target: { value: '90' } });
+    fireEvent.change(screen.getByLabelText('Importo extra'), { target: { value: '9' } });
+    fireEvent.change(screen.getByLabelText('Step extra minuti'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Extra del club'), { target: { value: 'Luci serali\nNoleggio racchette' } });
+    fireEvent.click(screen.getByLabelText('Usa la stessa caparra del booking pubblico del club'));
+
+    const settingsSection = screen.getByText('Profilo tenant e regole operative').closest('section');
+    expect(settingsSection).not.toBeNull();
+    fireEvent.click(within(settingsSection as HTMLElement).getByRole('button', { name: 'Salva impostazioni' }));
+
+    await waitFor(() => expect(updateAdminSettings).toHaveBeenCalledWith(expect.objectContaining({
+      public_booking_deposit_enabled: true,
+      public_booking_base_amount: 18,
+      public_booking_included_minutes: 90,
+      public_booking_extra_amount: 9,
+      public_booking_extra_step_minutes: 30,
+      public_booking_extras: ['Luci serali', 'Noleggio racchette'],
+      play_community_use_public_deposit: true,
     })));
   });
 

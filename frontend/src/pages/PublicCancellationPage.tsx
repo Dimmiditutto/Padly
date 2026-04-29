@@ -81,7 +81,7 @@ export function PublicCancellationPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell max-w-3xl space-y-6'>
-        <Link to={withTenantPath('/', tenantSlug)} className='btn-secondary inline-flex'>Torna alla prenotazione</Link>
+        <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary inline-flex'>Torna alla prenotazione</Link>
 
         {loading ? (
           <LoadingBlock label='Sto verificando il link di annullamento…' />
@@ -134,7 +134,7 @@ export function PublicCancellationPage() {
                         ? 'Conferma annullamento e rimborso'
                         : 'Conferma annullamento'}
                   </button>
-                  <Link to={withTenantPath('/', tenantSlug)} className='btn-secondary'>Mantieni la prenotazione</Link>
+                  <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary'>Mantieni la prenotazione</Link>
                 </div>
               ) : (
                 <div className='mt-5 flex items-center gap-3 rounded-[24px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600'>
