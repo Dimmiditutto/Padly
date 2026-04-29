@@ -358,6 +358,9 @@ class Match(Base):
     level_requested: Mapped[PlayLevel] = mapped_column(Enum(PlayLevel), default=PlayLevel.NO_PREFERENCE)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     public_share_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    public_share_token_nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    public_share_token_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    public_share_token_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 

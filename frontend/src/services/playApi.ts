@@ -93,6 +93,22 @@ export async function updatePlayMatch(matchId: string, payload: PlayMatchUpdateP
 }
 
 
+export async function rotatePlayMatchShareToken(matchId: string, tenantSlug?: string | null) {
+  const response = await api.post<PlayMatchUpdateResponse>(`/play/matches/${matchId}/share-token/rotate`, undefined, {
+    params: withTenantParams(tenantSlug),
+  });
+  return response.data;
+}
+
+
+export async function revokePlayMatchShareToken(matchId: string, tenantSlug?: string | null) {
+  const response = await api.post<PlayMatchUpdateResponse>(`/play/matches/${matchId}/share-token/revoke`, undefined, {
+    params: withTenantParams(tenantSlug),
+  });
+  return response.data;
+}
+
+
 export async function cancelPlayMatch(matchId: string, tenantSlug?: string | null) {
   const response = await api.post<PlayMatchLeaveResponse>(`/play/matches/${matchId}/cancel`, undefined, { params: withTenantParams(tenantSlug) });
   return response.data;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import hashlib
 import secrets
 from datetime import UTC, date, datetime, timedelta
@@ -11,6 +12,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.models import (
     Booking,
     BookingEventLog,
@@ -71,7 +73,18 @@ def hash_play_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
 
 
-def build_public_match_share_token(*, club_id: str, match_id: str) -> str:
+def generate_match_share_token_nonce() -> str:
+    return secrets.token_urlsafe(16)
+
+
+def _build_match_share_token_signature(*, club_id: str, match_id: str, nonce: str) -> str:
+    payload = f'play-share:{club_id}:{match_id}:{nonce}'.encode('utf-8')
+    return hmac.new(settings.secret_key.encode('utf-8'), payload, hashlib.sha256).hexdigest()
+
+
+def build_public_match_share_token(*, club_id: str, match_id: str, nonce: str | None = None) -> str:
+    if nonce:
+        return f'{nonce}.{_build_match_share_token_signature(club_id=club_id, match_id=match_id, nonce=nonce)}'
     return uuid5(NAMESPACE_URL, f'https://padelbooking.app/play-share/{club_id}/{match_id}').hex
 
 
@@ -767,11 +780,30 @@ def _load_match(db: Session, *, club_id: str, match_id: str, for_update: bool = 
 
 
 def _ensure_match_share_token_hash(match: Match) -> str:
-    share_token = build_public_match_share_token(club_id=match.club_id, match_id=match.id)
+    share_token = build_public_match_share_token(
+        club_id=match.club_id,
+        match_id=match.id,
+        nonce=match.public_share_token_nonce,
+    )
     expected_hash = hash_play_token(share_token)
     if match.public_share_token_hash != expected_hash:
         match.public_share_token_hash = expected_hash
+    if match.public_share_token_created_at is None:
+        match.public_share_token_created_at = match.created_at
     return share_token
+
+
+def _get_active_match_share_token(match: Match) -> str | None:
+    if match.public_share_token_revoked_at is not None:
+        return None
+    return _ensure_match_share_token_hash(match)
+
+
+def _issue_match_share_token(match: Match) -> str:
+    match.public_share_token_nonce = generate_match_share_token_nonce()
+    match.public_share_token_created_at = _utcnow()
+    match.public_share_token_revoked_at = None
+    return _ensure_match_share_token_hash(match)
 
 
 def _serialize_booking(booking: Booking | None) -> dict | None:
@@ -1105,7 +1137,7 @@ def _complete_match_booking(
 
 
 def _serialize_match(match: Match, *, current_player_id: str | None = None) -> dict:
-    share_token = _ensure_match_share_token_hash(match)
+    share_token = _get_active_match_share_token(match)
     participants = sorted(match.participants, key=lambda item: item.created_at)
     participant_items = [
         {
@@ -1308,11 +1340,14 @@ def get_play_match_detail(db: Session, *, club_id: str, match_id: str, current_p
 def get_play_shared_match_detail(db: Session, *, club_id: str, share_token: str, current_player: Player | None = None) -> dict:
     match = db.scalar(
         _match_query(db, club_id=club_id)
-        .where(Match.public_share_token_hash == hash_play_token(share_token))
+        .where(
+            Match.public_share_token_hash == hash_play_token(share_token),
+            Match.public_share_token_revoked_at.is_(None),
+        )
         .limit(1)
     )
     if not match:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Link partita non valido')
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Link partita non disponibile')
     return {
         'player': current_player,
         'match': _serialize_match(match, current_player_id=current_player.id if current_player else None),
@@ -1403,7 +1438,7 @@ def create_play_match(
         )
         db.add(match)
         db.flush()
-        _ensure_match_share_token_hash(match)
+        _issue_match_share_token(match)
         db.add(MatchPlayer(match_id=match.id, player_id=current_player.id))
         db.flush()
         created_match = _load_match(db, club_id=club_id, match_id=match.id)
@@ -1673,6 +1708,63 @@ def update_play_match(
         return {
             'action': 'UPDATED',
             'message': 'Partita aggiornata.',
+            'match': _serialize_match(match, current_player_id=current_player.id),
+        }
+
+
+def _require_manageable_match_share_token(match: Match, *, current_player: Player) -> None:
+    _require_future_open_match(match)
+    if match.status != MatchStatus.OPEN:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La partita non e piu condivisibile')
+    if match.booking_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La partita e gia stata trasformata in prenotazione')
+    if match.created_by_player_id != current_player.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Solo il creator puo gestire il link condiviso')
+
+
+def rotate_play_match_share_token(
+    db: Session,
+    *,
+    club_id: str,
+    match_id: str,
+    current_player: Player,
+) -> dict:
+    court_id = _get_match_court_id(db, club_id=club_id, match_id=match_id)
+
+    with acquire_single_court_lock(db, court_id):
+        match = _load_match(db, club_id=club_id, match_id=match_id, for_update=True)
+        if not match:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Partita non trovata')
+        _require_manageable_match_share_token(match, current_player=current_player)
+        _issue_match_share_token(match)
+        return {
+            'action': 'ROTATED',
+            'message': 'Link partita rigenerato.',
+            'match': _serialize_match(match, current_player_id=current_player.id),
+        }
+
+
+def revoke_play_match_share_token(
+    db: Session,
+    *,
+    club_id: str,
+    match_id: str,
+    current_player: Player,
+) -> dict:
+    court_id = _get_match_court_id(db, club_id=club_id, match_id=match_id)
+
+    with acquire_single_court_lock(db, court_id):
+        match = _load_match(db, club_id=club_id, match_id=match_id, for_update=True)
+        if not match:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Partita non trovata')
+        _require_manageable_match_share_token(match, current_player=current_player)
+        if match.public_share_token_revoked_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Il link condiviso e gia disattivato')
+        _ensure_match_share_token_hash(match)
+        match.public_share_token_revoked_at = _utcnow()
+        return {
+            'action': 'REVOKED',
+            'message': 'Link partita disattivato.',
             'match': _serialize_match(match, current_player_id=current_player.id),
         }
 

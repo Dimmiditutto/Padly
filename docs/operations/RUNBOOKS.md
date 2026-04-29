@@ -181,11 +181,12 @@ Vincoli operativi:
 
 - usare `POST /api/admin/auth/password-reset/request` sul tenant corretto
 - verificare nel log applicativo se l'invio email e fallito
-- se l'SMTP non e operativo in development/test, il sistema puo simulare l'invio ma non lo fa in produzione
+- se nessun provider email e configurato in development/test, il sistema puo simulare l'invio ma non lo fa in produzione
 
 ### Troubleshooting email
 
-- controllare configurazione SMTP
+- su Railway Basic/Hobby verificare prima `RESEND_API_KEY` e `RESEND_FROM`; SMTP esterno e affidabile solo su runtime che espongono le porte classiche
+- controllare configurazione SMTP solo se il deploy usa davvero SMTP come fallback
 - verificare `email_notifications_log` filtrando per `club_id`
 - cercare log applicativi con `event` coerente e `request_id`
 - controllare in `GET /api/platform/ops/status` il contatore `recent_failures.email_failed_count`

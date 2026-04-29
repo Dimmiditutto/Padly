@@ -37,6 +37,7 @@ export function MatchCard({
         <div className='flex flex-wrap items-center justify-end gap-2'>
           {match.court_badge_label ? <span className='status-pill status-pill-neutral'>{match.court_badge_label}</span> : null}
           {match.joined_by_current_player ? <span className='status-pill status-pill-confirmed'>Sei dentro</span> : null}
+          {!match.share_token ? <span className='status-pill status-pill-neutral'>Link disattivato</span> : null}
           <span className='status-pill status-pill-pending'>{match.participant_count}/4</span>
         </div>
       </div>
@@ -94,7 +95,7 @@ export function MatchCard({
       <div className='mt-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <p className='text-sm text-slate-600'>Creata da {match.creator_profile_name || 'community del club'}</p>
         <div className='action-cluster'>
-          {onShare ? (
+          {onShare && match.share_token ? (
             <button type='button' className='btn-secondary' onClick={() => onShare(match)}>
               <Share2 size={16} />
               <span>Condividi</span>

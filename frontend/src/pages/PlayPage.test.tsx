@@ -20,7 +20,9 @@ vi.mock('../services/playApi', () => ({
   markPlayNotificationRead: vi.fn(),
   resendPlayAccessOtp: vi.fn(),
   registerPlayPushSubscription: vi.fn(),
+  revokePlayMatchShareToken: vi.fn(),
   startPlayAccessOtp: vi.fn(),
+  rotatePlayMatchShareToken: vi.fn(),
   revokePlayPushSubscription: vi.fn(),
   startPlayBookingCheckout: vi.fn(),
   updatePlayMatch: vi.fn(),
@@ -56,7 +58,9 @@ import {
   markPlayNotificationRead,
   resendPlayAccessOtp,
   registerPlayPushSubscription,
+  revokePlayMatchShareToken,
   startPlayAccessOtp,
+  rotatePlayMatchShareToken,
   revokePlayPushSubscription,
   startPlayBookingCheckout,
   updatePlayMatch,
@@ -580,6 +584,15 @@ describe('Play phase 2 pages', () => {
     expect(screen.getByRole('button', { name: 'Unisciti' })).toBeInTheDocument();
   });
 
+  it('shows a sober error when the shared link is no longer available', async () => {
+    vi.mocked(getPlaySharedMatch).mockRejectedValueOnce({ response: { data: { detail: 'Link partita non disponibile' } } });
+
+    renderApp('/c/roma-club/play/matches/share-match-shared');
+
+    await screen.findByRole('heading', { name: 'Partita condivisa' });
+    expect(await screen.findByText('Link partita non disponibile')).toBeInTheDocument();
+  });
+
   it('shows compatible matches before forcing a new create flow', async () => {
     const user = userEvent.setup();
     vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
@@ -853,6 +866,59 @@ describe('Play phase 2 pages', () => {
     await waitFor(() => expect(window.confirm).toHaveBeenCalled());
     await waitFor(() => expect(cancelPlayMatch).toHaveBeenCalledWith('match-my-cancel', 'roma-club'));
     expect(await screen.findByText('Partita annullata.')).toBeInTheDocument();
+  });
+
+  it('lets the creator rotate and disable the shared link from personal actions', async () => {
+    const user = userEvent.setup();
+    const creatorMatch = {
+      ...buildMatch('match-my-share', 'da condividere', 2),
+      created_by_player_id: basePlayer.id,
+      creator_profile_name: basePlayer.profile_name,
+      joined_by_current_player: true,
+    };
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches)
+      .mockResolvedValueOnce({
+        player: { ...basePlayer },
+        open_matches: [],
+        my_matches: [creatorMatch],
+      })
+      .mockResolvedValueOnce({
+        player: { ...basePlayer },
+        open_matches: [],
+        my_matches: [{ ...creatorMatch, share_token: 'share-rotated' }],
+      })
+      .mockResolvedValueOnce({
+        player: { ...basePlayer },
+        open_matches: [],
+        my_matches: [{ ...creatorMatch, share_token: null }],
+      });
+    vi.mocked(rotatePlayMatchShareToken).mockResolvedValue({
+      action: 'ROTATED',
+      message: 'Link partita rigenerato.',
+      match: { ...creatorMatch, share_token: 'share-rotated' },
+    });
+    vi.mocked(revokePlayMatchShareToken).mockResolvedValue({
+      action: 'REVOKED',
+      message: 'Link partita disattivato.',
+      match: { ...creatorMatch, share_token: null },
+    });
+
+    renderApp('/c/roma-club/play');
+
+    const card = (await screen.findAllByTestId('play-my-match-card'))[0];
+    await user.click(within(card).getByRole('button', { name: 'Rigenera link' }));
+
+    await waitFor(() => expect(rotatePlayMatchShareToken).toHaveBeenCalledWith('match-my-share', 'roma-club'));
+    expect(await screen.findByText('Link partita rigenerato.')).toBeInTheDocument();
+
+    const updatedCard = (await screen.findAllByTestId('play-my-match-card'))[0];
+    await user.click(within(updatedCard).getByRole('button', { name: 'Disattiva link' }));
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(revokePlayMatchShareToken).toHaveBeenCalledWith('match-my-share', 'roma-club'));
+    expect(await screen.findByText('Link partita disattivato.')).toBeInTheDocument();
+    expect(await within((await screen.findAllByTestId('play-my-match-card'))[0]).findByText('Link disattivato')).toBeInTheDocument();
   });
 
   it('saves notification preferences from the play panel', async () => {

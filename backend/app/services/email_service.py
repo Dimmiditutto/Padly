@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import smtplib
 from datetime import UTC, datetime
@@ -8,6 +9,7 @@ from email.message import EmailMessage
 from html import escape
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -20,6 +22,25 @@ OPTIONAL_EMAIL_ENVS = {'development', 'test'}
 
 
 class EmailService:
+    def _is_blank(self, value: str | None) -> bool:
+        return value is None or not str(value).strip()
+
+    def _has_resend_config(self) -> bool:
+        return not self._is_blank(settings.resend_api_key)
+
+    def _has_smtp_config(self) -> bool:
+        return (
+            not self._is_blank(settings.smtp_host)
+            and not self._is_blank(settings.smtp_username)
+            and not self._is_blank(settings.smtp_password)
+        )
+
+    def _provider_not_configured_error(self) -> str:
+        return 'Provider email non configurato'
+
+    def _resolve_sender_address(self) -> str:
+        return str(settings.resend_from or settings.smtp_from).strip()
+
     def _resolve_timezone(self, booking: Booking | None = None) -> ZoneInfo:
         timezone_name = settings.timezone
         if booking and booking.club and booking.club.timezone:
@@ -144,16 +165,52 @@ class EmailService:
         </div>
         """
 
-    def _deliver(self, to_email: str, subject: str, html: str) -> tuple[str, str | None]:
-        if not settings.smtp_host or not settings.smtp_username or not settings.smtp_password:
-            if settings.app_env.lower() in OPTIONAL_EMAIL_ENVS:
-                logger.info('SMTP non configurato in %s: email simulata a %s con oggetto %s', settings.app_env, to_email, subject)
-                return 'SKIPPED', 'SMTP non configurato'
-            logger.error('SMTP non configurato in %s: invio email impossibile verso %s con oggetto %s', settings.app_env, to_email, subject)
-            return 'FAILED', 'SMTP non configurato'
+    def _deliver_via_resend(self, to_email: str, subject: str, html: str) -> tuple[str, str | None]:
+        sender_address = self._resolve_sender_address()
+        if self._is_blank(sender_address):
+            logger.error('Mittente email Resend non configurato per %s con oggetto %s', to_email, subject)
+            return 'FAILED', 'Mittente Resend non configurato'
+
+        try:
+            response = httpx.post(
+                f'{settings.resend_api_base_url}/emails',
+                headers={
+                    'Authorization': f'Bearer {settings.resend_api_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'from': sender_address,
+                    'to': [to_email],
+                    'subject': subject,
+                    'html': html,
+                },
+                timeout=15.0,
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.exception('Invio email fallito')
+            return 'FAILED', str(exc)
+
+        if response.status_code not in {200, 201, 202}:
+            response_detail = response.text
+            try:
+                response_payload = response.json()
+                if isinstance(response_payload, dict):
+                    response_detail = json.dumps(response_payload, ensure_ascii=True)
+            except ValueError:
+                pass
+            logger.error('Invio email fallito via Resend con status %s verso %s: %s', response.status_code, to_email, response_detail)
+            return 'FAILED', f'Resend API {response.status_code}: {response_detail}'
+
+        return 'SENT', None
+
+    def _deliver_via_smtp(self, to_email: str, subject: str, html: str) -> tuple[str, str | None]:
+        sender_address = self._resolve_sender_address()
+        if self._is_blank(sender_address):
+            logger.error('Mittente SMTP non configurato per %s con oggetto %s', to_email, subject)
+            return 'FAILED', 'Mittente SMTP non configurato'
 
         message = EmailMessage()
-        message['From'] = settings.smtp_from
+        message['From'] = sender_address
         message['To'] = to_email
         message['Subject'] = subject
         message.set_content('Apri questa email in formato HTML per visualizzare il riepilogo.')
@@ -172,6 +229,20 @@ class EmailService:
         except Exception as exc:  # pragma: no cover
             logger.exception('Invio email fallito')
             return 'FAILED', str(exc)
+
+    def _deliver(self, to_email: str, subject: str, html: str) -> tuple[str, str | None]:
+        if self._has_resend_config():
+            return self._deliver_via_resend(to_email, subject, html)
+
+        if self._has_smtp_config():
+            return self._deliver_via_smtp(to_email, subject, html)
+
+        missing_provider_error = self._provider_not_configured_error()
+        if settings.app_env.lower() in OPTIONAL_EMAIL_ENVS:
+            logger.info('Provider email non configurato in %s: email simulata a %s con oggetto %s', settings.app_env, to_email, subject)
+            return 'SKIPPED', missing_provider_error
+        logger.error('Provider email non configurato in %s: invio email impossibile verso %s con oggetto %s', settings.app_env, to_email, subject)
+        return 'FAILED', missing_provider_error
 
     def send(
         self,

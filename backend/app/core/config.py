@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     booking_hold_minutes: int = 15
     cancellation_window_hours: int = 24
+    resend_api_key: str | None = None
+    resend_api_base_url: str = Field(default='https://api.resend.com', validation_alias=AliasChoices('RESEND_API_BASE_URL', 'RESEND_BASE_URL'))
+    resend_from: str | None = None
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_use_ssl: bool = False
@@ -83,6 +86,12 @@ class Settings(BaseSettings):
     @field_validator('app_url')
     @classmethod
     def normalize_app_url(cls, value: str) -> str:
+        normalized = value.rstrip('/')
+        return normalized or value
+
+    @field_validator('resend_api_base_url')
+    @classmethod
+    def normalize_resend_api_base_url(cls, value: str) -> str:
         normalized = value.rstrip('/')
         return normalized or value
 

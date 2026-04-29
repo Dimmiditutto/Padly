@@ -174,7 +174,7 @@ class MatchParticipantSummary(BaseModel):
 
 class PlayMatchSummary(BaseModel):
     id: str
-    share_token: str
+    share_token: str | None = None
     court_id: str
     court_name: str | None = None
     court_badge_label: str | None = None

@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios';
 import { ArrowLeft, Share2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -10,6 +11,11 @@ import { getPlaySession, getPlaySharedMatch, joinPlayMatch } from '../services/p
 import type { PlayMatchSummary, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug } from '../utils/tenantContext';
 import { buildClubPlayPath, buildPlayMatchPath, formatClubDisplayName } from '../utils/play';
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  const requestError = error as AxiosError<{ detail?: string }>;
+  return requestError?.response?.data?.detail || (error instanceof Error ? error.message : fallback);
+}
 
 export function SharedMatchPage() {
   const { clubSlug, shareToken } = useParams();
@@ -41,8 +47,8 @@ export function SharedMatchPage() {
       ]);
       setCurrentPlayer(session.player || detail.player || null);
       setMatch(detail.match);
-    } catch {
-      setFeedback({ tone: 'error', message: 'Non riesco a caricare la partita condivisa.' });
+    } catch (error) {
+      setFeedback({ tone: 'error', message: getApiErrorMessage(error, 'Non riesco a caricare la partita condivisa.') });
     } finally {
       setLoading(false);
     }
@@ -55,17 +61,21 @@ export function SharedMatchPage() {
 
     try {
       const response = await joinPlayMatch(match.id, tenantSlug);
+      const resolvedShareToken = match.share_token || shareToken;
+      if (!resolvedShareToken) {
+        throw new Error('Link partita non disponibile');
+      }
       setFeedback({
         tone: response.action === 'COMPLETED' ? 'success' : 'info',
         message: response.booking
           ? `${response.message} Riferimento prenotazione ${response.booking.public_reference}.`
           : response.message,
       });
-      await loadSharedSurface(tenantSlug, match.share_token);
+      await loadSharedSurface(tenantSlug, resolvedShareToken);
     } catch (error) {
       setFeedback({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Non riesco a completare il join della partita condivisa.',
+        message: getApiErrorMessage(error, 'Non riesco a completare il join della partita condivisa.'),
       });
     }
   }
@@ -80,7 +90,7 @@ export function SharedMatchPage() {
   }
 
   async function handleShare() {
-    if (!tenantSlug || !match) {
+    if (!tenantSlug || !match || !match.share_token) {
       return;
     }
 
@@ -100,7 +110,8 @@ export function SharedMatchPage() {
     setCurrentPlayer(player);
     setIdentifyOpen(false);
     if (tenantSlug && shareToken) {
-      await loadSharedSurface(tenantSlug, shareToken);
+      const resolvedShareToken = match?.share_token || shareToken;
+      await loadSharedSurface(tenantSlug, resolvedShareToken);
     }
     if (match) {
       await performJoin(player);

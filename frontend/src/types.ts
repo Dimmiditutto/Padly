@@ -652,7 +652,7 @@ export interface PlayNotificationSettings {
 
 export interface PlayMatchSummary {
   id: string;
-  share_token: string;
+  share_token?: string | null;
   court_id: string;
   court_name?: string | null;
   court_badge_label?: string | null;

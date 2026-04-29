@@ -20,7 +20,9 @@ import {
   leavePlayMatch,
   markPlayNotificationRead,
   registerPlayPushSubscription,
+  revokePlayMatchShareToken,
   revokePlayPushSubscription,
+  rotatePlayMatchShareToken,
   startPlayBookingCheckout,
   updatePlayMatch,
   updatePlayNotificationPreferences,
@@ -309,6 +311,47 @@ export function PlayPage() {
     }
   }
 
+  async function handleRotateShareToken(match: PlayMatchSummary) {
+    if (!tenantSlug || !currentPlayer || savingManageAction) {
+      return;
+    }
+    setSavingManageAction(true);
+    try {
+      const response = await rotatePlayMatchShareToken(match.id, tenantSlug);
+      setFeedback({ tone: 'success', message: response.message });
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: getApiErrorMessage(error, 'Non riesco a rigenerare il link partita.'),
+      });
+    } finally {
+      setSavingManageAction(false);
+    }
+  }
+
+  async function handleRevokeShareToken(match: PlayMatchSummary) {
+    if (!tenantSlug || !currentPlayer || savingManageAction) {
+      return;
+    }
+    if (!window.confirm('Confermi la disattivazione del link condiviso?')) {
+      return;
+    }
+    setSavingManageAction(true);
+    try {
+      const response = await revokePlayMatchShareToken(match.id, tenantSlug);
+      setFeedback({ tone: 'warning', message: response.message });
+      await loadPlaySurface(tenantSlug);
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: getApiErrorMessage(error, 'Non riesco a disattivare il link partita.'),
+      });
+    } finally {
+      setSavingManageAction(false);
+    }
+  }
+
   async function handleSaveManagedMatch() {
     if (!tenantSlug || !managedMatch || savingManageAction) {
       return;
@@ -401,7 +444,7 @@ export function PlayPage() {
   }
 
   async function handleShare(match: PlayMatchSummary) {
-    if (!tenantSlug) {
+    if (!tenantSlug || !match.share_token) {
       return;
     }
 
@@ -524,7 +567,7 @@ export function PlayPage() {
   }
 
   function handleOpenShared(match: PlayMatchSummary) {
-    if (!tenantSlug) {
+    if (!tenantSlug || !match.share_token) {
       return;
     }
     navigate(buildPlayMatchPath(tenantSlug, match.share_token));
@@ -653,6 +696,8 @@ export function PlayPage() {
                     currentPlayerId={currentPlayer.id}
                     onOpen={handleOpenShared}
                     onShare={handleShare}
+                    onRotateShareToken={(match) => void handleRotateShareToken(match)}
+                    onRevokeShareToken={(match) => void handleRevokeShareToken(match)}
                     onLeave={(match) => void handleLeave(match)}
                     onEdit={openManagePanel}
                     onCancel={(match) => void handleCancel(match)}

@@ -85,10 +85,13 @@ def seed_match_at(
             status=MatchStatus.OPEN,
             level_requested=level_requested,
             note=note,
-            public_share_token_hash='legacy-share-hash',
+            public_share_token_hash='',
         )
         db.add(match)
         db.flush()
+        match.public_share_token_hash = play_service_module.hash_play_token(
+            play_service_module.build_public_match_share_token(club_id=club_id, match_id=match.id)
+        )
         for player_id in participant_player_ids:
             db.add(MatchPlayer(match_id=match.id, player_id=player_id))
         db.commit()
@@ -232,14 +235,132 @@ def test_play_shared_match_uses_real_share_token_and_rejects_invalid_token(clien
         },
     )
     assert create_response.status_code == 200
-    share_token = create_response.json()['match']['share_token']
+    payload = create_response.json()['match']
+    share_token = payload['share_token']
+    legacy_share_token = play_service_module.build_public_match_share_token(
+        club_id=DEFAULT_CLUB_ID,
+        match_id=payload['id'],
+    )
 
     valid_response = client.get(f'/api/play/shared/{share_token}')
     invalid_response = client.get('/api/play/shared/token-non-valido')
 
+    assert share_token != legacy_share_token
     assert valid_response.status_code == 200
     assert valid_response.json()['match']['share_token'] == share_token
     assert invalid_response.status_code == 404
+
+
+def test_play_share_token_rotate_invalidates_legacy_link_and_issues_new_active_link(client):
+    creator = identify_as(client, profile_name='Luca Rotate', phone='3337100002')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Rotate', phone='3337100003')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=9)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='legacy rotate',
+    )
+    legacy_share_token = play_service_module.build_public_match_share_token(club_id=DEFAULT_CLUB_ID, match_id=match_id)
+
+    assert client.get(f'/api/play/shared/{legacy_share_token}').status_code == 200
+
+    rotate_response = client.post(f'/api/play/matches/{match_id}/share-token/rotate')
+
+    assert rotate_response.status_code == 200
+    rotate_payload = rotate_response.json()
+    assert rotate_payload['action'] == 'ROTATED'
+    assert rotate_payload['message'] == 'Link partita rigenerato.'
+    assert rotate_payload['match']['share_token'] is not None
+    assert rotate_payload['match']['share_token'] != legacy_share_token
+
+    assert client.get(f'/api/play/shared/{legacy_share_token}').status_code == 404
+    assert client.get(f"/api/play/shared/{rotate_payload['match']['share_token']}").status_code == 200
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match is not None
+        assert match.public_share_token_nonce is not None
+        assert match.public_share_token_revoked_at is None
+
+
+def test_play_share_token_revoke_disables_active_link_and_rotate_restores_it(client):
+    identify_as(client, profile_name='Luca Revoke', phone='3337100004')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    booking_date, start_time, slot_id, _, _ = build_future_slot(booking_date_offset_days=10)
+
+    create_response = client.post(
+        '/api/play/matches',
+        json={
+            'booking_date': booking_date,
+            'court_id': default_court_id,
+            'start_time': start_time,
+            'slot_id': slot_id,
+            'duration_minutes': 90,
+            'level_requested': 'BEGINNER',
+            'note': 'Match da revocare',
+            'force_create': True,
+        },
+    )
+    assert create_response.status_code == 200
+    match = create_response.json()['match']
+    active_share_token = match['share_token']
+
+    revoke_response = client.post(f"/api/play/matches/{match['id']}/share-token/revoke")
+
+    assert revoke_response.status_code == 200
+    revoke_payload = revoke_response.json()
+    assert revoke_payload['action'] == 'REVOKED'
+    assert revoke_payload['message'] == 'Link partita disattivato.'
+    assert revoke_payload['match']['share_token'] is None
+
+    revoked_lookup = client.get(f'/api/play/shared/{active_share_token}')
+    assert revoked_lookup.status_code == 404
+    assert revoked_lookup.json()['detail'] == 'Link partita non disponibile'
+
+    rotate_response = client.post(f"/api/play/matches/{match['id']}/share-token/rotate")
+    assert rotate_response.status_code == 200
+    new_share_token = rotate_response.json()['match']['share_token']
+    assert new_share_token is not None
+    assert new_share_token != active_share_token
+    assert client.get(f'/api/play/shared/{new_share_token}').status_code == 200
+
+
+def test_play_share_token_management_requires_creator(client):
+    creator = identify_as(client, profile_name='Creator Share Guard', phone='3337100005')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    booking_date, start_time, slot_id, _, _ = build_future_slot(booking_date_offset_days=11)
+
+    create_response = client.post(
+        '/api/play/matches',
+        json={
+            'booking_date': booking_date,
+            'court_id': default_court_id,
+            'start_time': start_time,
+            'slot_id': slot_id,
+            'duration_minutes': 90,
+            'level_requested': 'BEGINNER',
+            'note': 'Guard share token',
+            'force_create': True,
+        },
+    )
+    assert create_response.status_code == 200
+    match_id = create_response.json()['match']['id']
+
+    identify_as(client, profile_name='Intruder Share Guard', phone='3337100006')
+
+    rotate_response = client.post(f'/api/play/matches/{match_id}/share-token/rotate')
+    revoke_response = client.post(f'/api/play/matches/{match_id}/share-token/revoke')
+
+    assert rotate_response.status_code == 403
+    assert rotate_response.json()['detail'] == 'Solo il creator puo gestire il link condiviso'
+    assert revoke_response.status_code == 403
+    assert revoke_response.json()['detail'] == 'Solo il creator puo gestire il link condiviso'
 
 
 def test_play_join_rejects_double_join_for_same_player(client):

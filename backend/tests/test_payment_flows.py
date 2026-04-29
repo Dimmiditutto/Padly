@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from threading import Event, Thread
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -834,6 +835,7 @@ def test_email_service_fails_explicitly_without_smtp_outside_local_env(client, m
     )
 
     monkeypatch.setattr(settings, 'app_env', 'staging')
+    monkeypatch.setattr(settings, 'resend_api_key', None)
     monkeypatch.setattr(settings, 'smtp_host', None)
     monkeypatch.setattr(settings, 'smtp_username', None)
     monkeypatch.setattr(settings, 'smtp_password', None)
@@ -854,8 +856,47 @@ def test_email_service_fails_explicitly_without_smtp_outside_local_env(client, m
         assert status_value == 'FAILED'
         assert email_log is not None
         assert email_log.status == 'FAILED'
-        assert email_log.error == 'SMTP non configurato'
+        assert email_log.error == 'Provider email non configurato'
         assert email_log.sent_at is None
+
+
+def test_email_service_uses_resend_api_when_configured(monkeypatch):
+    calls: list[tuple] = []
+
+    def fake_post(url: str, *, headers: dict[str, str], json: dict, timeout: float):
+        calls.append((url, headers, json, timeout))
+        return httpx.Response(status_code=202, request=httpx.Request('POST', url), json={'id': 'email_123'})
+
+    def fail_smtp(*args, **kwargs):
+        raise AssertionError('SMTP non deve essere usato quando Resend e configurato')
+
+    monkeypatch.setattr(settings, 'resend_api_key', 're_test_key')
+    monkeypatch.setattr(settings, 'resend_from', 'info@padelsavona.it')
+    monkeypatch.setattr(settings, 'resend_api_base_url', 'https://api.resend.com')
+    monkeypatch.setattr('app.services.email_service.httpx.post', fake_post)
+    monkeypatch.setattr('app.services.email_service.smtplib.SMTP', fail_smtp)
+    monkeypatch.setattr('app.services.email_service.smtplib.SMTP_SSL', fail_smtp)
+
+    status_value, error = email_service._deliver('cliente@example.com', 'Oggetto resend', '<p>HTML</p>')
+
+    assert status_value == 'SENT'
+    assert error is None
+    assert calls == [
+        (
+            'https://api.resend.com/emails',
+            {
+                'Authorization': 'Bearer re_test_key',
+                'Content-Type': 'application/json',
+            },
+            {
+                'from': 'info@padelsavona.it',
+                'to': ['cliente@example.com'],
+                'subject': 'Oggetto resend',
+                'html': '<p>HTML</p>',
+            },
+            15.0,
+        )
+    ]
 
 
 def test_email_service_uses_smtps_when_ssl_is_enabled(monkeypatch):
@@ -880,6 +921,8 @@ def test_email_service_uses_smtps_when_ssl_is_enabled(monkeypatch):
     def fail_plain_smtp(*args, **kwargs):
         raise AssertionError('SMTP plain con STARTTLS non deve essere usato quando SMTP_USE_SSL è attivo')
 
+    monkeypatch.setattr(settings, 'resend_api_key', None)
+    monkeypatch.setattr(settings, 'resend_from', None)
     monkeypatch.setattr(settings, 'smtp_host', 'smtps.aruba.it')
     monkeypatch.setattr(settings, 'smtp_port', 465)
     monkeypatch.setattr(settings, 'smtp_use_ssl', True)
@@ -1109,7 +1152,7 @@ def test_reminder_job_does_not_mark_failed_delivery_as_sent(client, monkeypatch)
         assert stored_booking.reminder_sent_at is None
         assert email_log is not None
         assert email_log.status == 'FAILED'
-        assert email_log.error == 'SMTP non configurato'
+        assert email_log.error == 'Provider email non configurato'
         assert events == []
 
 

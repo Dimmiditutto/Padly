@@ -228,7 +228,8 @@ Per la governance dati il control plane espone workflow minimi e guidati, non un
 - `RATE_LIMIT_BACKEND=local|shared` in base al numero di istanze attive: `local` per 1 istanza, `shared` quando devi condividere i contatori tra piu istanze
 - `OPERATIONAL_SIGNAL_WINDOW_HOURS=24` o altro valore coerente con la finestra di osservazione che vuoi usare per email e billing failure recenti
 - `EMAIL_LOG_RETENTION_DAYS=90`, `PAYMENT_WEBHOOK_RETENTION_DAYS=180`, `BILLING_WEBHOOK_RETENTION_DAYS=180` per la retention minima dei dati tecnici purge-safe
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_SSL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`
+- `RESEND_API_KEY`, `RESEND_FROM` e opzionalmente `RESEND_API_BASE_URL` se vuoi invio email operativo via Resend API, canale consigliato su Railway Basic/Hobby
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_SSL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` solo se il runtime puo raggiungere provider SMTP esterni
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` se usi Stripe
 - `STRIPE_BILLING_WEBHOOK_SECRET` se usi il webhook billing SaaS `/api/billing/webhook/stripe`
 - `PAYPAL_ENV=sandbox|live`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` se usi PayPal
@@ -354,7 +355,7 @@ Per smoke locali puoi lasciare `DATABASE_URL=sqlite:///./padelbooking.db`. In pr
 7. imposta `APP_URL` con il dominio pubblico Railway assegnato al servizio
 8. imposta `SCHEDULER_ENABLED=true` solo sull'istanza che deve eseguire reminder e scadenze
 9. se usi repliche aggiuntive, imposta `SCHEDULER_ENABLED=false` su quelle repliche
-10. configura SMTP reale se vuoi invio email operativo
+10. configura `RESEND_API_KEY` e `RESEND_FROM` se vuoi invio email operativo su Railway Basic/Hobby; usa SMTP reale solo se il tuo runtime puo raggiungere provider SMTP esterni
 11. configura Stripe e/o PayPal se vuoi i provider reali in produzione
 12. avvia il deploy: il container esegue automaticamente `alembic upgrade head` e poi Uvicorn
 13. verifica nei log che migrazioni e bootstrap siano completati senza errori

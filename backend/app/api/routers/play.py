@@ -46,6 +46,8 @@ from app.services.play_service import (
     join_play_match,
     leave_play_match,
     list_play_matches,
+    revoke_play_match_share_token,
+    rotate_play_match_share_token,
     start_play_booking_checkout,
     update_play_match,
 )
@@ -357,6 +359,40 @@ def patch_play_match(
         level_requested=payload.level_requested,
         note=payload.note,
         note_provided='note' in payload.model_fields_set,
+    )
+    db.commit()
+    return PlayMatchUpdateResponse(**result)
+
+
+@router.post('/matches/{match_id}/share-token/rotate', response_model=PlayMatchUpdateResponse)
+def post_play_match_share_token_rotate(
+    match_id: str,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchUpdateResponse:
+    result = rotate_play_match_share_token(
+        db,
+        club_id=current_club.id,
+        match_id=match_id,
+        current_player=current_player,
+    )
+    db.commit()
+    return PlayMatchUpdateResponse(**result)
+
+
+@router.post('/matches/{match_id}/share-token/revoke', response_model=PlayMatchUpdateResponse)
+def post_play_match_share_token_revoke(
+    match_id: str,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchUpdateResponse:
+    result = revoke_play_match_share_token(
+        db,
+        club_id=current_club.id,
+        match_id=match_id,
+        current_player=current_player,
     )
     db.commit()
     return PlayMatchUpdateResponse(**result)
