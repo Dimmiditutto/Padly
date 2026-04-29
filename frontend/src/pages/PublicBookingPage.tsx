@@ -1,23 +1,25 @@
-import { Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LogIn, Mail, Phone, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LocateFixed, LogIn, Mail, MapPin, Phone, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
-import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
-import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
+import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig, listPublicClubsNearby } from '../services/publicApi';
+import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBookingSummary, PublicClubSummary, PublicConfig, TimeSlot } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
 import { buildPlayAccessPath } from '../utils/play';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const COLLAPSED_COURT_SLOT_COUNT = 8;
+const NEARBY_CLUBS_LIMIT = 10;
 const today = toDateInputValue(new Date());
 const logoUrl = '/Logo_BG.png';
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
 const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
+type FeedbackState = { tone: 'error' | 'success' | 'info' | 'warning'; message: string } | null;
 
 export function PublicBookingPage() {
   const [searchParams] = useSearchParams();
@@ -33,7 +35,11 @@ export function PublicBookingPage() {
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ tone: 'error' | 'success' | 'info'; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [nearbyClubs, setNearbyClubs] = useState<PublicClubSummary[]>([]);
+  const [loadingNearbyClubs, setLoadingNearbyClubs] = useState(false);
+  const [nearbyFeedback, setNearbyFeedback] = useState<FeedbackState>(null);
+  const [hasRequestedNearbyClubs, setHasRequestedNearbyClubs] = useState(false);
   const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>('STRIPE');
   const [lastBooking, setLastBooking] = useState<PublicBookingSummary | null>(null);
   const [formData, setFormData] = useState({
@@ -111,6 +117,44 @@ export function PublicBookingPage() {
     } finally {
       setLoadingSlots(false);
     }
+  }
+
+  async function loadNearbyClubs(latitude: number, longitude: number) {
+    setLoadingNearbyClubs(true);
+    try {
+      const response = await listPublicClubsNearby(latitude, longitude);
+      const items = response.items.slice(0, NEARBY_CLUBS_LIMIT);
+      setNearbyClubs(items);
+      setNearbyFeedback(items.length > 0 ? null : { tone: 'info', message: 'Nessun club vicino trovato con i dati disponibili. Apri la directory completa per cercare manualmente.' });
+    } catch {
+      setNearbyClubs([]);
+      setNearbyFeedback({ tone: 'error', message: 'Non riesco a caricare i club vicini in questo momento.' });
+    } finally {
+      setLoadingNearbyClubs(false);
+    }
+  }
+
+  function requestNearbyClubs() {
+    setHasRequestedNearbyClubs(true);
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setNearbyClubs([]);
+      setNearbyFeedback({ tone: 'warning', message: 'Questo browser non supporta la geolocalizzazione. Usa la directory pubblica per cercare per citta, CAP o provincia.' });
+      return;
+    }
+
+    setLoadingNearbyClubs(true);
+    setNearbyFeedback(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void loadNearbyClubs(position.coords.latitude, position.coords.longitude);
+      },
+      (error) => {
+        setLoadingNearbyClubs(false);
+        setNearbyClubs([]);
+        setNearbyFeedback({ tone: 'warning', message: geolocationDeniedMessage(error) });
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    );
   }
 
   const selectedSlot = useMemo(
@@ -261,6 +305,71 @@ export function PublicBookingPage() {
               <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
               <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
               <StepCard index='3' title='Versa la caparra' description='Completa il checkout e ricevi subito la conferma.' />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title='Club vicini a te'
+            description='Se sei in viaggio, in vacanza o vuoi giocare fuori zona, usa la geolocalizzazione per scoprire i club del network e capire subito dove ha senso entrare nella community.'
+            actions={(
+              <div className='flex flex-col gap-2 sm:flex-row'>
+                <button type='button' className='btn-secondary' onClick={requestNearbyClubs} disabled={loadingNearbyClubs}>
+                  <LocateFixed size={16} />
+                  <span>{loadingNearbyClubs ? 'Ricerca in corso…' : 'Usa la mia posizione'}</span>
+                </button>
+                <Link className='btn-secondary' to='/clubs'>
+                  <span>Apri directory club</span>
+                </Link>
+              </div>
+            )}
+          >
+            <div className='space-y-4'>
+              {nearbyFeedback ? <AlertBanner tone={nearbyFeedback.tone}>{nearbyFeedback.message}</AlertBanner> : null}
+              {loadingNearbyClubs ? <LoadingBlock label='Sto cercando i club piu vicini…' /> : null}
+              {!loadingNearbyClubs && nearbyClubs.length > 0 ? (
+                <div className='grid gap-4 lg:grid-cols-2'>
+                  {nearbyClubs.map((club) => (
+                    <article key={club.club_id} data-testid='nearby-club-card' className='rounded-2xl border border-slate-200 bg-white p-4'>
+                      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                        <div className='min-w-0'>
+                          <p className='text-base font-semibold text-slate-950'>{club.public_name}</p>
+                          <p className='mt-2 flex items-start gap-2 text-sm text-slate-600'>
+                            <MapPin size={16} className='mt-0.5 shrink-0 text-cyan-700' />
+                            <span>{buildNearbyClubLocationLine(club)}</span>
+                          </p>
+                          <p className='mt-2 text-sm text-slate-600'>
+                            {formatDistance(club.distance_km)} • {club.courts_count} {club.courts_count === 1 ? 'campo' : 'campi'}
+                          </p>
+                        </div>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${club.is_community_open ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                          {club.is_community_open ? 'Community aperta' : 'Community su richiesta'}
+                        </span>
+                      </div>
+
+                      <div className='mt-4 grid gap-2 sm:grid-cols-3'>
+                        <NearbyClubCountCard label='3/4' value={club.open_matches_three_of_four_count} helper='Da chiudere subito' />
+                        <NearbyClubCountCard label='2/4' value={club.open_matches_two_of_four_count} helper='Buone occasioni' />
+                        <NearbyClubCountCard label='1/4' value={club.open_matches_one_of_four_count} helper='Da monitorare' />
+                      </div>
+
+                      <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                        <p className='text-sm text-slate-600'>{club.public_activity_label}</p>
+                        <Link aria-label={`Apri scheda club ${club.public_name}`} className='btn-secondary sm:w-auto' to={`/c/${club.club_slug}`}>
+                          <span>Apri scheda club</span>
+                          <ArrowRight size={16} />
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {!loadingNearbyClubs && nearbyClubs.length === 0 && !nearbyFeedback ? (
+                <div className='surface-muted text-sm text-slate-600'>
+                  {hasRequestedNearbyClubs
+                    ? 'Nessun club vicino disponibile in questo momento. Apri la directory completa per cercare manualmente.'
+                    : 'Attiva la geolocalizzazione solo quando ti serve: vedrai i 10 club piu vicini e potrai aprire la scheda pubblica di ciascun club.'}
+                </div>
+              ) : null}
             </div>
           </SectionCard>
 
@@ -462,6 +571,24 @@ function formatBookingDayLabel(value: string, timezone = 'Europe/Rome') {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function geolocationDeniedMessage(error: GeolocationPositionError | { code?: number } | null | undefined) {
+  if (error?.code === 1) {
+    return 'Permesso geolocalizzazione negato. Usa la directory pubblica per cercare per citta, CAP o provincia.';
+  }
+  return 'Geolocalizzazione non disponibile in questo momento. Usa la directory pubblica per trovare il club giusto.';
+}
+
+function buildNearbyClubLocationLine(club: PublicClubSummary) {
+  return [club.public_city, club.public_province, club.public_postal_code].filter(Boolean).join(' • ') || 'Zona non disponibile';
+}
+
+function formatDistance(distanceKm: number | null | undefined) {
+  if (distanceKm == null) {
+    return 'Distanza non disponibile';
+  }
+  return `${distanceKm.toFixed(1).replace('.', ',')} km`;
+}
+
 function buildPublicRateLines(config: PublicConfig | null) {
   const memberHourlyRate = config?.member_hourly_rate ?? 7;
   const nonMemberHourlyRate = config?.non_member_hourly_rate ?? 9;
@@ -619,6 +746,16 @@ function InfoPill({ icon, title, text }: { icon: ReactNode; title: string; text:
       <div className='mb-2 text-cyan-300'>{icon}</div>
       <p className='text-sm font-semibold'>{title}</p>
       <p className='mt-1 text-sm leading-5 text-slate-400'>{text}</p>
+    </div>
+  );
+}
+
+function NearbyClubCountCard({ label, value, helper }: { label: string; value: number; helper: string }) {
+  return (
+    <div className='rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3'>
+      <p className='text-xs font-semibold uppercase tracking-[0.16em] text-slate-500'>{label}</p>
+      <p className='mt-2 text-2xl font-semibold text-slate-950'>{value}</p>
+      <p className='mt-1 text-xs text-slate-600'>{helper}</p>
     </div>
   );
 }

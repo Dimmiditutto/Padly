@@ -136,6 +136,9 @@ export interface PublicClubSummary {
   public_activity_score: number;
   recent_open_matches_count: number;
   public_activity_label: string;
+  open_matches_three_of_four_count: number;
+  open_matches_two_of_four_count: number;
+  open_matches_one_of_four_count: number;
 }
 
 export interface PublicClubDirectoryResponse {

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
-import type { PublicClubWatchSummary, PublicDiscoveryNotificationSummary, PublicDiscoverySession } from '../types';
+import type { PublicClubDetailResponse, PublicClubSummary, PublicClubWatchSummary, PublicDiscoveryMeResponse, PublicDiscoveryNotificationSummary, PublicDiscoverySession } from '../types';
 
 vi.mock('../pages/PublicBookingPage', () => ({
   PublicBookingPage: () => <div>PUBLIC BOOKING ROUTE</div>,
@@ -47,7 +47,7 @@ function renderApp(path: string) {
   );
 }
 
-const directoryItems = [
+const directoryItems: PublicClubSummary[] = [
   {
     club_id: 'club-1',
     club_slug: 'roma-club',
@@ -67,6 +67,9 @@ const directoryItems = [
     public_activity_score: 5,
     recent_open_matches_count: 2,
     public_activity_label: 'Buona disponibilita recente',
+    open_matches_three_of_four_count: 1,
+    open_matches_two_of_four_count: 1,
+    open_matches_one_of_four_count: 0,
   },
   {
     club_id: 'club-2',
@@ -87,8 +90,39 @@ const directoryItems = [
     public_activity_score: 0,
     recent_open_matches_count: 0,
     public_activity_label: 'Nessuna disponibilita recente',
+    open_matches_three_of_four_count: 0,
+    open_matches_two_of_four_count: 0,
+    open_matches_one_of_four_count: 0,
   },
 ];
+
+const emptyDiscoveryMe: PublicDiscoveryMeResponse = {
+  subscriber: null,
+  recent_notifications: [],
+  unread_notifications_count: 0,
+};
+
+const baseClubDetail: PublicClubDetailResponse = {
+  club: directoryItems[0],
+  timezone: 'Europe/Rome',
+  support_email: 'desk@roma-club.example',
+  support_phone: '+39061234567',
+  public_match_window_days: 7,
+  open_matches: [
+    {
+      id: 'match-1',
+      court_name: 'Campo 1',
+      court_badge_label: 'Indoor',
+      start_at: '2026-05-10T18:00:00Z',
+      end_at: '2026-05-10T19:30:00Z',
+      level_requested: 'INTERMEDIATE_HIGH',
+      participant_count: 3,
+      available_spots: 1,
+      occupancy_label: '3/4',
+      missing_players_message: 'Manca 1 giocatore',
+    },
+  ],
+};
 
 const discoverySubscriber: PublicDiscoverySession = {
   subscriber_id: 'subscriber-1',
@@ -136,33 +170,13 @@ describe('Public discovery routes', () => {
     vi.clearAllMocks();
     vi.mocked(listPublicClubs).mockResolvedValue({ query: null, items: directoryItems });
     vi.mocked(listPublicClubsNearby).mockResolvedValue({ query: null, items: [directoryItems[0]] });
-    vi.mocked(getPublicDiscoveryMe).mockResolvedValue({ subscriber: null, recent_notifications: [], unread_notifications_count: 0 });
+    vi.mocked(getPublicDiscoveryMe).mockResolvedValue(emptyDiscoveryMe);
     vi.mocked(listPublicWatchlist).mockResolvedValue({ items: [] });
     vi.mocked(identifyPublicDiscovery).mockResolvedValue({ subscriber: discoverySubscriber, recent_notifications: [discoveryNotification], unread_notifications_count: 1 });
     vi.mocked(followPublicClub).mockResolvedValue({ item: watchlistItem });
     vi.mocked(markPublicDiscoveryNotificationRead).mockResolvedValue({ subscriber: discoverySubscriber, recent_notifications: [discoveryNotificationRead], unread_notifications_count: 0 });
     vi.mocked(createPublicClubContactRequest).mockResolvedValue({ request_id: 'request-1', message: 'Richiesta inviata al circolo' });
-    vi.mocked(getPublicClubDetail).mockResolvedValue({
-      club: directoryItems[0],
-      timezone: 'Europe/Rome',
-      support_email: 'desk@roma-club.example',
-      support_phone: '+39061234567',
-      public_match_window_days: 7,
-      open_matches: [
-        {
-          id: 'match-1',
-          court_name: 'Campo 1',
-          court_badge_label: 'Indoor',
-          start_at: '2026-05-10T18:00:00Z',
-          end_at: '2026-05-10T19:30:00Z',
-          level_requested: 'INTERMEDIATE_HIGH',
-          participant_count: 3,
-          available_spots: 1,
-          occupancy_label: '3/4',
-          missing_players_message: 'Manca 1 giocatore',
-        },
-      ],
-    });
+    vi.mocked(getPublicClubDetail).mockResolvedValue(baseClubDetail);
   });
 
   afterEach(() => {
@@ -217,33 +231,9 @@ describe('Public discovery routes', () => {
   it('renders /c/:clubSlug with public open matches and level filter without player details', async () => {
     const user = userEvent.setup();
     vi.mocked(getPublicClubDetail)
+      .mockResolvedValueOnce(baseClubDetail)
       .mockResolvedValueOnce({
-        club: directoryItems[0],
-        timezone: 'Europe/Rome',
-        support_email: 'desk@roma-club.example',
-        support_phone: '+39061234567',
-        public_match_window_days: 7,
-        open_matches: [
-          {
-            id: 'match-1',
-            court_name: 'Campo 1',
-            court_badge_label: 'Indoor',
-            start_at: '2026-05-10T18:00:00Z',
-            end_at: '2026-05-10T19:30:00Z',
-            level_requested: 'INTERMEDIATE_HIGH',
-            participant_count: 3,
-            available_spots: 1,
-            occupancy_label: '3/4',
-            missing_players_message: 'Manca 1 giocatore',
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        club: directoryItems[0],
-        timezone: 'Europe/Rome',
-        support_email: 'desk@roma-club.example',
-        support_phone: '+39061234567',
-        public_match_window_days: 7,
+        ...baseClubDetail,
         open_matches: [
           {
             id: 'match-2',

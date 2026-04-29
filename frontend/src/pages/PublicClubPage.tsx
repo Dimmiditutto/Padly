@@ -54,6 +54,32 @@ function parseApiError(error: unknown, fallback: string) {
   return requestError.response?.data?.detail || fallback;
 }
 
+function buildPriorityGroups(matches: PublicClubDetailResponse['open_matches']) {
+  return [
+    {
+      key: 'three-of-four',
+      title: 'Da chiudere subito',
+      badge: '3/4',
+      description: 'Le occasioni piu semplici da convertire: manca solo un giocatore.',
+      items: matches.filter((match) => match.participant_count >= 3),
+    },
+    {
+      key: 'two-of-four',
+      title: 'Buone occasioni',
+      badge: '2/4',
+      description: 'Match gia avviati: utili se stai valutando il club e vuoi capire dove c e movimento.',
+      items: matches.filter((match) => match.participant_count === 2),
+    },
+    {
+      key: 'one-of-four',
+      title: 'Da monitorare',
+      badge: '1/4',
+      description: 'Partite ancora agli inizi ma gia pubblicamente visibili per il tuo livello.',
+      items: matches.filter((match) => match.participant_count === 1),
+    },
+  ].filter((group) => group.items.length > 0);
+}
+
 export function PublicClubPage() {
   const { clubSlug } = useParams();
   const [detail, setDetail] = useState<PublicClubDetailResponse | null>(null);
@@ -128,6 +154,7 @@ export function PublicClubPage() {
     () => watchlist.find((item) => item.club.club_slug === clubSlug),
     [clubSlug, watchlist]
   );
+  const priorityGroups = useMemo(() => (detail ? buildPriorityGroups(detail.open_matches) : []), [detail]);
 
   if (!clubSlug) {
     return (
@@ -166,10 +193,17 @@ export function PublicClubPage() {
                     <ArrowLeft size={16} />
                     <span>Torna ai club</span>
                   </Link>
-                  <Link className='btn-primary' to={buildClubPlayPath(detail.club.club_slug)}>
-                    <UsersRound size={16} />
-                    <span>{detail.club.is_community_open ? 'Entra nella community' : 'Apri la community privata'}</span>
-                  </Link>
+                  {detail.club.is_community_open ? (
+                    <Link className='btn-primary' to={buildClubPlayPath(detail.club.club_slug)}>
+                      <UsersRound size={16} />
+                      <span>Entra nella community</span>
+                    </Link>
+                  ) : (
+                    <a className='btn-primary' href='#club-contact-request'>
+                      <Mail size={16} />
+                      <span>Richiedi accesso</span>
+                    </a>
+                  )}
                 </div>
               </div>
             </header>
@@ -258,11 +292,11 @@ export function PublicClubPage() {
                 </div>
               </SectionCard>
 
-              <SectionCard title='Partite open del club' description='Solo vista pubblica leggera: niente nomi dei player, niente join diretto, solo segnali utili per capire se il club fa al caso tuo.'>
+              <SectionCard title='Partite da chiudere' description='Vista pubblica leggera e orientata alla scoperta: prima le occasioni piu vicine a chiudersi, poi il resto.'>
                 <div className='space-y-4'>
                   <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end'>
                     <div className='surface-muted'>
-                      <p className='text-sm text-slate-600'>Filtra le partite open per livello e poi passa alla community del club per agire.</p>
+                      <p className='text-sm text-slate-600'>Filtra per livello, valuta dove ci sono piu probabilita di chiudere un match e poi scegli se entrare nella community o richiedere accesso.</p>
                     </div>
                     <div>
                       <label className='field-label' htmlFor='public-club-level-filter'>Livello</label>
@@ -278,26 +312,40 @@ export function PublicClubPage() {
                   {detail.open_matches.length === 0 ? (
                     <div className='surface-muted text-sm text-slate-700'>Nessuna partita open pubblica disponibile con i filtri correnti.</div>
                   ) : (
-                    <div className='space-y-3'>
-                      {detail.open_matches.map((match) => (
-                        <article key={match.id} data-testid='public-open-match-card' className='rounded-2xl border border-slate-200 bg-white px-4 py-4'>
-                          <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
-                            <div>
-                              <p className='text-sm font-semibold text-slate-900'>{formatWeekday(match.start_at, detail.timezone)} • {formatDate(match.start_at)}</p>
-                              <p className='mt-1 flex items-center gap-2 text-sm text-slate-600'>
-                                <Clock3 size={16} className='text-cyan-700' />
-                                <span>{formatTimeValue(match.start_at, detail.timezone)} - {formatTimeValue(match.end_at, detail.timezone)}</span>
-                              </p>
-                              <p className='mt-2 text-sm text-slate-600'>{match.court_name || 'Campo del club'}{match.court_badge_label ? ` • ${match.court_badge_label}` : ''}</p>
-                            </div>
-                            <div className='flex flex-col gap-2 lg:items-end'>
-                              <span className='rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold text-cyan-800'>{formatPlayLevel(match.level_requested)}</span>
-                              <span className='rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700'>{match.occupancy_label}</span>
+                    <div className='space-y-5'>
+                      {priorityGroups.map((group) => (
+                        <section key={group.key} data-testid='public-match-priority-group' className='space-y-3'>
+                          <div className='surface-muted'>
+                            <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                              <div>
+                                <p className='text-sm font-semibold text-slate-900'>{group.title}</p>
+                                <p className='mt-1 text-sm text-slate-600'>{group.description}</p>
+                              </div>
+                              <span className='rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white'>{group.badge}</span>
                             </div>
                           </div>
-                          <p className='mt-3 text-sm font-medium text-slate-900'>{match.missing_players_message}</p>
-                          <p className='mt-1 text-sm text-slate-600'>Per unirti devi passare dalla community del club. La pagina pubblica non mostra nomi dei partecipanti o dettagli interni.</p>
-                        </article>
+
+                          {group.items.map((match) => (
+                            <article key={match.id} data-testid='public-open-match-card' className='rounded-2xl border border-slate-200 bg-white px-4 py-4'>
+                              <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
+                                <div>
+                                  <p className='text-sm font-semibold text-slate-900'>{formatWeekday(match.start_at, detail.timezone)} • {formatDate(match.start_at)}</p>
+                                  <p className='mt-1 flex items-center gap-2 text-sm text-slate-600'>
+                                    <Clock3 size={16} className='text-cyan-700' />
+                                    <span>{formatTimeValue(match.start_at, detail.timezone)} - {formatTimeValue(match.end_at, detail.timezone)}</span>
+                                  </p>
+                                  <p className='mt-2 text-sm text-slate-600'>{match.court_name || 'Campo del club'}{match.court_badge_label ? ` • ${match.court_badge_label}` : ''}</p>
+                                </div>
+                                <div className='flex flex-col gap-2 lg:items-end'>
+                                  <span className='rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold text-cyan-800'>{formatPlayLevel(match.level_requested)}</span>
+                                  <span className='rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700'>{match.occupancy_label}</span>
+                                </div>
+                              </div>
+                              <p className='mt-3 text-sm font-medium text-slate-900'>{match.missing_players_message}</p>
+                              <p className='mt-1 text-sm text-slate-600'>Per agire devi passare dalla community del club. Qui vedi solo segnali pubblici: nessun nome partecipante, nessun dettaglio interno.</p>
+                            </article>
+                          ))}
+                        </section>
                       ))}
                     </div>
                   )}
@@ -306,7 +354,12 @@ export function PublicClubPage() {
             </div>
 
             <div className='mt-6 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
-              <SectionCard title='Richiedi contatto al club' description='Flusso guidato per chi non vuole entrare subito nella community o ha bisogno di un contatto umano.' elevated>
+              <SectionCard
+                sectionId='club-contact-request'
+                title={detail.club.is_community_open ? 'Richiedi contatto al club' : 'Richiedi accesso alla community'}
+                description={detail.club.is_community_open ? 'Flusso guidato per chi non vuole entrare subito nella community o ha bisogno di un contatto umano.' : 'Se la community del club e chiusa, usa questo passaggio pubblico per chiedere accesso senza esporre dati interni del club.'}
+                elevated
+              >
                 <form
                   className='grid gap-4 sm:grid-cols-2'
                   onSubmit={(event) => {
@@ -358,7 +411,7 @@ export function PublicClubPage() {
                   </div>
                   <div className='sm:col-span-2'>
                     <label className='field-label' htmlFor='club-contact-note'>Messaggio</label>
-                    <textarea id='club-contact-note' className='text-input min-h-24' value={contactForm.note} onChange={(event) => setContactForm((prev) => ({ ...prev, note: event.target.value }))} placeholder='Dimmi se vuoi informazioni su community, livello, orari o modalità di ingresso.' />
+                    <textarea id='club-contact-note' className='text-input min-h-24' value={contactForm.note} onChange={(event) => setContactForm((prev) => ({ ...prev, note: event.target.value }))} placeholder={detail.club.is_community_open ? 'Dimmi se vuoi informazioni su community, livello, orari o modalità di ingresso.' : 'Spiega perche vuoi entrare nella community, il tuo livello e quando ti piacerebbe giocare.'} />
                   </div>
                   <label className='sm:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
                     <input type='checkbox' checked={contactForm.privacy_accepted} onChange={(event) => setContactForm((prev) => ({ ...prev, privacy_accepted: event.target.checked }))} className='mt-1 h-4 w-4 rounded border-slate-300' required />
@@ -366,7 +419,7 @@ export function PublicClubPage() {
                   </label>
                   <button className='btn-primary sm:col-span-2' type='submit' disabled={contactSubmitting}>
                     <Mail size={16} />
-                    <span>{contactSubmitting ? 'Invio in corso…' : 'Invia richiesta contatto'}</span>
+                    <span>{contactSubmitting ? 'Invio in corso…' : detail.club.is_community_open ? 'Invia richiesta contatto' : 'Invia richiesta accesso'}</span>
                   </button>
                 </form>
               </SectionCard>
@@ -383,7 +436,7 @@ export function PublicClubPage() {
                   </div>
                   <div className='surface-muted'>
                     <p className='font-semibold text-slate-900'>3. Entra o fatti contattare</p>
-                    <p className='mt-2'>Se vuoi agire subito passa alla community del club; se preferisci un passaggio umano usa il form contatto qui sopra.</p>
+                    <p className='mt-2'>{detail.club.is_community_open ? 'Se vuoi agire subito passa alla community del club; se preferisci un passaggio umano usa il form contatto qui sopra.' : 'La community del club e su richiesta: usa il form qui sopra per chiedere accesso senza uscire dal perimetro pubblico.'}</p>
                   </div>
                 </div>
               </SectionCard>

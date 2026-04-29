@@ -1236,6 +1236,9 @@ def build_public_activity_index(
             'public_activity_score': 0,
             'recent_open_matches_count': 0,
             'public_activity_label': 'Nessuna disponibilita recente',
+            'open_matches_three_of_four_count': 0,
+            'open_matches_two_of_four_count': 0,
+            'open_matches_one_of_four_count': 0,
         }
         for club_id in club_ids
     }
@@ -1248,10 +1251,19 @@ def build_public_activity_index(
                 'public_activity_score': 0,
                 'recent_open_matches_count': 0,
                 'public_activity_label': 'Nessuna disponibilita recente',
+                'open_matches_three_of_four_count': 0,
+                'open_matches_two_of_four_count': 0,
+                'open_matches_one_of_four_count': 0,
             },
         )
         club_summary['recent_open_matches_count'] = int(club_summary['recent_open_matches_count']) + 1
         club_summary['public_activity_score'] = int(club_summary['public_activity_score']) + _public_activity_weight(participant_count)
+        if participant_count >= 3:
+            club_summary['open_matches_three_of_four_count'] = int(club_summary['open_matches_three_of_four_count']) + 1
+        elif participant_count == 2:
+            club_summary['open_matches_two_of_four_count'] = int(club_summary['open_matches_two_of_four_count']) + 1
+        elif participant_count == 1:
+            club_summary['open_matches_one_of_four_count'] = int(club_summary['open_matches_one_of_four_count']) + 1
 
     for club_summary in activity_index.values():
         club_summary['public_activity_label'] = _public_activity_label(

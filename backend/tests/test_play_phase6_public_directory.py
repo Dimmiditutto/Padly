@@ -153,6 +153,9 @@ def test_public_clubs_manual_search_is_case_insensitive_and_returns_structured_f
         assert payload['items'][0]['public_activity_score'] == 0
         assert payload['items'][0]['recent_open_matches_count'] == 0
         assert payload['items'][0]['public_activity_label'] == 'Nessuna disponibilita recente'
+        assert payload['items'][0]['open_matches_three_of_four_count'] == 0
+        assert payload['items'][0]['open_matches_two_of_four_count'] == 0
+        assert payload['items'][0]['open_matches_one_of_four_count'] == 0
 
 
 def test_public_clubs_nearby_orders_by_distance_and_keeps_clubs_without_coordinates(client):
@@ -279,6 +282,9 @@ def test_public_club_detail_exposes_only_lightweight_open_matches(client):
     assert payload['club']['public_activity_score'] == 6
     assert payload['club']['recent_open_matches_count'] == 3
     assert payload['club']['public_activity_label'] == 'Alta disponibilita recente'
+    assert payload['club']['open_matches_three_of_four_count'] == 1
+    assert payload['club']['open_matches_two_of_four_count'] == 1
+    assert payload['club']['open_matches_one_of_four_count'] == 1
     assert payload['public_match_window_days'] == 7
 
     open_matches = payload['open_matches']

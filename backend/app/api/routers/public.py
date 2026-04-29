@@ -153,6 +153,9 @@ def _serialize_public_club(
         'public_activity_score': int(summary.get('public_activity_score', 0)),
         'recent_open_matches_count': int(summary.get('recent_open_matches_count', 0)),
         'public_activity_label': str(summary.get('public_activity_label', 'Nessuna disponibilita recente')),
+        'open_matches_three_of_four_count': int(summary.get('open_matches_three_of_four_count', 0)),
+        'open_matches_two_of_four_count': int(summary.get('open_matches_two_of_four_count', 0)),
+        'open_matches_one_of_four_count': int(summary.get('open_matches_one_of_four_count', 0)),
     }
 
 
