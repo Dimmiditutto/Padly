@@ -1,8 +1,7 @@
-import { ArrowRight, Building2, CalendarClock, LocateFixed, MapPin, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Building2, CalendarClock, LocateFixed, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import {
@@ -57,25 +56,6 @@ function geolocationDeniedMessage(error: GeolocationPositionError | { code?: num
   return 'Geolocalizzazione non disponibile in questo momento. Usa la directory per cercare manualmente il club giusto.';
 }
 
-function locationSourceLabel(source: string) {
-  if (source === 'query') {
-    return 'posizione corrente';
-  }
-  if (source === 'discovery') {
-    return 'sessione discovery';
-  }
-  return 'nessuna posizione';
-}
-
-function MatchinnWordmark() {
-  return (
-    <span className='matchinn-wordmark matchinn-wordmark-hero'>
-      <span className='matchinn-wordmark-match'>match</span>
-      <span className='matchinn-wordmark-inn'>inn</span>
-    </span>
-  );
-}
-
 export function MatchinnHomePage() {
   const [communities, setCommunities] = useState<PublicClubSummary[]>([]);
   const [communitiesLoading, setCommunitiesLoading] = useState(true);
@@ -90,12 +70,9 @@ export function MatchinnHomePage() {
   const [nearbyClubs, setNearbyClubs] = useState<PublicClubSummary[]>([]);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyFeedback, setNearbyFeedback] = useState<FeedbackState>(null);
-  const [nearbyLocationSource, setNearbyLocationSource] = useState<LocationSource>('none');
   const [openMatches, setOpenMatches] = useState<MatchinnHomeOpenMatchItem[]>([]);
   const [openMatchesLoading, setOpenMatchesLoading] = useState(true);
   const [openMatchesFeedback, setOpenMatchesFeedback] = useState<FeedbackState>(null);
-  const [openMatchesLocationSource, setOpenMatchesLocationSource] = useState<string>('none');
-  const [openMatchesPreferredLevel, setOpenMatchesPreferredLevel] = useState<PlayLevel | null>(null);
   const [locating, setLocating] = useState(false);
 
   useEffect(() => {
@@ -125,7 +102,7 @@ export function MatchinnHomePage() {
       setDiscovery(response);
       setDiscoveryFeedback(null);
       if (response.subscriber?.has_coordinates && response.subscriber.latitude != null && response.subscriber.longitude != null) {
-        await loadNearbyClubs(response.subscriber.latitude, response.subscriber.longitude, 'discovery');
+        await loadNearbyClubs(response.subscriber.latitude, response.subscriber.longitude);
       }
     } catch {
       setDiscoveryFeedback({ tone: 'info', message: 'Discovery non disponibile ora. Usa la tua posizione o apri la directory club.' });
@@ -134,17 +111,15 @@ export function MatchinnHomePage() {
     }
   }
 
-  async function loadNearbyClubs(latitude: number, longitude: number, source: LocationSource) {
+  async function loadNearbyClubs(latitude: number, longitude: number) {
     setNearbyLoading(true);
     try {
       const response = await listPublicClubsNearby(latitude, longitude);
       const items = response.items.slice(0, NEARBY_CLUBS_LIMIT);
       setNearbyClubs(items);
-      setNearbyLocationSource(source);
       setNearbyFeedback(items.length > 0 ? null : { tone: 'info', message: 'Nessun club vicino trovato con i dati disponibili. Apri la directory per cercare manualmente.' });
     } catch {
       setNearbyClubs([]);
-      setNearbyLocationSource(source);
       setNearbyFeedback({ tone: 'info', message: 'I club vicini non sono disponibili ora. Continua dalla directory completa.' });
     } finally {
       setNearbyLoading(false);
@@ -159,8 +134,6 @@ export function MatchinnHomePage() {
         limit: HOME_MATCH_LIMIT,
       });
       setOpenMatches(response.items);
-      setOpenMatchesLocationSource(response.location_source);
-      setOpenMatchesPreferredLevel(response.preferred_level ?? null);
 
       if (response.items.length > 0) {
         setOpenMatchesFeedback(null);
@@ -171,8 +144,6 @@ export function MatchinnHomePage() {
       }
     } catch {
       setOpenMatches([]);
-      setOpenMatchesLocationSource('none');
-      setOpenMatchesPreferredLevel(null);
       setOpenMatchesFeedback({ tone: 'info', message: 'Le partite aperte vicine non sono disponibili ora. Apri un club per vedere il dettaglio pubblico.' });
     } finally {
       setOpenMatchesLoading(false);
@@ -190,7 +161,7 @@ export function MatchinnHomePage() {
       (position) => {
         setLocating(false);
         void Promise.all([
-          loadNearbyClubs(position.coords.latitude, position.coords.longitude, 'query'),
+          loadNearbyClubs(position.coords.latitude, position.coords.longitude),
           loadOpenMatches({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
         ]);
       },
@@ -211,13 +182,12 @@ export function MatchinnHomePage() {
         <header className='product-hero-panel'>
           <div className='product-hero-layout gap-6'>
             <div className='product-hero-copy'>
-              <AppBrand light label='Hub Matchinn' />
+              <div className='inline-flex rounded-2xl bg-white px-4 py-3 shadow-sm'>
+                <img className='h-10 w-auto sm:h-12' src='/logo_matchinn_dark.png' alt='Matchinn' />
+              </div>
               <h1 className='mt-4 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>
-                <MatchinnWordmark /> ti porta subito tra community attive, club vicini e partite aperte.
+                Matchinn ti trova il club e la partita giusta. Tu devi solo entrare in campo.
               </h1>
-              <p className='product-hero-description max-w-2xl'>
-                La home non e il booking di un singolo club: e il punto di accesso operativo per rientrare nelle tue community, trovare campi vicino a te e aprire solo i flussi utili.
-              </p>
               <div className='mt-6 product-hero-actions'>
                 <Link className='hero-action-primary' to='/clubs'>
                   <LocateFixed size={16} />
@@ -247,11 +217,7 @@ export function MatchinnHomePage() {
         </header>
 
         <div className='grid items-start gap-6 lg:grid-cols-[1.15fr_0.85fr]'>
-          <SectionCard
-            title='Le tue community'
-            description='Se questo browser ha gia sessioni Play valide, rientri subito nel club giusto senza introdurre un account globale.'
-            elevated
-          >
+          <SectionCard title='Le tue community' elevated>
             {communitiesLoading ? (
               <LoadingBlock label='Cerco le community riconosciute…' labelClassName='text-base' />
             ) : communitiesFeedback ? (
@@ -309,8 +275,8 @@ export function MatchinnHomePage() {
               <div className='flex items-start justify-between gap-4'>
                 <div>
                   <p className='text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700'>Posizione</p>
-                  <h2 className='mt-2 text-xl font-semibold text-slate-950'>Trova subito cio che ti e vicino</h2>
-                  <p className='mt-2 text-sm text-slate-600'>Usa la geolocalizzazione in modo esplicito oppure continua dalla directory pubblica.</p>
+                  <h2 className='mt-2 text-xl font-semibold text-slate-950'>Trova i campi più vicini a te</h2>
+                  <p className='mt-2 text-sm text-slate-600'>Usa la geolocalizzazione o cerca un campo</p>
                 </div>
                 <ShieldCheck size={20} className='shrink-0 text-cyan-700' />
               </div>
@@ -319,7 +285,7 @@ export function MatchinnHomePage() {
                   <LocateFixed size={16} />
                   <span>{locating ? 'Posizione in corso…' : 'Usa la mia posizione'}</span>
                 </button>
-                <Link className='btn-secondary' to='/clubs'>Apri directory club</Link>
+                <Link className='btn-secondary' to='/clubs'>Cerca un campo</Link>
               </div>
               {discoveryLoading ? (
                 <div className='mt-4'>
@@ -341,7 +307,7 @@ export function MatchinnHomePage() {
                 <div>
                   <p className='text-xs font-semibold uppercase tracking-[0.16em] text-slate-500'>Area club</p>
                   <h2 className='mt-2 text-lg font-semibold text-slate-950'>Accesso gestori e admin</h2>
-                  <p className='mt-2 text-sm text-slate-600'>La dashboard resta separata e secondaria rispetto ai flussi utente Matchinn.</p>
+                  <p className='mt-2 text-sm text-slate-600'>Sei un gestore? Entra nella tua dashboard.</p>
                 </div>
                 <Building2 size={20} className='shrink-0 text-slate-500' />
               </div>
@@ -353,48 +319,8 @@ export function MatchinnHomePage() {
         </div>
 
         <SectionCard
-          title='Trova campi vicino a te'
-          description={`Lista pubblica ordinata con ${locationSourceLabel(nearbyLocationSource)}. La CTA apre sempre la scheda del club, non un join privato.`}
-          actions={<Link className='btn-pill-secondary' to='/clubs'>Directory completa</Link>}
-        >
-          {nearbyLoading ? (
-            <LoadingBlock label='Cerco i club vicini…' labelClassName='text-base' />
-          ) : nearbyFeedback ? (
-            <AlertBanner tone={nearbyFeedback.tone}>{nearbyFeedback.message}</AlertBanner>
-          ) : nearbyClubs.length === 0 ? (
-            <AlertBanner tone='info'>Usa la tua posizione oppure apri la directory per cercare manualmente per citta, CAP o provincia.</AlertBanner>
-          ) : (
-            <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
-              {nearbyClubs.map((club) => (
-                <article key={club.club_id} className='surface-card-compact border border-slate-200'>
-                  <div className='flex items-start justify-between gap-3'>
-                    <div>
-                      <h3 className='text-lg font-semibold text-slate-950'>{club.public_name}</h3>
-                      <p className='mt-1 text-sm text-slate-600'>{buildLocationLine(club) || 'Dettagli posizione non disponibili'}</p>
-                    </div>
-                    <span className='rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700'>{formatDistance(club.distance_km)}</span>
-                  </div>
-
-                  <div className='mt-4 space-y-2 text-sm text-slate-700'>
-                    <p className='inline-flex items-center gap-2'><MapPin size={14} className='text-slate-400' />{buildCommunitySignal(club)}</p>
-                    <p>{club.public_activity_label}</p>
-                  </div>
-
-                  <div className='mt-4 flex items-center justify-between gap-3'>
-                    <span className='text-xs text-slate-500'>{club.recent_open_matches_count} partite open visibili</span>
-                    <Link className='btn-secondary' to={`/c/${encodeURIComponent(club.club_slug)}`} aria-label={`Apri pagina club ${club.public_name}`}>
-                      Apri club
-                    </Link>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title='Partite aperte vicino a te'
-          description={`Vista pubblica leggera ordinata con ${locationSourceLabel(openMatchesLocationSource)}.${openMatchesPreferredLevel ? ` Livello discovery: ${formatPlayLevel(openMatchesPreferredLevel)}.` : ''}`}
+          title='Match da completare'
+          description='Scopri le partite aperte nei club della tua zona e unisciti!'
         >
           {openMatchesLoading ? (
             <LoadingBlock label='Cerco partite aperte vicine…' labelClassName='text-base' />

@@ -144,14 +144,13 @@ describe('MatchinnHomePage', () => {
   it('renders recognized communities, nearby clubs and contextual match CTAs', async () => {
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: /community attive, club vicini e partite aperte/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Matchinn ti trova il club e la partita giusta/i })).toBeInTheDocument();
     expect(getMatchinnHomeCommunities).toHaveBeenCalled();
     expect(getPublicDiscoveryMe).toHaveBeenCalled();
     expect(getMatchinnHomeOpenMatches).toHaveBeenCalledWith({ limit: 6 });
     await waitFor(() => expect(listPublicClubsNearby).toHaveBeenCalledWith(44.30941, 8.47715));
 
     expect(screen.getByRole('link', { name: 'Entra nella community Roma Club' })).toHaveAttribute('href', '/c/roma-club/play');
-    expect(screen.getByRole('link', { name: 'Apri pagina club Savona Club' })).toHaveAttribute('href', '/c/savona-club');
     expect(screen.getByRole('link', { name: 'Entra e gioca Roma Club' })).toHaveAttribute('href', '/c/roma-club/play');
     expect(screen.getByRole('link', { name: 'Apri club Savona Club' })).toHaveAttribute('href', '/c/savona-club');
     expect(screen.getByText(/Discovery salvata: livello Intermedio alto/i)).toBeInTheDocument();
