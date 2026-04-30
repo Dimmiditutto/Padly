@@ -187,6 +187,7 @@ describe('Play phase 2 pages', () => {
   beforeEach(() => {
     const assignMock = vi.fn();
     vi.clearAllMocks();
+    window.localStorage.clear();
     vi.stubGlobal('location', { ...originalLocation, assign: assignMock });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(getAvailability).mockResolvedValue({ ...baseAvailability });
@@ -375,7 +376,7 @@ describe('Play phase 2 pages', () => {
     await screen.findByRole('heading', { name: 'Partite aperte' });
     await expandSection(user, 'Crea nuova partita');
 
-    expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY matchinn ROMA CLUB')).toBeInTheDocument();
+    expect(screen.getByText((_, node) => node?.textContent === 'Community ROMA CLUB')).toBeInTheDocument();
     expect(screen.getByText('Trova match da completare ed organizza le tue partite!')).toBeInTheDocument();
     expect(screen.getByText('Prossimi 7 giorni')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Seleziona / })).toHaveLength(7);
@@ -386,7 +387,9 @@ describe('Play phase 2 pages', () => {
     expect(prefetchAvailabilityWindow).toHaveBeenLastCalledWith(expect.any(String), 120, 'roma-club', 6);
   });
 
-  it('masks the default play alias placeholder in the fallback community header', async () => {
+  it('uses the remembered club name for the default play alias when public config has no public name', async () => {
+    window.localStorage.setItem('play-club-name:default-club', 'Padelsavona.it');
+
     vi.mocked(getPublicConfig).mockResolvedValue({
       app_name: 'PadelBooking',
       tenant_id: 'tenant-default',
@@ -411,8 +414,9 @@ describe('Play phase 2 pages', () => {
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
 
-    expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY matchinn IL TUO CLUB')).toBeInTheDocument();
-    expect(screen.queryByText((_, node) => node?.textContent === 'COMMUNITY matchinn DEFAULT CLUB')).not.toBeInTheDocument();
+    expect(screen.getByText((_, node) => node?.textContent === 'Community PADELSAVONA.IT')).toBeInTheDocument();
+    expect(screen.queryByText((_, node) => node?.textContent === 'Community IL TUO CLUB')).not.toBeInTheDocument();
+    expect(screen.queryByText((_, node) => node?.textContent === 'Community DEFAULT CLUB')).not.toBeInTheDocument();
   });
 
   it('renders the main sections in the requested order for a recognized player', async () => {
@@ -439,6 +443,7 @@ describe('Play phase 2 pages', () => {
     expect(screen.getByText('Scegli lo slot e gioca!')).toBeInTheDocument();
     expect(screen.getByText((_, node) => node?.textContent === 'Scegli cosa matchinn ti notifica')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Notifiche utente (2 da visualizzare)' })).toHaveClass('hero-icon-button-alert');
+    expect(screen.queryByRole('button', { name: 'Utente' })).not.toBeInTheDocument();
   });
 
   it('redirects the /play alias to the canonical tenant route and keeps tenant propagation', async () => {

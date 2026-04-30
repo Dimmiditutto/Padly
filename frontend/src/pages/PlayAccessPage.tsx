@@ -9,7 +9,7 @@ import { getPublicConfig } from '../services/publicApi';
 import { getPlaySession, resendPlayAccessOtp, startPlayAccessOtp, verifyPlayAccessOtp } from '../services/playApi';
 import type { PlayAccessPurpose, PlayAccessStartPayload, PlayAccessStartResponse, PlayPlayerSummary, PublicConfig } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayAccessPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
+import { buildClubPlayPath, buildPlayAccessPath, PLAY_LEVEL_OPTIONS, rememberClubPublicName, resolveClubDisplayName } from '../utils/play';
 
 type FeedbackTone = 'success' | 'error' | 'warning' | 'info';
 type FeedbackState = { tone: FeedbackTone; message: string } | null;
@@ -79,6 +79,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
 
     setLoading(true);
     setSurfaceError(null);
+    setPublicConfig((prev) => prev?.tenant_slug === tenantSlug ? prev : null);
 
     void Promise.all([
       getPlaySession(tenantSlug).catch(() => ({ player: null, notification_settings: null })),
@@ -89,6 +90,9 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
           return;
         }
         setCurrentPlayer(session.player || null);
+        if (config) {
+          rememberClubPublicName(tenantSlug, config.public_name);
+        }
         setPublicConfig(config);
       })
       .catch(() => {
@@ -109,9 +113,9 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
 
   const clubDisplayName = useMemo(() => {
     if (!tenantSlug) {
-      return 'il club';
+      return null;
     }
-    return publicConfig?.public_name || formatClubDisplayName(tenantSlug);
+    return resolveClubDisplayName(tenantSlug, publicConfig?.public_name);
   }, [publicConfig?.public_name, tenantSlug]);
 
   const playPath = tenantSlug ? buildClubPlayPath(tenantSlug) : '/play';

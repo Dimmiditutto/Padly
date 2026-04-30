@@ -8,10 +8,11 @@ import { PageBrandBar } from '../components/PageBrandBar';
 import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { MatchCard } from '../components/play/MatchCard';
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
+import { getPublicConfig } from '../services/publicApi';
 import { getPlaySession, getPlaySharedMatch, joinPlayMatch } from '../services/playApi';
 import type { PlayMatchSummary, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayMatchPath, formatClubDisplayName } from '../utils/play';
+import { buildClubPlayPath, buildPlayMatchPath, rememberClubPublicName, resolveClubDisplayName } from '../utils/play';
 
 function getApiErrorMessage(error: unknown, fallback: string) {
   const requestError = error as AxiosError<{ detail?: string }>;
@@ -27,9 +28,12 @@ export function SharedMatchPage() {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [identifyOpen, setIdentifyOpen] = useState(false);
-  const clubDisplayName = tenantSlug ? formatClubDisplayName(tenantSlug) : 'il club';
+  const [clubPublicName, setClubPublicName] = useState<string | null>(null);
+  const clubDisplayName = tenantSlug ? resolveClubDisplayName(tenantSlug, clubPublicName) : null;
 
   useEffect(() => {
+    setClubPublicName(null);
+
     if (!tenantSlug || !shareToken) {
       setLoading(false);
       setFeedback({ tone: 'error', message: 'Link partita non valido per il club corrente.' });
@@ -42,12 +46,17 @@ export function SharedMatchPage() {
   async function loadSharedSurface(resolvedTenantSlug: string, resolvedShareToken: string) {
     setLoading(true);
     try {
-      const [session, detail] = await Promise.all([
+      const [session, detail, publicConfig] = await Promise.all([
         getPlaySession(resolvedTenantSlug),
         getPlaySharedMatch(resolvedShareToken, resolvedTenantSlug),
+        getPublicConfig(resolvedTenantSlug).catch(() => null),
       ]);
       setCurrentPlayer(session.player || detail.player || null);
       setMatch(detail.match);
+      if (publicConfig) {
+        rememberClubPublicName(resolvedTenantSlug, publicConfig.public_name);
+        setClubPublicName(publicConfig.public_name);
+      }
     } catch (error) {
       setFeedback({ tone: 'error', message: getApiErrorMessage(error, 'Non riesco a caricare la partita condivisa.') });
     } finally {

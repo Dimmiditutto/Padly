@@ -1,15 +1,19 @@
 export function CommunityMatchinnBrand({
   clubName,
 }: {
-  clubName: string;
+  clubName?: string | null;
 }) {
-  const normalizedClubName = clubName.toUpperCase();
+  const normalizedClubName = clubName?.trim().toUpperCase();
 
   return (
-    <p className='text-sm font-semibold'>
-      <span className='uppercase tracking-[0.18em] text-cyan-100/80'>COMMUNITY</span>{' '}
-      <span className='matchinn-wordmark matchinn-wordmark-hero'><span className='matchinn-wordmark-match'>match</span><span className='matchinn-wordmark-inn'>inn</span></span>{' '}
-      <span className='uppercase tracking-[0.18em] text-cyan-100/80'>{normalizedClubName}</span>
+    <p className='text-sm font-semibold text-cyan-100/80'>
+      <span>Community</span>
+      {normalizedClubName ? (
+        <>
+          {' '}
+          <span className='uppercase tracking-[0.18em] text-cyan-100/80'>{normalizedClubName}</span>
+        </>
+      ) : null}
     </p>
   );
 }

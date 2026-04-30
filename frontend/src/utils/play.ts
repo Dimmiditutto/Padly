@@ -1,6 +1,7 @@
 import type { PlayLevel } from '../types';
 
 export const DEFAULT_PLAY_ALIAS_SLUG = 'default-club';
+const CLUB_PUBLIC_NAME_CACHE_PREFIX = 'play-club-name:';
 
 export const PLAY_LEVEL_LABELS: Record<PlayLevel, string> = {
   NO_PREFERENCE: 'Nessuna preferenza',
@@ -57,4 +58,53 @@ export function formatClubDisplayName(tenantSlug: string): string {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(' ');
+}
+
+
+export function rememberClubPublicName(tenantSlug: string, publicName: string | null | undefined): void {
+  const normalizedTenantSlug = String(tenantSlug).trim().toLowerCase();
+  const normalizedPublicName = String(publicName || '').trim();
+  if (!normalizedTenantSlug || !normalizedPublicName || typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(`${CLUB_PUBLIC_NAME_CACHE_PREFIX}${normalizedTenantSlug}`, normalizedPublicName);
+  } catch {
+    // Ignore storage failures: the UI can still fall back to runtime data.
+  }
+}
+
+
+export function getRememberedClubPublicName(tenantSlug: string): string | null {
+  const normalizedTenantSlug = String(tenantSlug).trim().toLowerCase();
+  if (!normalizedTenantSlug || typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const cachedPublicName = window.localStorage.getItem(`${CLUB_PUBLIC_NAME_CACHE_PREFIX}${normalizedTenantSlug}`);
+    return cachedPublicName?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+
+export function resolveClubDisplayName(tenantSlug: string, publicName?: string | null): string | null {
+  const normalizedPublicName = String(publicName || '').trim();
+  if (normalizedPublicName) {
+    return normalizedPublicName;
+  }
+
+  const rememberedPublicName = getRememberedClubPublicName(tenantSlug);
+  if (rememberedPublicName) {
+    return rememberedPublicName;
+  }
+
+  if (String(tenantSlug).trim().toLowerCase() === DEFAULT_PLAY_ALIAS_SLUG) {
+    return null;
+  }
+
+  return formatClubDisplayName(tenantSlug);
 }

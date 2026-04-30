@@ -399,7 +399,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
               </button>
               <button type='button' className='btn-primary' disabled={locating} onClick={() => void requestNearby()}>
                 <LocateFixed size={16} />
-                <span>{locating ? 'Rilevamento…' : autoLocateOnMount ? 'Riprova geolocalizzazione club' : 'Usa la mia posizione per i club'}</span>
+                <span>{locating ? 'Rilevamento…' : autoLocateOnMount ? 'Riprova geolocalizzazione club' : 'Usa la mia posizione'}</span>
               </button>
             </form>
           </SectionCard>
@@ -419,7 +419,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                   <div className='grid gap-4 xl:grid-cols-2'>
                     <div className='surface-card border border-slate-200'>
                       <p className='text-sm font-semibold text-slate-900'>Filtri notifiche</p>
-                      <p className='mt-2 text-sm leading-6 text-slate-600'>Scegli livello, orari e distanza massima per concentrare gli alert sui match compatibili.</p>
+                      <p className='mt-2 text-sm leading-6 text-slate-600'>Scegli livello, orari e distanza massima per le notifiche sui match compatibili.</p>
 
                       <div className='mt-4 grid gap-4'>
                         <div>
@@ -493,7 +493,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                           <p className='font-semibold text-slate-900'>{hasSavedDiscoveryCoordinates ? 'Posizione salvata' : 'Posizione non ancora salvata'}</p>
                           <p className='mt-1 text-sm leading-6 text-slate-600'>
                             {hasSavedDiscoveryCoordinates
-                              ? 'Il digest vicino a te usa la tua posizione solo per trovare club compatibili nel raggio scelto.'
+                              ? 'L'app usa la tua posizione solo per trovare club compatibili nel raggio scelto.'
                               : 'Usa la tua posizione per ricevere alert sui club vicini senza inserire coordinate manualmente.'}
                           </p>
                         </div>
@@ -507,7 +507,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
 
                   <div className='surface-muted'>
                     <p className='text-sm font-semibold text-slate-900'>Privacy e salvataggio</p>
-                    <p className='mt-2 text-sm leading-6 text-slate-600'>Usiamo questi dati solo per salvare i filtri alert, i club seguiti e gli avvisi compatibili con le tue preferenze pubbliche.</p>
+                    <p className='mt-2 text-sm leading-6 text-slate-600'>Usiamo questi dati solo per trovarti le partite migliori per te.</p>
 
                     <label className='mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700'>
                       <input
@@ -517,7 +517,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                         className='mt-1 h-4 w-4 rounded border-slate-300'
                         required={!discovery.subscriber}
                       />
-                      <span>Accetto il trattamento dei dati per salvare i filtri alert e ricevere notifiche nella sezione Match Alert.</span>
+                      <span>Accetto il trattamento dei dati per salvare i filtri per le notifiche e ricevere notifiche nella sezione Match Alert.</span>
                     </label>
 
                     <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center'>
@@ -541,7 +541,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                     <div className='mt-3 space-y-3'>
                       {watchlist.length === 0 ? (
                         <div className='space-y-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600'>
-                          <p>Nessun club seguito per ora. Scegline uno dalla directory qui sotto e Match Alert iniziera a monitorarlo per te.</p>
+                          <p>Nessun club seguito per ora. Scegline uno dal tasto 'Trova il club' qui sotto e Match Alert inizierà a monitorarlo per te.</p>
                           <a className='btn-secondary w-fit' href='#club-directory'>Trova il club</a>
                         </div>
                       ) : (

@@ -152,7 +152,7 @@ h4 {
 
   .page-brand-logo-image {
     display: block;
-    width: min(100%, 14rem);
+    width: min(60vw, 25.2rem);
     height: auto;
   }
 
@@ -167,6 +167,35 @@ h4 {
   @media (min-width: 640px) {
     .page-brand-actions > * {
       width: auto;
+    }
+  }
+
+  .play-page-brand-bar {
+    @apply items-start;
+  }
+
+  .play-page-brand-bar .page-brand-actions {
+    width: 100%;
+    justify-content: flex-end;
+    align-self: flex-end;
+  }
+
+  .play-page-brand-bar .page-brand-actions > * {
+    width: min(100%, 15rem);
+  }
+
+  .play-page-brand-bar .hero-action-secondary {
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  @media (min-width: 640px) {
+    .play-page-brand-bar {
+      gap: 1rem;
+    }
+
+    .play-page-brand-bar .page-brand-actions > * {
+      width: 15rem;
     }
   }
 

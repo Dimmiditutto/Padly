@@ -42,7 +42,7 @@ import type {
 } from '../types';
 import { getBrowserPlayPushEndpoint, isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayAccessPath, buildPlayMatchPath, formatClubDisplayName, PLAY_LEVEL_OPTIONS } from '../utils/play';
+import { buildClubPlayPath, buildPlayAccessPath, buildPlayMatchPath, PLAY_LEVEL_OPTIONS, rememberClubPublicName, resolveClubDisplayName } from '../utils/play';
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
 type InlineFeedback = { tone: FeedbackTone; message: string };
@@ -161,6 +161,7 @@ export function PlayPage() {
       setCurrentPlayer(session.player || matches.player || null);
       setPlayData(matches);
       if (publicConfig) {
+        rememberClubPublicName(resolvedTenantSlug, publicConfig.public_name);
         setClubConfig(publicConfig);
       }
       setPendingPlayPayment(
@@ -592,7 +593,7 @@ export function PlayPage() {
     : 'Web push non attiva.';
   const hasBrowserPushSubscription = Boolean(browserPushEndpoint);
   const hasRemoteOnlyPushSubscription = Boolean(notificationSettings?.push.has_active_subscription && !hasBrowserPushSubscription);
-  const clubDisplayName = clubConfig?.public_name || formatClubDisplayName(tenantSlug);
+  const clubDisplayName = resolveClubDisplayName(tenantSlug, clubConfig?.public_name);
   const accessPath = buildPlayAccessPath(tenantSlug);
   const unreadNotificationsCount = notificationSettings?.unread_notifications_count ?? 0;
 
@@ -608,7 +609,7 @@ export function PlayPage() {
       <div className='page-shell max-w-6xl'>
         <header className='product-hero-panel'>
           <PageBrandBar
-            className='mb-6'
+            className='mb-6 play-page-brand-bar'
             actions={(
               <>
                 <Link className='hero-action-secondary' to={withTenantPath('/booking', tenantSlug)}>
@@ -637,9 +638,6 @@ export function PlayPage() {
               ) : null}
               {currentPlayer ? (
                 <>
-                  <button type='button' className='hero-action-secondary' onClick={() => scrollToSection('play-user-section')}>
-                    <span>Utente</span>
-                  </button>
                   <button
                     type='button'
                     aria-label={unreadNotificationsCount > 0 ? `Notifiche utente (${unreadNotificationsCount} da visualizzare)` : 'Notifiche utente'}
