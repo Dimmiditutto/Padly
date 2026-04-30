@@ -233,17 +233,24 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
   }
 
   function toggleDiscoveryTimeSlot(slot: MatchAlertTimeSlot) {
-    setDiscoveryForm((prev) => ({
-      ...prev,
-      preferred_time_slots:
-        slot === MATCH_ALERT_ALL_DAY
-          ? [...DEFAULT_DISCOVERY_TIME_SLOTS]
-          : normalizeDiscoveryTimeSlots(
-              prev.preferred_time_slots.includes(slot)
-                ? prev.preferred_time_slots.filter((item) => item !== slot)
-                : [...prev.preferred_time_slots, slot]
-            ),
-    }));
+    setDiscoveryForm((prev) => {
+      if (slot === MATCH_ALERT_ALL_DAY) {
+        return { ...prev, preferred_time_slots: [...DEFAULT_DISCOVERY_TIME_SLOTS] };
+      }
+
+      if (allDiscoveryTimeSlotsSelected(prev.preferred_time_slots)) {
+        return { ...prev, preferred_time_slots: [slot] };
+      }
+
+      const nextTimeSlots = prev.preferred_time_slots.includes(slot)
+        ? prev.preferred_time_slots.filter((item) => item !== slot)
+        : [...prev.preferred_time_slots, slot];
+
+      return {
+        ...prev,
+        preferred_time_slots: normalizeDiscoveryTimeSlots(nextTimeSlots),
+      };
+    });
   }
 
   async function requestDiscoveryCoordinates() {
@@ -352,7 +359,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
       <div className='page-shell max-w-6xl'>
         <header className='product-hero-panel'>
           <div className='product-hero-logo-slot'>
-            <img className='product-hero-logo-image' src='/logo_dark.png' alt='Matchinn' />
+            <img className='product-hero-logo-image' src='/dark.png' alt='Matchinn' />
           </div>
           <div className='product-hero-layout gap-6'>
             <div className='product-hero-copy'>
@@ -443,14 +450,14 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
 
                         <div>
                           <p className='field-label'>Orari preferiti</p>
-                          <div className='mt-2 flex flex-wrap gap-3'>
+                          <div className='match-alert-slot-list'>
                             {DISCOVERY_TIME_SLOT_OPTIONS.map((slot) => {
                               const checked = slot.value === MATCH_ALERT_ALL_DAY
                                 ? allTimeSlotsSelected
-                                : discoveryForm.preferred_time_slots.includes(slot.value);
+                                : !allTimeSlotsSelected && discoveryForm.preferred_time_slots.includes(slot.value);
 
                               return (
-                                <label key={slot.value} className='flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700'>
+                                <label key={slot.value} className={`match-alert-slot-option ${checked ? 'match-alert-slot-option-active' : ''}`}>
                                   <input
                                     type='checkbox'
                                     checked={checked}
@@ -477,10 +484,10 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                           onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, nearby_digest_enabled: event.target.checked }))}
                           className='mt-1 h-4 w-4 rounded border-slate-300'
                         />
-                        <span>Attiva alert vicino a me</span>
+                        <span>Attiva match alert</span>
                       </label>
 
-                      <div className='mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between'>
+                      <div className='match-alert-location-card'>
                         <div>
                           <p className='font-semibold text-slate-900'>{hasSavedDiscoveryCoordinates ? 'Posizione salvata' : 'Posizione non ancora salvata'}</p>
                           <p className='mt-1 text-sm leading-6 text-slate-600'>
@@ -489,13 +496,11 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                               : 'Usa la tua posizione per ricevere alert sui club vicini senza inserire coordinate manualmente.'}
                           </p>
                         </div>
-                        <button type='button' className='btn-secondary' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
+                        <button type='button' className='match-alert-location-button' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
                           <LocateFixed size={16} />
                           <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la mia posizione'}</span>
                         </button>
                       </div>
-
-                      <p className='mt-3 text-xs leading-5 text-slate-500'>La posizione serve solo per il digest dei club vicini e non cambia l accesso alla community privata.</p>
                     </div>
                   </div>
 
@@ -519,11 +524,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                         <BellRing size={16} />
                         <span>{discoverySubmitting ? 'Salvataggio…' : 'Salva alert'}</span>
                       </button>
-                      <p className='text-sm text-slate-600'>
-                        {discovery.subscriber
-                          ? 'I tuoi filtri restano separati dalla community privata Play.'
-                          : 'Salva i filtri prima di seguire un club o ricevere alert persistenti.'}
-                      </p>
+                      {discovery.subscriber ? <p className='text-sm text-slate-600'>I tuoi filtri restano separati dalla community privata Play.</p> : null}
                     </div>
                   </div>
                 </form>
@@ -570,7 +571,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                     </div>
                     <div className='mt-3 space-y-3'>
                       {discovery.recent_notifications.length === 0 ? (
-                        <p className='text-sm text-slate-600'>Ancora nessun alert. Si popoleranno qui i match 2/4, 3/4 e il digest vicino a te.</p>
+                        <p className='text-sm text-slate-600'>Ancora nessun alert. Potrai vedere qui i match aperti che adottano le tue preferenze.</p>
                       ) : (
                         discovery.recent_notifications.map((item) => (
                           <article key={item.id} data-testid='public-discovery-notification' className={`rounded-2xl border bg-white px-4 py-3 ${item.read_at ? 'border-slate-200' : 'border-cyan-300 ring-1 ring-cyan-100'}`}>
@@ -614,7 +615,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
           {loading ? (
             <LoadingBlock label='Carico la directory pubblica dei club…' labelClassName='text-base' />
           ) : (
-            <SectionCard sectionId='club-directory' title='Club disponibili' description='Ogni card espone solo identita pubblica, contatto minimo e stato community del club.'>
+            <SectionCard sectionId='club-directory' title='Club disponibili'>
               <div className='grid gap-4 lg:grid-cols-2'>
                 {clubs.map((club) => {
                   const locationLine = buildLocationLine(club);
@@ -657,7 +658,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
 
                       <div className='mt-3 rounded-2xl border border-cyan-100 bg-cyan-50/70 px-4 py-3 text-sm text-slate-700'>
                         <p className='font-semibold text-slate-900'>{club.public_activity_label}</p>
-                        <p className='mt-1'>Match open visibili nei prossimi 7 giorni: {club.recent_open_matches_count}. Il ranking usa solo segnali pubblici 1/4, 2/4 e 3/4.</p>
+                        <p className='mt-1'>Match open visibili nei prossimi 7 giorni: {club.recent_open_matches_count}.</p>
                       </div>
 
                       <div className='mt-4 flex flex-col gap-3 sm:flex-row'>

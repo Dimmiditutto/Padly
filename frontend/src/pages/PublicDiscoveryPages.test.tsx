@@ -210,12 +210,22 @@ describe('Public discovery routes', () => {
     renderApp('/clubs');
 
     expect(await screen.findByRole('heading', { name: 'Scopri i club vicino a te' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Matchinn' })).toHaveAttribute('src', '/logo_dark.png');
+    expect(screen.getByRole('img', { name: 'Matchinn' })).toHaveAttribute('src', '/dark.png');
     expect(screen.getByRole('link', { name: 'Torna alla home' })).toHaveAttribute('href', '/');
     expect(await screen.findByRole('heading', { name: 'Match Alert' })).toBeInTheDocument();
     expect(screen.getByText('Tutti gli orari')).toBeInTheDocument();
     expect(screen.getByText('Pausa pranzo 12:00-14:30')).toBeInTheDocument();
     expect(screen.getByText('Primo pomeriggio 14:30-17:00')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Tutti gli orari' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Mattina 07:00-12:00' })).not.toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: 'Mattina 07:00-12:00' }));
+    expect(screen.getByRole('checkbox', { name: 'Tutti gli orari' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Mattina 07:00-12:00' })).toBeChecked();
+    expect(screen.getByText('Attiva match alert')).toBeInTheDocument();
+    expect(screen.getByText('Ancora nessun alert. Potrai vedere qui i match aperti che adottano le tue preferenze.')).toBeInTheDocument();
+    expect(screen.queryByText('Salva i filtri prima di seguire un club o ricevere alert persistenti.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ogni card espone solo identita pubblica, contatto minimo e stato community del club.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Il ranking usa solo segnali pubblici 1\/4, 2\/4 e 3\/4\./)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Latitudine')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Longitudine')).not.toBeInTheDocument();
     expect(await screen.findByText('Roma Club')).toBeInTheDocument();

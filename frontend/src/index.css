@@ -104,13 +104,14 @@ h4 {
   }
 
   .product-hero-logo-slot {
-    margin-bottom: 1.5rem;
+    margin-bottom: calc(1.5rem + 10px);
     width: 100%;
   }
 
   .product-hero-logo-image {
     display: block;
-    width: min(100%, 42rem);
+    width: min(60%, 25.2rem);
+    max-width: 100%;
     height: auto;
   }
 
@@ -120,8 +121,8 @@ h4 {
     }
 
     .product-hero-logo-image {
-      width: 100%;
-      max-width: none;
+      width: min(60%, 25.2rem);
+      max-width: 100%;
     }
   }
 
@@ -139,6 +140,47 @@ h4 {
 
   .product-hero-actions {
     @apply flex flex-col gap-3 sm:flex-row sm:flex-wrap;
+  }
+
+  .match-alert-slot-list {
+    @apply mt-2 grid gap-2;
+  }
+
+  .match-alert-slot-option {
+    @apply flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-sm text-slate-800;
+    background-color: #79b5cb;
+    border-color: #79b5cb;
+  }
+
+  .match-alert-slot-option-active {
+    box-shadow: inset 0 0 0 1px rgba(8, 37, 51, 0.28), 0 10px 24px rgba(121, 181, 203, 0.24);
+  }
+
+  .match-alert-slot-option input {
+    accent-color: #082533;
+  }
+
+  .match-alert-location-card {
+    @apply mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700;
+  }
+
+  .match-alert-location-button {
+    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 self-center rounded-2xl border px-4 py-3 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-60;
+    width: 100%;
+    border-color: #79b5cb;
+    background-color: #79b5cb;
+    color: #082533;
+  }
+
+  .match-alert-location-button:hover {
+    border-color: #6aa8bf;
+    background-color: #6aa8bf;
+  }
+
+  @media (min-width: 640px) {
+    .match-alert-location-button {
+      width: 50%;
+    }
   }
 
   .product-info-grid {
