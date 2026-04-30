@@ -220,13 +220,13 @@ export function PublicClubPage() {
                     <p className='mt-2 text-sm text-slate-600'>{detail.club.is_community_open ? 'Il club accetta nuovi ingressi nella community.' : 'La community del club resta privata e l accesso va richiesto.'}</p>
                   </div>
                   <div className='surface-muted'>
-                    <p className='text-sm font-semibold text-slate-900'>Discovery pubblico</p>
+                    <p className='text-sm font-semibold text-slate-900'>Match Alert</p>
                     <p className='mt-2 text-sm text-slate-600'>
                       {watchItem
-                        ? `Stai seguendo questo club. Match compatibili ora visibili in watchlist: ${watchItem.matching_open_match_count}.`
+                        ? `Stai seguendo questo club. Match compatibili ora visibili nei club seguiti: ${watchItem.matching_open_match_count}.`
                         : discovery.subscriber
-                          ? 'Puoi seguire questo club per ricevere alert 2/4, 3/4 e tenerlo nella watchlist pubblica.'
-                          : 'Per seguire il club devi prima attivare la sessione discovery dalla directory pubblica.'}
+                          ? 'Puoi seguire questo club per ricevere alert 2/4, 3/4 e tenerlo tra i club seguiti.'
+                          : 'Per seguire il club devi prima salvare i Match Alert dalla directory pubblica.'}
                     </p>
                     <div className='mt-3 flex flex-col gap-3 sm:flex-row'>
                       <button
@@ -238,7 +238,7 @@ export function PublicClubPage() {
                             return;
                           }
                           if (!discovery.subscriber) {
-                            setContactFeedback({ tone: 'info', message: 'Attiva discovery dalla directory per seguire i club pubblici.' });
+                            setContactFeedback({ tone: 'info', message: 'Salva prima i Match Alert dalla directory per seguire i club pubblici.' });
                             return;
                           }
                           setWatchActionLoading(true);
@@ -246,14 +246,14 @@ export function PublicClubPage() {
                           try {
                             if (watchItem) {
                               await unfollowPublicClub(clubSlug);
-                              setContactFeedback({ tone: 'success', message: 'Club rimosso dalla watchlist pubblica.' });
+                              setContactFeedback({ tone: 'success', message: 'Club rimosso dai club seguiti.' });
                             } else {
                               await followPublicClub(clubSlug);
-                              setContactFeedback({ tone: 'success', message: 'Club aggiunto alla watchlist pubblica.' });
+                              setContactFeedback({ tone: 'success', message: 'Club aggiunto ai club seguiti.' });
                             }
                             await loadDiscoveryContext();
                           } catch (error) {
-                            setContactFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento watchlist non riuscito.') });
+                            setContactFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento club seguiti non riuscito.') });
                           } finally {
                             setWatchActionLoading(false);
                           }

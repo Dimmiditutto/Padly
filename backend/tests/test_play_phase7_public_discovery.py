@@ -2,25 +2,34 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from app.core.db import SessionLocal
-from app.models import EmailNotificationLog, PlayLevel, PublicClubContactRequest, PublicDiscoveryNotification, PublicDiscoverySessionToken, PublicDiscoverySubscriber
+from app.models import EmailNotificationLog, Match, PlayLevel, PublicClubContactRequest, PublicDiscoveryNotification, PublicDiscoverySessionToken, PublicDiscoverySubscriber
 from app.services.play_service import build_club_player_session_cookie_name
 from app.services.email_service import email_service
-from app.services.public_discovery_service import DISCOVERY_SESSION_COOKIE_NAME, emit_public_nearby_digest_notifications
+from app.services import public_discovery_service as public_discovery_service_module
+from app.services.public_discovery_service import DISCOVERY_SESSION_COOKIE_NAME, dispatch_public_watchlist_notifications_for_match, emit_public_nearby_digest_notifications
 
 from test_play_phase6_public_directory import create_public_club, first_court_id_for_club, seed_open_match
 
 
-def _identify_public_discovery(client, *, level: str = 'INTERMEDIATE_HIGH', nearby_digest_enabled: bool = False):
+def _identify_public_discovery(
+    client,
+    *,
+    level: str = 'INTERMEDIATE_HIGH',
+    nearby_digest_enabled: bool = False,
+    preferred_time_slots: list[str] | None = None,
+    nearby_radius_km: int = 30,
+):
     response = client.post(
         '/api/public/discovery/identify',
         json={
             'preferred_level': level,
-            'preferred_time_slots': ['morning', 'afternoon', 'evening'],
+            'preferred_time_slots': preferred_time_slots or ['morning', 'afternoon', 'evening'],
             'latitude': 44.309410,
             'longitude': 8.477150,
-            'nearby_radius_km': 30,
+            'nearby_radius_km': nearby_radius_km,
             'nearby_digest_enabled': nearby_digest_enabled,
             'privacy_accepted': True,
         },
@@ -28,6 +37,200 @@ def _identify_public_discovery(client, *, level: str = 'INTERMEDIATE_HIGH', near
     assert response.status_code == 200
     assert client.cookies.get(DISCOVERY_SESSION_COOKIE_NAME)
     return response
+
+
+def _build_rome_match_window(*, days_from_now: int, hour: int, minute: int, duration_minutes: int = 90) -> tuple[datetime, datetime]:
+    local_timezone = ZoneInfo('Europe/Rome')
+    local_start = datetime.now(local_timezone).replace(second=0, microsecond=0) + timedelta(days=days_from_now)
+    local_start = local_start.replace(hour=hour, minute=minute)
+    if local_start <= datetime.now(local_timezone):
+        local_start += timedelta(days=1)
+    local_end = local_start + timedelta(minutes=duration_minutes)
+    return local_start.astimezone(UTC), local_end.astimezone(UTC)
+
+
+def _move_match_to_window(match_id: str, *, start_at: datetime, end_at: datetime) -> None:
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match is not None
+        match.start_at = start_at
+        match.end_at = end_at
+        match.duration_minutes = int((end_at - start_at).total_seconds() // 60)
+        db.commit()
+
+
+def _match_time_slot(match_id: str, *, timezone_name: str = 'Europe/Rome') -> str:
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match is not None
+        local_start = match.start_at.astimezone(ZoneInfo(timezone_name))
+        return public_discovery_service_module._time_slot_bucket(local_start)
+
+
+def test_public_discovery_identify_normalizes_legacy_slots_to_fine_grained_preferences(client):
+    response = _identify_public_discovery(client, preferred_time_slots=['morning', 'afternoon', 'evening'])
+
+    assert response.status_code == 200
+    assert response.json()['subscriber']['preferred_time_slots'] == [
+        'morning',
+        'lunch_break',
+        'early_afternoon',
+        'late_afternoon',
+        'evening',
+    ]
+
+
+def test_public_discovery_time_slot_bucket_boundaries():
+    bucket = public_discovery_service_module._time_slot_bucket
+
+    assert bucket(datetime(2026, 5, 1, 11, 59, tzinfo=UTC)) == 'morning'
+    assert bucket(datetime(2026, 5, 1, 12, 0, tzinfo=UTC)) == 'lunch_break'
+    assert bucket(datetime(2026, 5, 1, 14, 29, tzinfo=UTC)) == 'lunch_break'
+    assert bucket(datetime(2026, 5, 1, 14, 30, tzinfo=UTC)) == 'early_afternoon'
+    assert bucket(datetime(2026, 5, 1, 16, 59, tzinfo=UTC)) == 'early_afternoon'
+    assert bucket(datetime(2026, 5, 1, 17, 0, tzinfo=UTC)) == 'late_afternoon'
+    assert bucket(datetime(2026, 5, 1, 19, 29, tzinfo=UTC)) == 'late_afternoon'
+    assert bucket(datetime(2026, 5, 1, 19, 30, tzinfo=UTC)) == 'evening'
+
+
+def test_public_watchlist_alert_ignores_distance_but_honors_fine_grained_slots(client):
+    club = create_public_club(
+        slug='phase7-watchlist-genoa',
+        host='phase7-watchlist-genoa.example.test',
+        public_name='Phase7 Watchlist Genoa',
+        public_address='Via Watchlist 10',
+        public_postal_code='16121',
+        public_city='Genova',
+        public_province='GE',
+        public_latitude=Decimal('44.405650'),
+        public_longitude=Decimal('8.946256'),
+        is_community_open=True,
+    )
+    start_at, end_at = _build_rome_match_window(days_from_now=2, hour=12, minute=15)
+    match_id = seed_open_match(
+        club_id=club['id'],
+        court_id=first_court_id_for_club(club['id']),
+        participant_count=2,
+        hours_from_now=30,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+    )
+    _move_match_to_window(match_id, start_at=start_at, end_at=end_at)
+    match_time_slot = _match_time_slot(match_id)
+
+    _identify_public_discovery(
+        client,
+        preferred_time_slots=[match_time_slot],
+        nearby_radius_km=5,
+    )
+
+    follow_response = client.post(f"/api/public/discovery/watchlist/{club['slug']}")
+    assert follow_response.status_code == 201
+    assert follow_response.json()['item']['matching_open_match_count'] == 1
+
+    with SessionLocal() as db:
+        created = dispatch_public_watchlist_notifications_for_match(db, club_id=club['id'], match_id=match_id)
+        db.commit()
+        assert created == 1
+
+    me_response = client.get('/api/public/discovery/me')
+    assert me_response.status_code == 200
+    watchlist_notifications = [
+        item for item in me_response.json()['recent_notifications'] if item['kind'] == 'WATCHLIST_MATCH_TWO_OF_FOUR'
+    ]
+    assert watchlist_notifications
+    assert watchlist_notifications[0]['payload']['club']['club_slug'] == club['slug']
+
+
+def test_public_discovery_digest_honors_fine_grained_slots_and_distance(client):
+    near_club = create_public_club(
+        slug='phase7-digest-near-lunch',
+        host='phase7-digest-near-lunch.example.test',
+        public_name='Phase7 Digest Near Lunch',
+        public_address='Via Digest 31',
+        public_postal_code='17100',
+        public_city='Savona',
+        public_province='SV',
+        public_latitude=Decimal('44.309800'),
+        public_longitude=Decimal('8.478000'),
+        is_community_open=True,
+    )
+    far_club = create_public_club(
+        slug='phase7-digest-far-lunch',
+        host='phase7-digest-far-lunch.example.test',
+        public_name='Phase7 Digest Far Lunch',
+        public_address='Via Digest 32',
+        public_postal_code='16121',
+        public_city='Genova',
+        public_province='GE',
+        public_latitude=Decimal('44.405650'),
+        public_longitude=Decimal('8.946256'),
+        is_community_open=True,
+    )
+    near_evening_club = create_public_club(
+        slug='phase7-digest-near-evening',
+        host='phase7-digest-near-evening.example.test',
+        public_name='Phase7 Digest Near Evening',
+        public_address='Via Digest 33',
+        public_postal_code='17100',
+        public_city='Savona',
+        public_province='SV',
+        public_latitude=Decimal('44.309950'),
+        public_longitude=Decimal('8.478150'),
+        is_community_open=True,
+    )
+    lunch_start_at, lunch_end_at = _build_rome_match_window(days_from_now=2, hour=12, minute=15)
+    evening_start_at, evening_end_at = _build_rome_match_window(days_from_now=2, hour=20, minute=0)
+
+    near_match_id = seed_open_match(
+        club_id=near_club['id'],
+        court_id=first_court_id_for_club(near_club['id']),
+        participant_count=2,
+        hours_from_now=30,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+    )
+    _move_match_to_window(near_match_id, start_at=lunch_start_at, end_at=lunch_end_at)
+
+    far_match_id = seed_open_match(
+        club_id=far_club['id'],
+        court_id=first_court_id_for_club(far_club['id']),
+        participant_count=2,
+        hours_from_now=30,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+    )
+    _move_match_to_window(far_match_id, start_at=lunch_start_at, end_at=lunch_end_at)
+
+    evening_match_id = seed_open_match(
+        club_id=near_evening_club['id'],
+        court_id=first_court_id_for_club(near_evening_club['id']),
+        participant_count=2,
+        hours_from_now=30,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+    )
+    _move_match_to_window(evening_match_id, start_at=evening_start_at, end_at=evening_end_at)
+    near_match_slot = _match_time_slot(near_match_id)
+    evening_match_slot = _match_time_slot(evening_match_id)
+
+    assert near_match_slot != evening_match_slot
+
+    _identify_public_discovery(
+        client,
+        nearby_digest_enabled=True,
+        preferred_time_slots=[near_match_slot],
+        nearby_radius_km=10,
+    )
+
+    with SessionLocal() as db:
+        created = emit_public_nearby_digest_notifications(db)
+        db.commit()
+        assert created == 1
+
+    me_response = client.get('/api/public/discovery/me')
+    assert me_response.status_code == 200
+    digest_notifications = [
+        item for item in me_response.json()['recent_notifications'] if item['kind'] == 'NEARBY_DIGEST'
+    ]
+    assert digest_notifications
+    assert [item['club']['club_slug'] for item in digest_notifications[0]['payload']['items']] == [near_club['slug']]
 
 
 def test_public_discovery_identify_sets_cookie_and_watchlist(client):

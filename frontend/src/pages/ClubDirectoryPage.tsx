@@ -38,11 +38,17 @@ type DiscoveryFormState = {
   privacy_accepted: boolean;
 };
 
-const DEFAULT_DISCOVERY_TIME_SLOTS: PublicDiscoveryTimeSlot[] = ['morning', 'afternoon', 'evening'];
-const DISCOVERY_TIME_SLOT_OPTIONS: Array<{ value: PublicDiscoveryTimeSlot; label: string }> = [
-  { value: 'morning', label: 'Mattina' },
-  { value: 'afternoon', label: 'Pomeriggio' },
-  { value: 'evening', label: 'Sera' },
+const MATCH_ALERT_ALL_DAY = 'all_day' as const;
+type MatchAlertTimeSlot = PublicDiscoveryTimeSlot | typeof MATCH_ALERT_ALL_DAY;
+
+const DEFAULT_DISCOVERY_TIME_SLOTS: PublicDiscoveryTimeSlot[] = ['morning', 'lunch_break', 'early_afternoon', 'late_afternoon', 'evening'];
+const DISCOVERY_TIME_SLOT_OPTIONS: Array<{ value: MatchAlertTimeSlot; label: string }> = [
+  { value: MATCH_ALERT_ALL_DAY, label: 'Tutti gli orari' },
+  { value: 'morning', label: 'Mattina 07:00-12:00' },
+  { value: 'lunch_break', label: 'Pausa pranzo 12:00-14:30' },
+  { value: 'early_afternoon', label: 'Primo pomeriggio 14:30-17:00' },
+  { value: 'late_afternoon', label: 'Tardo pomeriggio 17:00-19:30' },
+  { value: 'evening', label: 'Sera 19:30-23:30' },
 ];
 
 function formatDistance(distanceKm: number | null | undefined) {
@@ -75,10 +81,20 @@ function createDefaultDiscoveryForm(): DiscoveryFormState {
   };
 }
 
+function normalizeDiscoveryTimeSlots(timeSlots: PublicDiscoveryTimeSlot[] | null | undefined) {
+  const selected = new Set(timeSlots ?? []);
+  const normalized = DEFAULT_DISCOVERY_TIME_SLOTS.filter((slot) => selected.has(slot));
+  return normalized.length ? normalized : [...DEFAULT_DISCOVERY_TIME_SLOTS];
+}
+
+function allDiscoveryTimeSlotsSelected(timeSlots: PublicDiscoveryTimeSlot[]) {
+  return DEFAULT_DISCOVERY_TIME_SLOTS.every((slot) => timeSlots.includes(slot));
+}
+
 function createDiscoveryFormFromSession(subscriber: PublicDiscoverySession): DiscoveryFormState {
   return {
     preferred_level: subscriber.preferred_level,
-    preferred_time_slots: subscriber.preferred_time_slots.length ? subscriber.preferred_time_slots : [...DEFAULT_DISCOVERY_TIME_SLOTS],
+    preferred_time_slots: normalizeDiscoveryTimeSlots(subscriber.preferred_time_slots),
     latitude: subscriber.latitude != null ? String(subscriber.latitude) : '',
     longitude: subscriber.longitude != null ? String(subscriber.longitude) : '',
     nearby_radius_km: String(subscriber.nearby_radius_km),
@@ -216,18 +232,23 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
     await loadClubs(query.trim() || undefined);
   }
 
-  function toggleDiscoveryTimeSlot(slot: PublicDiscoveryTimeSlot) {
+  function toggleDiscoveryTimeSlot(slot: MatchAlertTimeSlot) {
     setDiscoveryForm((prev) => ({
       ...prev,
-      preferred_time_slots: prev.preferred_time_slots.includes(slot)
-        ? prev.preferred_time_slots.filter((item) => item !== slot)
-        : [...prev.preferred_time_slots, slot],
+      preferred_time_slots:
+        slot === MATCH_ALERT_ALL_DAY
+          ? [...DEFAULT_DISCOVERY_TIME_SLOTS]
+          : normalizeDiscoveryTimeSlots(
+              prev.preferred_time_slots.includes(slot)
+                ? prev.preferred_time_slots.filter((item) => item !== slot)
+                : [...prev.preferred_time_slots, slot]
+            ),
     }));
   }
 
   async function requestDiscoveryCoordinates() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setDiscoveryFeedback({ tone: 'warning', message: 'Questo browser non supporta la geolocalizzazione per il digest discovery.' });
+      setDiscoveryFeedback({ tone: 'warning', message: 'Questo browser non supporta la posizione per i Match Alert.' });
       return;
     }
 
@@ -239,7 +260,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
           latitude: position.coords.latitude.toFixed(6),
           longitude: position.coords.longitude.toFixed(6),
         }));
-        setDiscoveryFeedback({ tone: 'success', message: 'Posizione aggiornata nelle preferenze discovery.' });
+        setDiscoveryFeedback({ tone: 'success', message: 'Posizione aggiornata per i Match Alert.' });
         setLocatingDiscovery(false);
       },
       (error) => {
@@ -256,7 +277,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
     setDiscoveryFeedback(null);
     const payload = {
       preferred_level: discoveryForm.preferred_level,
-      preferred_time_slots: discoveryForm.preferred_time_slots,
+      preferred_time_slots: normalizeDiscoveryTimeSlots(discoveryForm.preferred_time_slots),
       latitude: parseOptionalNumber(discoveryForm.latitude),
       longitude: parseOptionalNumber(discoveryForm.longitude),
       nearby_radius_km: Number(discoveryForm.nearby_radius_km) || 25,
@@ -266,7 +287,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
     try {
       if (discovery.subscriber) {
         await updatePublicDiscoveryPreferences(payload);
-        setDiscoveryFeedback({ tone: 'success', message: 'Preferenze discovery aggiornate.' });
+        setDiscoveryFeedback({ tone: 'success', message: 'Match Alert aggiornati.' });
         await loadDiscoveryContext();
       } else {
         const response = await identifyPublicDiscovery({ ...payload, privacy_accepted: discoveryForm.privacy_accepted });
@@ -276,10 +297,10 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
           const watchlistResponse = await listPublicWatchlist();
           setWatchlist(watchlistResponse.items);
         }
-        setDiscoveryFeedback({ tone: 'success', message: 'Sessione discovery attivata. Ora puoi seguire i club.' });
+        setDiscoveryFeedback({ tone: 'success', message: 'Match Alert salvati. Ora puoi seguire i club e ricevere notifiche compatibili.' });
       }
     } catch (error) {
-      setDiscoveryFeedback({ tone: 'error', message: parseApiError(error, 'Salvataggio preferenze discovery non riuscito.') });
+      setDiscoveryFeedback({ tone: 'error', message: parseApiError(error, 'Salvataggio Match Alert non riuscito.') });
     } finally {
       setDiscoverySubmitting(false);
     }
@@ -287,7 +308,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
 
   async function toggleWatch(club: PublicClubSummary) {
     if (!discovery.subscriber) {
-      setDiscoveryFeedback({ tone: 'info', message: 'Attiva prima la sessione discovery per seguire un club.' });
+      setDiscoveryFeedback({ tone: 'info', message: 'Prima salva i tuoi alert per seguire un club.' });
       return;
     }
 
@@ -296,14 +317,14 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
     try {
       if (watchlistBySlug.has(club.club_slug)) {
         await unfollowPublicClub(club.club_slug);
-        setDiscoveryFeedback({ tone: 'success', message: `${club.public_name} rimosso dalla watchlist.` });
+        setDiscoveryFeedback({ tone: 'success', message: `${club.public_name} rimosso dai club seguiti.` });
       } else {
         await followPublicClub(club.club_slug);
-        setDiscoveryFeedback({ tone: 'success', message: `${club.public_name} aggiunto alla watchlist.` });
+        setDiscoveryFeedback({ tone: 'success', message: `${club.public_name} aggiunto ai club seguiti.` });
       }
       await loadDiscoveryContext();
     } catch (error) {
-      setDiscoveryFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento watchlist non riuscito.') });
+      setDiscoveryFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento club seguiti non riuscito.') });
     } finally {
       setWatchActionClubSlug(null);
     }
@@ -315,20 +336,23 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
     try {
       const response = await markPublicDiscoveryNotificationRead(notificationId);
       setDiscovery(response);
-      setDiscoveryFeedback({ tone: 'success', message: 'Notifica segnata come letta.' });
+      setDiscoveryFeedback({ tone: 'success', message: 'Alert segnato come letto.' });
     } catch (error) {
-      setDiscoveryFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento stato notifica non riuscito.') });
+      setDiscoveryFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento stato alert non riuscito.') });
     } finally {
       setReadingNotificationId(null);
     }
   }
+
+  const allTimeSlotsSelected = allDiscoveryTimeSlotsSelected(discoveryForm.preferred_time_slots);
+  const hasSavedDiscoveryCoordinates = discoveryForm.latitude.trim() !== '' && discoveryForm.longitude.trim() !== '';
 
   return (
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
         <header className='product-hero-panel'>
           <div className='product-hero-logo-slot'>
-            <img className='product-hero-logo-image' src='/logo_matchinn_dark.png' alt='Matchinn' />
+            <img className='product-hero-logo-image' src='/logo_dark.png' alt='Matchinn' />
           </div>
           <div className='product-hero-layout gap-6'>
             <div className='product-hero-copy'>
@@ -373,151 +397,151 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
           </SectionCard>
 
           <SectionCard
-            title='Discovery pubblico'
-            description='Sessione minima separata dalla community: preferenze leggere, watchlist club e feed persistente degli alert utili.'
+            title='Match Alert'
+            description='Scopri i match piu rilevanti per te, segui i club che ti interessano e ricevi notifiche quando si libera la partita giusta.'
             elevated
           >
             {discoveryFeedback ? <AlertBanner tone={discoveryFeedback.tone}>{discoveryFeedback.message}</AlertBanner> : null}
 
             {discoveryLoading ? (
-              <LoadingBlock label='Carico la sessione discovery…' labelClassName='text-sm' />
+              <LoadingBlock label='Carico i Match Alert…' labelClassName='text-sm' />
             ) : (
               <div className='space-y-5'>
-                <div className='surface-muted'>
-                  <p className='text-sm font-semibold text-slate-900'>
-                    {discovery.subscriber ? 'Sessione discovery attiva' : 'Attiva una sessione discovery leggera'}
-                  </p>
-                  <p className='mt-2 text-sm leading-6 text-slate-600'>
-                    {discovery.subscriber
-                      ? 'Le preferenze restano su cookie discovery dedicato e pilotano watchlist, alert 2/4-3/4 e digest vicino.'
-                      : 'Non crei ancora un profilo player: salvi solo livello, fasce orarie, posizione opzionale e consenso privacy per il feed pubblico.'}
-                  </p>
-                </div>
+                <form className='space-y-4' onSubmit={handleDiscoverySubmit}>
+                  <div className='grid gap-4 xl:grid-cols-2'>
+                    <div className='surface-card border border-slate-200'>
+                      <p className='text-sm font-semibold text-slate-900'>Filtri notifiche</p>
+                      <p className='mt-2 text-sm leading-6 text-slate-600'>Scegli livello, orari e distanza massima per concentrare gli alert sui match compatibili.</p>
 
-                <form className='grid gap-4 lg:grid-cols-2' onSubmit={handleDiscoverySubmit}>
-                  <div>
-                    <label className='field-label' htmlFor='discovery-level'>Livello preferito</label>
-                    <select
-                      id='discovery-level'
-                      className='text-input'
-                      value={discoveryForm.preferred_level}
-                      onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, preferred_level: event.target.value as PlayLevel }))}
-                    >
-                      {levelOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className='mt-4 grid gap-4'>
+                        <div>
+                          <label className='field-label' htmlFor='discovery-level'>Livello</label>
+                          <select
+                            id='discovery-level'
+                            className='text-input'
+                            value={discoveryForm.preferred_level}
+                            onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, preferred_level: event.target.value as PlayLevel }))}
+                          >
+                            {levelOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </div>
 
-                  <div>
-                    <label className='field-label' htmlFor='discovery-radius'>Raggio digest vicino (km)</label>
-                    <input
-                      id='discovery-radius'
-                      className='text-input'
-                      type='number'
-                      min={5}
-                      max={250}
-                      value={discoveryForm.nearby_radius_km}
-                      onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, nearby_radius_km: event.target.value }))}
-                    />
-                  </div>
-
-                  <div>
-                    <label className='field-label' htmlFor='discovery-latitude'>Latitudine</label>
-                    <input
-                      id='discovery-latitude'
-                      className='text-input'
-                      type='number'
-                      step='0.000001'
-                      min={-90}
-                      max={90}
-                      value={discoveryForm.latitude}
-                      onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, latitude: event.target.value }))}
-                    />
-                  </div>
-
-                  <div>
-                    <label className='field-label' htmlFor='discovery-longitude'>Longitudine</label>
-                    <input
-                      id='discovery-longitude'
-                      className='text-input'
-                      type='number'
-                      step='0.000001'
-                      min={-180}
-                      max={180}
-                      value={discoveryForm.longitude}
-                      onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, longitude: event.target.value }))}
-                    />
-                  </div>
-
-                  <div className='lg:col-span-2'>
-                    <p className='field-label'>Fasce orarie utili</p>
-                    <div className='mt-2 flex flex-wrap gap-3'>
-                      {DISCOVERY_TIME_SLOT_OPTIONS.map((slot) => (
-                        <label key={slot.value} className='flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700'>
+                        <div>
+                          <label className='field-label' htmlFor='discovery-radius'>Distanza massima (km)</label>
                           <input
-                            type='checkbox'
-                            checked={discoveryForm.preferred_time_slots.includes(slot.value)}
-                            onChange={() => toggleDiscoveryTimeSlot(slot.value)}
-                            className='h-4 w-4 rounded border-slate-300'
+                            id='discovery-radius'
+                            className='text-input'
+                            type='number'
+                            min={5}
+                            max={250}
+                            value={discoveryForm.nearby_radius_km}
+                            onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, nearby_radius_km: event.target.value }))}
                           />
-                          <span>{slot.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                        </div>
 
-                  <div className='lg:col-span-2 flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700 sm:flex-row sm:items-start sm:justify-between'>
-                    <div>
-                      <p className='font-semibold text-slate-900'>Posizione browser opzionale</p>
-                      <p className='mt-1 text-sm leading-6 text-slate-600'>La posizione serve solo per ordinare club vicini e per il digest giornaliero, non per sbloccare accessi community.</p>
-                    </div>
-                    <button type='button' className='btn-secondary' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
-                      <LocateFixed size={16} />
-                      <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la posizione del browser'}</span>
-                    </button>
-                  </div>
+                        <div>
+                          <p className='field-label'>Orari preferiti</p>
+                          <div className='mt-2 flex flex-wrap gap-3'>
+                            {DISCOVERY_TIME_SLOT_OPTIONS.map((slot) => {
+                              const checked = slot.value === MATCH_ALERT_ALL_DAY
+                                ? allTimeSlotsSelected
+                                : discoveryForm.preferred_time_slots.includes(slot.value);
 
-                  <label className='lg:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
-                    <input
-                      type='checkbox'
-                      checked={discoveryForm.nearby_digest_enabled}
-                      onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, nearby_digest_enabled: event.target.checked }))}
-                      className='mt-1 h-4 w-4 rounded border-slate-300'
-                    />
-                    <span>Attiva digest giornaliero dei club vicini con match aperti compatibili.</span>
-                  </label>
-
-                  <label className='lg:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
-                    <input
-                      type='checkbox'
-                      checked={discoveryForm.privacy_accepted}
-                      onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, privacy_accepted: event.target.checked }))}
-                      className='mt-1 h-4 w-4 rounded border-slate-300'
-                      required={!discovery.subscriber}
-                    />
-                    <span>Accetto il trattamento dei dati per salvare la sessione discovery pubblica e ricevere alert nel feed.</span>
-                  </label>
-
-                  <div className='lg:col-span-2 flex flex-col gap-3 sm:flex-row'>
-                    <button className='btn-primary' type='submit' disabled={discoverySubmitting}>
-                      <BellRing size={16} />
-                      <span>{discoverySubmitting ? 'Salvataggio…' : discovery.subscriber ? 'Aggiorna preferenze discovery' : 'Attiva discovery pubblico'}</span>
-                    </button>
-                    {discovery.subscriber ? (
-                      <div className='surface-muted text-sm text-slate-600'>
-                        Watchlist attuale: <strong>{watchlist.length}</strong> club seguiti.
+                              return (
+                                <label key={slot.value} className='flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700'>
+                                  <input
+                                    type='checkbox'
+                                    checked={checked}
+                                    onChange={() => toggleDiscoveryTimeSlot(slot.value)}
+                                    className='h-4 w-4 rounded border-slate-300'
+                                  />
+                                  <span>{slot.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
-                    ) : null}
+                    </div>
+
+                    <div className='surface-card border border-slate-200'>
+                      <p className='text-sm font-semibold text-slate-900'>Match vicino a te</p>
+                      <p className='mt-2 text-sm leading-6 text-slate-600'>Decidi se vuoi ricevere anche i match vicini e salva la posizione solo quando ti serve.</p>
+
+                      <label className='mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
+                        <input
+                          type='checkbox'
+                          checked={discoveryForm.nearby_digest_enabled}
+                          onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, nearby_digest_enabled: event.target.checked }))}
+                          className='mt-1 h-4 w-4 rounded border-slate-300'
+                        />
+                        <span>Attiva alert vicino a me</span>
+                      </label>
+
+                      <div className='mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between'>
+                        <div>
+                          <p className='font-semibold text-slate-900'>{hasSavedDiscoveryCoordinates ? 'Posizione salvata' : 'Posizione non ancora salvata'}</p>
+                          <p className='mt-1 text-sm leading-6 text-slate-600'>
+                            {hasSavedDiscoveryCoordinates
+                              ? 'Il digest vicino a te usa la tua posizione solo per trovare club compatibili nel raggio scelto.'
+                              : 'Usa la tua posizione per ricevere alert sui club vicini senza inserire coordinate manualmente.'}
+                          </p>
+                        </div>
+                        <button type='button' className='btn-secondary' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
+                          <LocateFixed size={16} />
+                          <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la mia posizione'}</span>
+                        </button>
+                      </div>
+
+                      <p className='mt-3 text-xs leading-5 text-slate-500'>La posizione serve solo per il digest dei club vicini e non cambia l accesso alla community privata.</p>
+                    </div>
+                  </div>
+
+                  <div className='surface-muted'>
+                    <p className='text-sm font-semibold text-slate-900'>Privacy e salvataggio</p>
+                    <p className='mt-2 text-sm leading-6 text-slate-600'>Usiamo questi dati solo per salvare i filtri alert, i club seguiti e gli avvisi compatibili con le tue preferenze pubbliche.</p>
+
+                    <label className='mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700'>
+                      <input
+                        type='checkbox'
+                        checked={discoveryForm.privacy_accepted}
+                        onChange={(event) => setDiscoveryForm((prev) => ({ ...prev, privacy_accepted: event.target.checked }))}
+                        className='mt-1 h-4 w-4 rounded border-slate-300'
+                        required={!discovery.subscriber}
+                      />
+                      <span>Accetto il trattamento dei dati per salvare i filtri alert e ricevere notifiche nella sezione Match Alert.</span>
+                    </label>
+
+                    <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center'>
+                      <button className='btn-primary' type='submit' disabled={discoverySubmitting}>
+                        <BellRing size={16} />
+                        <span>{discoverySubmitting ? 'Salvataggio…' : 'Salva alert'}</span>
+                      </button>
+                      <p className='text-sm text-slate-600'>
+                        {discovery.subscriber
+                          ? 'I tuoi filtri restano separati dalla community privata Play.'
+                          : 'Salva i filtri prima di seguire un club o ricevere alert persistenti.'}
+                      </p>
+                    </div>
                   </div>
                 </form>
 
-                <div className='grid gap-4 lg:grid-cols-2'>
+                <div className='grid gap-4 xl:grid-cols-2'>
                   <div className='surface-card border border-slate-200'>
-                    <p className='text-sm font-semibold text-slate-900'>Watchlist club</p>
+                    <div className='flex items-center justify-between gap-3'>
+                      <p className='text-sm font-semibold text-slate-900'>Club seguiti</p>
+                      <span className='rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700'>
+                        {watchlist.length} {watchlist.length === 1 ? 'seguito' : 'seguiti'}
+                      </span>
+                    </div>
                     <div className='mt-3 space-y-3'>
                       {watchlist.length === 0 ? (
-                        <p className='text-sm text-slate-600'>Nessun club seguito per ora. Attiva discovery e usa i pulsanti “Segui questo club” nelle card della directory.</p>
+                        <div className='space-y-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600'>
+                          <p>Nessun club seguito per ora. Scegline uno dalla directory qui sotto e Match Alert iniziera a monitorarlo per te.</p>
+                          <a className='btn-secondary w-fit' href='#club-directory'>Trova il club</a>
+                        </div>
                       ) : (
                         watchlist.map((item) => (
                           <article key={item.watch_id} className='rounded-2xl border border-slate-200 bg-white px-4 py-3'>
@@ -541,12 +565,12 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
 
                   <div className='surface-card border border-slate-200'>
                     <div className='flex items-center justify-between gap-3'>
-                      <p className='text-sm font-semibold text-slate-900'>Feed discovery persistente</p>
+                      <p className='text-sm font-semibold text-slate-900'>Alert recenti</p>
                       <span className='rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold text-cyan-800'>Non lette: {discovery.unread_notifications_count}</span>
                     </div>
                     <div className='mt-3 space-y-3'>
                       {discovery.recent_notifications.length === 0 ? (
-                        <p className='text-sm text-slate-600'>Ancora nessun alert. Il feed si popola con watchlist 2/4-3/4 e digest giornalieri vicini.</p>
+                        <p className='text-sm text-slate-600'>Ancora nessun alert. Si popoleranno qui i match 2/4, 3/4 e il digest vicino a te.</p>
                       ) : (
                         discovery.recent_notifications.map((item) => (
                           <article key={item.id} data-testid='public-discovery-notification' className={`rounded-2xl border bg-white px-4 py-3 ${item.read_at ? 'border-slate-200' : 'border-cyan-300 ring-1 ring-cyan-100'}`}>
@@ -590,7 +614,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
           {loading ? (
             <LoadingBlock label='Carico la directory pubblica dei club…' labelClassName='text-base' />
           ) : (
-            <SectionCard title='Club disponibili' description='Ogni card espone solo identita pubblica, contatto minimo e stato community del club.'>
+            <SectionCard sectionId='club-directory' title='Club disponibili' description='Ogni card espone solo identita pubblica, contatto minimo e stato community del club.'>
               <div className='grid gap-4 lg:grid-cols-2'>
                 {clubs.map((club) => {
                   const locationLine = buildLocationLine(club);

@@ -37,6 +37,8 @@ PLAY_PROFILE_DECAY_INTERVAL_DAYS = 14
 PLAY_PROFILE_DECAY_FACTOR = 0.85
 PLAY_SERVICE_WORKER_PATH = '/play-service-worker.js'
 PERMANENT_WEB_PUSH_STATUS_CODES = {404, 410}
+PLAY_TIME_SLOT_BUCKETS = ('morning', 'lunch_break', 'early_afternoon', 'late_afternoon', 'evening')
+PLAY_TIME_SLOT_GROUPS = ('weekday', 'holiday')
 
 
 def _utcnow() -> datetime:
@@ -61,12 +63,12 @@ def _default_weekday_scores() -> dict[str, int]:
     return {str(index): 0 for index in range(7)}
 
 
-def _default_time_slot_scores() -> dict[str, int]:
-    return {
-        'morning': 0,
-        'afternoon': 0,
-        'evening': 0,
-    }
+def _default_time_slot_bucket_scores() -> dict[str, int]:
+    return {slot: 0 for slot in PLAY_TIME_SLOT_BUCKETS}
+
+
+def _default_time_slot_scores() -> dict[str, dict[str, int]]:
+    return {group: _default_time_slot_bucket_scores() for group in PLAY_TIME_SLOT_GROUPS}
 
 
 def _default_level_compatibility_scores() -> dict[str, int]:
@@ -87,13 +89,82 @@ def _normalize_score_map(raw: dict | None, *, defaults: dict[str, int]) -> dict[
     return normalized
 
 
+def _coerce_non_negative_int(value: object) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _distribute_legacy_score(value: object, *, slots: tuple[str, ...]) -> dict[str, int]:
+    total = _coerce_non_negative_int(value)
+    base, remainder = divmod(total, len(slots))
+    return {
+        slot: base + (1 if index < remainder else 0)
+        for index, slot in enumerate(slots)
+    }
+
+
+def _normalize_time_slot_bucket_scores(raw: dict | None) -> dict[str, int]:
+    normalized = _default_time_slot_bucket_scores()
+    if not isinstance(raw, dict):
+        return normalized
+
+    for key in PLAY_TIME_SLOT_BUCKETS:
+        if key in raw:
+            normalized[key] = _coerce_non_negative_int(raw.get(key))
+
+    has_fine_grained_afternoon = any(
+        key in raw for key in ('lunch_break', 'early_afternoon', 'late_afternoon')
+    )
+    if not has_fine_grained_afternoon and 'afternoon' in raw:
+        normalized.update(
+            _distribute_legacy_score(
+                raw.get('afternoon'),
+                slots=('lunch_break', 'early_afternoon', 'late_afternoon'),
+            )
+        )
+    return normalized
+
+
+def _normalize_time_slot_scores(raw: dict | None) -> dict[str, dict[str, int]]:
+    normalized = _default_time_slot_scores()
+    if not isinstance(raw, dict):
+        return normalized
+
+    has_legacy_flat_scores = any(
+        key in raw for key in ('morning', 'afternoon', 'lunch_break', 'early_afternoon', 'late_afternoon', 'evening')
+    )
+    legacy_scores = _normalize_time_slot_bucket_scores(raw) if has_legacy_flat_scores else None
+
+    if any(key in raw for key in PLAY_TIME_SLOT_GROUPS):
+        for group in PLAY_TIME_SLOT_GROUPS:
+            group_raw = raw.get(group)
+            if isinstance(group_raw, dict):
+                normalized[group] = _normalize_time_slot_bucket_scores(group_raw)
+            elif legacy_scores is not None:
+                normalized[group] = dict(legacy_scores)
+        return normalized
+
+    legacy_scores = _normalize_time_slot_bucket_scores(raw)
+    return {group: dict(legacy_scores) for group in PLAY_TIME_SLOT_GROUPS}
+
+
 def _time_slot_bucket(local_dt: datetime) -> str:
-    hour = local_dt.hour
-    if hour < 12:
+    minutes = local_dt.hour * 60 + local_dt.minute
+    if minutes < 12 * 60:
         return 'morning'
-    if hour < 18:
-        return 'afternoon'
+    if minutes < (14 * 60 + 30):
+        return 'lunch_break'
+    if minutes < 17 * 60:
+        return 'early_afternoon'
+    if minutes < (19 * 60 + 30):
+        return 'late_afternoon'
     return 'evening'
+
+
+def _time_slot_group(local_dt: datetime) -> str:
+    return 'holiday' if local_dt.weekday() >= 5 else 'weekday'
 
 
 def _event_weight(event_type: PlayerActivityEventType) -> int:
@@ -207,10 +278,16 @@ def _apply_profile_decay(profile: PlayerPlayProfile, *, reference_time: datetime
 
     factor = PLAY_PROFILE_DECAY_FACTOR ** periods
     weekday_scores = _normalize_score_map(profile.weekday_scores, defaults=_default_weekday_scores())
-    time_slot_scores = _normalize_score_map(profile.time_slot_scores, defaults=_default_time_slot_scores())
+    time_slot_scores = _normalize_time_slot_scores(profile.time_slot_scores)
     level_scores = _normalize_score_map(profile.level_compatibility_scores, defaults=_default_level_compatibility_scores())
     profile.weekday_scores = {key: max(0, int(round(value * factor))) for key, value in weekday_scores.items()}
-    profile.time_slot_scores = {key: max(0, int(round(value * factor))) for key, value in time_slot_scores.items()}
+    profile.time_slot_scores = {
+        group: {
+            key: max(0, int(round(value * factor)))
+            for key, value in group_scores.items()
+        }
+        for group, group_scores in time_slot_scores.items()
+    }
     profile.level_compatibility_scores = {key: max(0, int(round(value * factor))) for key, value in level_scores.items()}
     profile.engagement_score = max(0, int(round(profile.engagement_score * factor)))
     profile.last_decay_at = reference_time
@@ -247,15 +324,17 @@ def record_player_activity(
         reference_value = match.start_at if match else event_at
         local_dt = _club_local_datetime(reference_value, club_timezone=club_timezone)
         weekday_scores = _normalize_score_map(profile.weekday_scores, defaults=_default_weekday_scores())
-        time_slot_scores = _normalize_score_map(profile.time_slot_scores, defaults=_default_time_slot_scores())
+        time_slot_scores = _normalize_time_slot_scores(profile.time_slot_scores)
         level_scores = _normalize_score_map(profile.level_compatibility_scores, defaults=_default_level_compatibility_scores())
 
         weekday_key = str(local_dt.weekday())
         time_slot_key = _time_slot_bucket(local_dt)
+        time_slot_group = _time_slot_group(local_dt)
         level_key = match.level_requested.value if match else player.declared_level.value
 
         weekday_scores[weekday_key] = weekday_scores.get(weekday_key, 0) + 1
-        time_slot_scores[time_slot_key] = time_slot_scores.get(time_slot_key, 0) + 1
+        group_scores = time_slot_scores.setdefault(time_slot_group, _default_time_slot_bucket_scores())
+        group_scores[time_slot_key] = group_scores.get(time_slot_key, 0) + 1
         level_scores[level_key] = level_scores.get(level_key, 0) + 1
 
         profile.weekday_scores = weekday_scores
@@ -601,7 +680,7 @@ def _match_notification_score(
 ) -> int:
     local_start = _club_local_datetime(match.start_at, club_timezone=club_timezone)
     weekday_scores = _normalize_score_map(profile.weekday_scores, defaults=_default_weekday_scores())
-    time_slot_scores = _normalize_score_map(profile.time_slot_scores, defaults=_default_time_slot_scores())
+    time_slot_scores = _normalize_time_slot_scores(profile.time_slot_scores)
     level_scores = _normalize_score_map(profile.level_compatibility_scores, defaults=_default_level_compatibility_scores())
 
     base_score = {
@@ -610,7 +689,7 @@ def _match_notification_score(
         NotificationKind.MATCH_ONE_OF_FOUR: 100,
     }[kind]
     weekday_bonus = weekday_scores.get(str(local_start.weekday()), 0)
-    time_slot_bonus = time_slot_scores.get(_time_slot_bucket(local_start), 0)
+    time_slot_bonus = time_slot_scores.get(_time_slot_group(local_start), {}).get(_time_slot_bucket(local_start), 0)
     level_bonus = level_scores.get(match.level_requested.value, 0)
     return base_score + weekday_bonus + time_slot_bonus + level_bonus + min(profile.engagement_score, 12)
 

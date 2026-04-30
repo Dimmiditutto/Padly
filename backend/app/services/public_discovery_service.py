@@ -32,7 +32,11 @@ from app.services.email_service import email_service
 DISCOVERY_SESSION_COOKIE_NAME = 'padel_discovery_session'
 DISCOVERY_SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 DISCOVERY_DEFAULT_RADIUS_KM = 25
-DISCOVERY_DEFAULT_TIME_SLOTS = ('morning', 'afternoon', 'evening')
+DISCOVERY_DEFAULT_TIME_SLOTS = ('morning', 'lunch_break', 'early_afternoon', 'late_afternoon', 'evening')
+DISCOVERY_TIME_SLOT_ALIASES: dict[str, tuple[str, ...]] = {
+    'all_day': DISCOVERY_DEFAULT_TIME_SLOTS,
+    'afternoon': ('lunch_break', 'early_afternoon', 'late_afternoon'),
+}
 DISCOVERY_NOTIFICATION_FEED_LIMIT = 12
 DISCOVERY_DIGEST_MAX_ITEMS = 5
 DISCOVERY_MATCH_LOOKAHEAD_DAYS = 7
@@ -60,15 +64,35 @@ def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
 
 
+def _expand_time_slot_alias(slot: str) -> tuple[str, ...]:
+    normalized_slot = slot.strip().lower()
+    if normalized_slot in DISCOVERY_DEFAULT_TIME_SLOTS:
+        return (normalized_slot,)
+    return DISCOVERY_TIME_SLOT_ALIASES.get(normalized_slot, ())
+
+
 def _normalize_time_slot_preferences(preferred_time_slots: list[str] | None) -> dict[str, bool]:
     if not preferred_time_slots:
         return {slot: True for slot in DISCOVERY_DEFAULT_TIME_SLOTS}
-    selected = {slot for slot in preferred_time_slots if slot in DISCOVERY_DEFAULT_TIME_SLOTS}
+    selected: set[str] = set()
+    for slot in preferred_time_slots:
+        selected.update(_expand_time_slot_alias(slot))
+    if not selected:
+        return {slot: True for slot in DISCOVERY_DEFAULT_TIME_SLOTS}
     return {slot: slot in selected for slot in DISCOVERY_DEFAULT_TIME_SLOTS}
 
 
-def _serialize_time_slot_preferences(preferred_time_slots: dict | None) -> list[str]:
-    normalized = preferred_time_slots or {}
+def _normalize_time_slot_preference_state(preferred_time_slots: dict | list[str] | None) -> dict[str, bool]:
+    if isinstance(preferred_time_slots, list):
+        return _normalize_time_slot_preferences(preferred_time_slots)
+    if not isinstance(preferred_time_slots, dict) or not preferred_time_slots:
+        return _normalize_time_slot_preferences(None)
+    enabled_slots = [str(slot) for slot, enabled in preferred_time_slots.items() if bool(enabled)]
+    return _normalize_time_slot_preferences(enabled_slots)
+
+
+def _serialize_time_slot_preferences(preferred_time_slots: dict | list[str] | None) -> list[str]:
+    normalized = _normalize_time_slot_preference_state(preferred_time_slots)
     return [slot for slot in DISCOVERY_DEFAULT_TIME_SLOTS if bool(normalized.get(slot))]
 
 
@@ -92,11 +116,15 @@ def _levels_are_compatible(existing_level: PlayLevel, requested_level: PlayLevel
 
 
 def _time_slot_bucket(local_dt: datetime) -> str:
-    hour = local_dt.hour
-    if hour < 12:
+    minutes = local_dt.hour * 60 + local_dt.minute
+    if minutes < 12 * 60:
         return 'morning'
-    if hour < 18:
-        return 'afternoon'
+    if minutes < (14 * 60 + 30):
+        return 'lunch_break'
+    if minutes < 17 * 60:
+        return 'early_afternoon'
+    if minutes < (19 * 60 + 30):
+        return 'late_afternoon'
     return 'evening'
 
 
@@ -488,7 +516,7 @@ def list_public_watchlist(db: Session, *, subscriber: PublicDiscoverySubscriber)
     clubs = [item.club for item in watch_items if item.club and item.club.is_active]
     court_counts = _load_court_counts(db, club_ids=[club.id for club in clubs])
     open_matches_by_club = _load_open_matches_for_clubs(db, club_ids=[club.id for club in clubs])
-    preferred_time_slots = subscriber.preferred_time_slots or _normalize_time_slot_preferences(None)
+    preferred_time_slots = _normalize_time_slot_preference_state(subscriber.preferred_time_slots)
 
     items: list[dict] = []
     for watch_item in watch_items:
@@ -676,7 +704,7 @@ def dispatch_public_watchlist_notifications_for_match(
         if not _match_matches_preferences(
             match,
             preferred_level=subscriber.preferred_level,
-            preferred_time_slots=subscriber.preferred_time_slots or _normalize_time_slot_preferences(None),
+            preferred_time_slots=_normalize_time_slot_preference_state(subscriber.preferred_time_slots),
             club=club,
         ):
             continue
@@ -729,7 +757,7 @@ def emit_public_nearby_digest_notifications(db: Session, *, today: date | None =
 
     created = 0
     for subscriber in subscribers:
-        preferred_time_slots = subscriber.preferred_time_slots or _normalize_time_slot_preferences(None)
+        preferred_time_slots = _normalize_time_slot_preference_state(subscriber.preferred_time_slots)
         nearby_items: list[dict] = []
         for club in clubs:
             distance_km = _calculate_distance_km(

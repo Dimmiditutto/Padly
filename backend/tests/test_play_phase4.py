@@ -29,6 +29,12 @@ from app.models import DEFAULT_CLUB_SLUG
 from test_play_phase3 import build_future_slot, identify_as, seed_match_at
 
 
+def _rome_window(*, year: int, month: int, day: int, hour: int, minute: int, duration_minutes: int = 90) -> tuple[datetime, datetime]:
+    local_start = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo('Europe/Rome'))
+    local_end = local_start + timedelta(minutes=duration_minutes)
+    return local_start.astimezone(UTC), local_end.astimezone(UTC)
+
+
 def _seed_profile(
     *,
     player_id: str,
@@ -673,3 +679,183 @@ def test_play_profile_updates_incrementally_and_syncs_internal_levels():
         assert profile.observed_level == PlayLevel.ADVANCED
         assert profile.effective_level == PlayLevel.ADVANCED
         assert player.effective_level == PlayLevel.ADVANCED
+
+
+def test_play_profile_records_fine_grained_time_slots_for_weekday_and_holiday():
+    player_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Time Slot Memory Player', phone='3337600061')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    weekday_start_at, weekday_end_at = _rome_window(year=2026, month=5, day=6, hour=17, minute=15)
+    holiday_start_at, holiday_end_at = _rome_window(year=2026, month=5, day=10, hour=20, minute=0)
+    weekday_match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=player_id,
+        participant_player_ids=[player_id],
+        start_at=weekday_start_at,
+        end_at=weekday_end_at,
+        level_requested=PlayLevel.ADVANCED,
+        note='profilo weekday',
+    )
+    holiday_match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=player_id,
+        participant_player_ids=[player_id],
+        start_at=holiday_start_at,
+        end_at=holiday_end_at,
+        level_requested=PlayLevel.ADVANCED,
+        note='profilo holiday',
+    )
+
+    with SessionLocal() as db:
+        player = db.get(Player, player_id)
+        weekday_match = db.get(Match, weekday_match_id)
+        holiday_match = db.get(Match, holiday_match_id)
+        assert player is not None
+        assert weekday_match is not None
+        assert holiday_match is not None
+
+        record_player_activity(
+            db,
+            player=player,
+            club_timezone='Europe/Rome',
+            event_type=PlayerActivityEventType.MATCH_CREATED,
+            match=weekday_match,
+        )
+        record_player_activity(
+            db,
+            player=player,
+            club_timezone='Europe/Rome',
+            event_type=PlayerActivityEventType.MATCH_JOINED,
+            match=holiday_match,
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        profile = db.scalar(select(PlayerPlayProfile).where(PlayerPlayProfile.player_id == player_id).limit(1))
+        assert profile is not None
+        assert profile.time_slot_scores['weekday']['late_afternoon'] >= 1
+        assert profile.time_slot_scores['holiday']['evening'] >= 1
+        assert profile.weekday_scores['2'] >= 1
+        assert profile.weekday_scores['6'] >= 1
+
+
+def test_play_notification_score_uses_holiday_bucket_for_weekend_match():
+    player_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Holiday Score Player', phone='3337600062')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    start_at, end_at = _rome_window(year=2026, month=5, day=10, hour=17, minute=15)
+    local_start = start_at.astimezone(ZoneInfo('Europe/Rome'))
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=player_id,
+        participant_player_ids=[player_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='holiday bucket score',
+    )
+
+    with SessionLocal() as db:
+        player = db.get(Player, player_id)
+        match = db.get(Match, match_id)
+        assert player is not None
+        assert match is not None
+        weekday_scores = {str(index): 0 for index in range(7)}
+        weekday_scores[str(local_start.weekday())] = 4
+        level_scores = {candidate.value: 0 for candidate in PlayLevel}
+        level_scores[PlayLevel.INTERMEDIATE_HIGH.value] = 5
+        profile = PlayerPlayProfile(
+            club_id=DEFAULT_CLUB_ID,
+            player_id=player_id,
+            weekday_scores=weekday_scores,
+            time_slot_scores={
+                'weekday': {
+                    'morning': 0,
+                    'lunch_break': 0,
+                    'early_afternoon': 0,
+                    'late_afternoon': 1,
+                    'evening': 0,
+                },
+                'holiday': {
+                    'morning': 0,
+                    'lunch_break': 0,
+                    'early_afternoon': 0,
+                    'late_afternoon': 7,
+                    'evening': 0,
+                },
+            },
+            level_compatibility_scores=level_scores,
+            useful_events_count=8,
+            engagement_score=0,
+            declared_level=PlayLevel.INTERMEDIATE_HIGH,
+            observed_level=PlayLevel.INTERMEDIATE_HIGH,
+            effective_level=PlayLevel.INTERMEDIATE_HIGH,
+            last_event_at=datetime.now(UTC),
+            last_decay_at=datetime.now(UTC),
+        )
+        db.add(profile)
+        db.flush()
+
+        score = play_notification_service_module._match_notification_score(
+            player=player,
+            profile=profile,
+            match=match,
+            kind=NotificationKind.MATCH_TWO_OF_FOUR,
+            club_timezone='Europe/Rome',
+        )
+
+        assert score == 216
+
+
+def test_play_notification_score_reads_legacy_flat_afternoon_scores_with_fine_grained_slots():
+    player_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Legacy Afternoon Player', phone='3337600063')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    start_at, end_at = _rome_window(year=2026, month=5, day=5, hour=15, minute=15)
+    local_start = start_at.astimezone(ZoneInfo('Europe/Rome'))
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=player_id,
+        participant_player_ids=[player_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='legacy afternoon score',
+    )
+
+    with SessionLocal() as db:
+        player = db.get(Player, player_id)
+        match = db.get(Match, match_id)
+        assert player is not None
+        assert match is not None
+        weekday_scores = {str(index): 0 for index in range(7)}
+        weekday_scores[str(local_start.weekday())] = 4
+        level_scores = {candidate.value: 0 for candidate in PlayLevel}
+        level_scores[PlayLevel.INTERMEDIATE_HIGH.value] = 5
+        profile = PlayerPlayProfile(
+            club_id=DEFAULT_CLUB_ID,
+            player_id=player_id,
+            weekday_scores=weekday_scores,
+            time_slot_scores={'morning': 0, 'afternoon': 9, 'evening': 0},
+            level_compatibility_scores=level_scores,
+            useful_events_count=8,
+            engagement_score=0,
+            declared_level=PlayLevel.INTERMEDIATE_HIGH,
+            observed_level=PlayLevel.INTERMEDIATE_HIGH,
+            effective_level=PlayLevel.INTERMEDIATE_HIGH,
+            last_event_at=datetime.now(UTC),
+            last_decay_at=datetime.now(UTC),
+        )
+        db.add(profile)
+        db.flush()
+
+        score = play_notification_service_module._match_notification_score(
+            player=player,
+            profile=profile,
+            match=match,
+            kind=NotificationKind.MATCH_TWO_OF_FOUR,
+            club_timezone='Europe/Rome',
+        )
+
+        assert score == 212

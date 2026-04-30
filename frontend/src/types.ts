@@ -189,7 +189,7 @@ export interface MatchinnHomeOpenMatchesResponse {
   preferred_level?: PlayLevel | null;
 }
 
-export type PublicDiscoveryTimeSlot = 'morning' | 'afternoon' | 'evening';
+export type PublicDiscoveryTimeSlot = 'morning' | 'lunch_break' | 'early_afternoon' | 'late_afternoon' | 'evening';
 export type PublicDiscoveryNotificationKind = 'WATCHLIST_MATCH_THREE_OF_FOUR' | 'WATCHLIST_MATCH_TWO_OF_FOUR' | 'NEARBY_DIGEST';
 export type NotificationChannel = 'IN_APP' | 'WEB_PUSH';
 export type NotificationDeliveryStatus = 'SENT' | 'SKIPPED' | 'FAILED';

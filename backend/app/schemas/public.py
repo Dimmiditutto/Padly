@@ -6,7 +6,15 @@ from app.models import BookingStatus, NotificationChannel, NotificationDeliveryS
 from app.schemas.common import BookingCustomerData, CourtAvailability, TimeSlot
 
 VALID_DURATIONS = {60, 90, 120, 150, 180, 210, 240, 270, 300}
-VALID_DISCOVERY_TIME_SLOTS = {'morning', 'afternoon', 'evening'}
+VALID_DISCOVERY_TIME_SLOTS = {
+    'all_day',
+    'morning',
+    'afternoon',
+    'lunch_break',
+    'early_afternoon',
+    'late_afternoon',
+    'evening',
+}
 
 
 def validate_hhmm_time(value: str) -> str:
@@ -193,6 +201,8 @@ class PublicDiscoveryIdentifyRequest(BaseModel):
                 raise ValueError('Fascia oraria non valida')
             if slot not in normalized:
                 normalized.append(slot)
+        if 'all_day' in normalized:
+            return ['all_day']
         return normalized
 
     @field_validator('privacy_accepted')
@@ -227,6 +237,8 @@ class PublicDiscoveryPreferencesUpdateRequest(BaseModel):
                 raise ValueError('Fascia oraria non valida')
             if slot not in normalized:
                 normalized.append(slot)
+        if 'all_day' in normalized:
+            return ['all_day']
         return normalized
 
     @model_validator(mode='after')

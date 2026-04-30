@@ -131,7 +131,7 @@ const baseClubDetail: PublicClubDetailResponse = {
 const discoverySubscriber: PublicDiscoverySession = {
   subscriber_id: 'subscriber-1',
   preferred_level: 'INTERMEDIATE_HIGH',
-  preferred_time_slots: ['morning', 'afternoon', 'evening'],
+  preferred_time_slots: ['morning', 'lunch_break', 'early_afternoon', 'late_afternoon', 'evening'],
   latitude: 44.30941,
   longitude: 8.47715,
   has_coordinates: true,
@@ -210,8 +210,14 @@ describe('Public discovery routes', () => {
     renderApp('/clubs');
 
     expect(await screen.findByRole('heading', { name: 'Scopri i club vicino a te' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Matchinn' })).toHaveAttribute('src', '/logo_matchinn_dark.png');
+    expect(screen.getByRole('img', { name: 'Matchinn' })).toHaveAttribute('src', '/logo_dark.png');
     expect(screen.getByRole('link', { name: 'Torna alla home' })).toHaveAttribute('href', '/');
+    expect(await screen.findByRole('heading', { name: 'Match Alert' })).toBeInTheDocument();
+    expect(screen.getByText('Tutti gli orari')).toBeInTheDocument();
+    expect(screen.getByText('Pausa pranzo 12:00-14:30')).toBeInTheDocument();
+    expect(screen.getByText('Primo pomeriggio 14:30-17:00')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Latitudine')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Longitudine')).not.toBeInTheDocument();
     expect(await screen.findByText('Roma Club')).toBeInTheDocument();
     await user.clear(screen.getByLabelText('Citta, CAP o provincia'));
     await user.type(screen.getByLabelText('Citta, CAP o provincia'), 'savona');
@@ -287,8 +293,8 @@ describe('Public discovery routes', () => {
     renderApp('/clubs');
 
     expect(await screen.findByText('Roma Club')).toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: /Accetto il trattamento dei dati per salvare la sessione discovery/i }));
-    await user.click(screen.getByRole('button', { name: 'Attiva discovery pubblico' }));
+    await user.click(screen.getByRole('checkbox', { name: /Accetto il trattamento dei dati per salvare i filtri alert/i }));
+    await user.click(screen.getByRole('button', { name: 'Salva alert' }));
 
     await waitFor(() => expect(identifyPublicDiscovery).toHaveBeenCalled());
     expect(await screen.findByText('Alert 2/4 Roma Club')).toBeInTheDocument();
