@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MatchinnHomePage } from './MatchinnHomePage';
 import type {
   MatchinnHomeOpenMatchesResponse,
-  PublicClubDirectoryResponse,
   PublicClubSummary,
   PublicDiscoveryMeResponse,
 } from '../types';
@@ -20,7 +19,6 @@ import {
   getMatchinnHomeCommunities,
   getMatchinnHomeOpenMatches,
   getPublicDiscoveryMe,
-  listPublicClubsNearby,
 } from '../services/publicApi';
 
 const romaClub: PublicClubSummary = {
@@ -102,7 +100,6 @@ describe('MatchinnHomePage', () => {
     vi.clearAllMocks();
     vi.mocked(getMatchinnHomeCommunities).mockResolvedValue({ items: [romaClub] });
     vi.mocked(getPublicDiscoveryMe).mockResolvedValue(discoveryContext);
-    vi.mocked(listPublicClubsNearby).mockResolvedValue({ query: null, items: [savonaClub] } satisfies PublicClubDirectoryResponse);
     vi.mocked(getMatchinnHomeOpenMatches).mockResolvedValue({
       items: [
         {
@@ -148,12 +145,12 @@ describe('MatchinnHomePage', () => {
     expect(getMatchinnHomeCommunities).toHaveBeenCalled();
     expect(getPublicDiscoveryMe).toHaveBeenCalled();
     expect(getMatchinnHomeOpenMatches).toHaveBeenCalledWith({ limit: 6 });
-    await waitFor(() => expect(listPublicClubsNearby).toHaveBeenCalledWith(44.30941, 8.47715));
 
     expect(screen.getByRole('link', { name: 'Entra nella community Roma Club' })).toHaveAttribute('href', '/c/roma-club/play');
     expect(screen.getByRole('link', { name: 'Entra e gioca Roma Club' })).toHaveAttribute('href', '/c/roma-club/play');
     expect(screen.getByRole('link', { name: 'Apri club Savona Club' })).toHaveAttribute('href', '/c/savona-club');
-    expect(screen.getByText(/Discovery salvata: livello Intermedio alto/i)).toBeInTheDocument();
+    expect(screen.queryByText('Stato rapido')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Trova i campi più vicini a te' })).not.toBeInTheDocument();
   });
 
   it('shows anonymous community state and routes booking through club selection when no session is available', async () => {
@@ -166,6 +163,6 @@ describe('MatchinnHomePage', () => {
     expect(await screen.findByText(/Nessuna community attiva trovata in questo browser/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Ottieni codice OTP dal tuo club' })).toHaveAttribute('href', '/clubs');
     expect(screen.getByRole('link', { name: 'Scegli il club per prenotare' })).toHaveAttribute('href', '/clubs');
-    expect(screen.getByText(/Aggiungi la posizione o attiva discovery/i)).toBeInTheDocument();
+    expect(screen.getByText(/Apri la directory club per scegliere dove giocare e attivare Match Alert/i)).toBeInTheDocument();
   });
 });

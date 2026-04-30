@@ -4,12 +4,13 @@ import { AdminNav } from '../components/AdminNav';
 import { AlertBanner } from '../components/AlertBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { getAdminSession, listAdminEvents, logoutAdmin } from '../services/adminApi';
 import type { AdminEvent, AdminSession } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatDateTime } from '../utils/format';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -61,6 +62,10 @@ export function AdminLogsPage() {
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel space-y-4'>
+          <PageBrandBar
+            className='mb-2'
+            actions={<Link className='admin-hero-button-secondary' to='/'>Torna alla home</Link>}
+          />
           <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
             <div>
               <p className='text-2xl font-semibold text-cyan-100'>Log admin</p>

@@ -126,6 +126,7 @@ describe('PublicClubPage', () => {
     renderPage();
 
     await screen.findByText('Partite da chiudere');
+    expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
     expect(screen.getByText('Da chiudere subito')).toBeInTheDocument();
     expect(screen.getByText('Buone occasioni')).toBeInTheDocument();
     expect(screen.getByText('Da monitorare')).toBeInTheDocument();
@@ -144,6 +145,7 @@ describe('PublicClubPage', () => {
     renderPage();
 
     await screen.findByText('Richiedi accesso alla community');
+    expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Richiedi accesso' })).toHaveAttribute('href', '#club-contact-request');
     expect(screen.queryByRole('link', { name: 'Entra nella community' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Invia richiesta accesso' })).toBeInTheDocument();

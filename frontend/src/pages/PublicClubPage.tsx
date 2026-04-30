@@ -3,8 +3,8 @@ import { ArrowLeft, BellRing, Clock3, Mail, MapPin, Phone, UsersRound } from 'lu
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import {
   createPublicClubContactRequest,
@@ -176,9 +176,23 @@ export function PublicClubPage() {
         ) : detail ? (
           <>
             <header className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
+              <PageBrandBar
+                className='mb-6'
+                actions={(
+                  <>
+                    <Link className='hero-action-secondary' to='/clubs'>
+                      <ArrowLeft size={16} />
+                      <span>Torna ai club</span>
+                    </Link>
+                    <Link className='hero-action-secondary' to='/'>
+                      <span>Torna alla home</span>
+                    </Link>
+                  </>
+                )}
+              />
               <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
                 <div className='max-w-3xl'>
-                  <AppBrand light label='Club pubblico' />
+                  <p className='text-sm font-semibold uppercase tracking-[0.24em] text-cyan-200/80'>Club pubblico</p>
                   <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>{detail.club.public_name}</h1>
                   <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>La pagina pubblica del club mostra solo identita minima e partite open sintetiche. Nomi dei player, join e funzioni community restano private.</p>
                   {buildLocationLine(detail.club) ? (
@@ -190,10 +204,6 @@ export function PublicClubPage() {
                 </div>
 
                 <div className='flex flex-col gap-3 sm:flex-row'>
-                  <Link className='btn-secondary' to='/clubs'>
-                    <ArrowLeft size={16} />
-                    <span>Torna ai club</span>
-                  </Link>
                   <Link className='btn-secondary' to={withTenantPath('/booking', detail.club.club_slug)}>
                     <span>Prenota nel club</span>
                   </Link>
@@ -269,7 +279,7 @@ export function PublicClubPage() {
                         </span>
                       </button>
                       <Link className='btn-secondary' to='/clubs'>
-                        <span>{discovery.subscriber ? 'Apri feed discovery' : 'Attiva discovery'}</span>
+                        <span>{discovery.subscriber ? 'Apri Match Alert' : 'Attiva Match Alert'}</span>
                       </Link>
                     </div>
                   </div>

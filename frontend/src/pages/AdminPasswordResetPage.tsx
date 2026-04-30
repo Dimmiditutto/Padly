@@ -2,7 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { confirmAdminPasswordReset } from '../services/adminApi';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 
@@ -54,10 +54,17 @@ export function AdminPasswordResetPage() {
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
       <div className='surface-card w-full max-w-md'>
-        <Link to={withTenantPath('/admin/login', tenantSlug)} className='btn-secondary inline-flex'>
-          <ArrowLeft size={16} /> Torna al login
-        </Link>
-        <AppBrand />
+        <PageBrandBar
+          className='mb-5'
+          actions={(
+            <>
+              <Link to={withTenantPath('/admin/login', tenantSlug)} className='btn-secondary inline-flex'>
+                <ArrowLeft size={16} /> Torna al login
+              </Link>
+              <Link to='/' className='btn-secondary inline-flex'>Torna alla home</Link>
+            </>
+          )}
+        />
         <p className='mt-5 text-sm font-semibold text-cyan-700'>Reset password</p>
         <h1 className='mt-2 text-3xl font-bold text-slate-950'>Reimposta accesso admin</h1>
         <p className='mt-2 text-sm text-slate-600'>Inserisci una nuova password per l'area admin. Il link ricevuto via email resta valido per un tempo limitato.</p>

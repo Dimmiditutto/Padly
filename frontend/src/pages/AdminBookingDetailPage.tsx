@@ -6,6 +6,7 @@ import { AlertBanner } from '../components/AlertBanner';
 import { DateFieldWithDay } from '../components/DateFieldWithDay';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelRecurringSeries, getAdminBooking, getAdminSession, listAdminCourts, markAdminBalancePaid, updateAdminBooking, updateAdminBookingStatus, updateRecurringSeries } from '../services/adminApi';
@@ -220,11 +221,16 @@ export function AdminBookingDetailPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
-        <div className='flex items-center justify-between gap-3'>
-          <Link to={withTenantPath('/admin/prenotazioni', tenantSlug)} className='btn-secondary'>
-            <ArrowLeft size={16} /> Torna alle prenotazioni
-          </Link>
-        </div>
+        <PageBrandBar
+          actions={(
+            <>
+              <Link to={withTenantPath('/admin/prenotazioni', tenantSlug)} className='btn-secondary inline-flex'>
+                <ArrowLeft size={16} /> Torna alle prenotazioni
+              </Link>
+              <Link to='/' className='btn-secondary inline-flex'>Torna alla home</Link>
+            </>
+          )}
+        />
 
         {feedback ? <AlertBanner tone='success'>{feedback}</AlertBanner> : null}
         {error ? <AlertBanner tone='error'>{error}</AlertBanner> : null}

@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, CalendarClock, LocateFixed, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Building2, CalendarClock, LocateFixed } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
@@ -8,11 +8,9 @@ import {
   getMatchinnHomeCommunities,
   getMatchinnHomeOpenMatches,
   getPublicDiscoveryMe,
-  listPublicClubsNearby,
 } from '../services/publicApi';
 import type {
   MatchinnHomeOpenMatchItem,
-  PlayLevel,
   PublicClubSummary,
   PublicDiscoveryMeResponse,
 } from '../types';
@@ -20,9 +18,7 @@ import { formatDate, formatTimeValue } from '../utils/format';
 import { buildClubPlayPath, formatPlayLevel } from '../utils/play';
 
 type FeedbackState = { tone: 'info' | 'warning' | 'error' | 'success'; message: string } | null;
-type LocationSource = 'query' | 'discovery' | 'none';
 
-const NEARBY_CLUBS_LIMIT = 6;
 const HOME_MATCH_LIMIT = 6;
 
 function formatDistance(distanceKm: number | null | undefined) {
@@ -49,13 +45,6 @@ function buildCommunitySignal(club: PublicClubSummary) {
   return club.public_activity_label;
 }
 
-function geolocationDeniedMessage(error: GeolocationPositionError | { code?: number } | null | undefined) {
-  if (error?.code === 1) {
-    return 'Permesso geolocalizzazione negato. Usa la directory per cercare manualmente il club giusto.';
-  }
-  return 'Geolocalizzazione non disponibile in questo momento. Usa la directory per cercare manualmente il club giusto.';
-}
-
 export function MatchinnHomePage() {
   const [communities, setCommunities] = useState<PublicClubSummary[]>([]);
   const [communitiesLoading, setCommunitiesLoading] = useState(true);
@@ -65,15 +54,9 @@ export function MatchinnHomePage() {
     recent_notifications: [],
     unread_notifications_count: 0,
   });
-  const [discoveryLoading, setDiscoveryLoading] = useState(true);
-  const [discoveryFeedback, setDiscoveryFeedback] = useState<FeedbackState>(null);
-  const [nearbyClubs, setNearbyClubs] = useState<PublicClubSummary[]>([]);
-  const [nearbyLoading, setNearbyLoading] = useState(false);
-  const [nearbyFeedback, setNearbyFeedback] = useState<FeedbackState>(null);
   const [openMatches, setOpenMatches] = useState<MatchinnHomeOpenMatchItem[]>([]);
   const [openMatchesLoading, setOpenMatchesLoading] = useState(true);
   const [openMatchesFeedback, setOpenMatchesFeedback] = useState<FeedbackState>(null);
-  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     void loadCommunities();
@@ -96,33 +79,14 @@ export function MatchinnHomePage() {
   }
 
   async function loadDiscoveryContext() {
-    setDiscoveryLoading(true);
     try {
       const response = await getPublicDiscoveryMe();
       setDiscovery(response);
-      setDiscoveryFeedback(null);
       if (response.subscriber?.has_coordinates && response.subscriber.latitude != null && response.subscriber.longitude != null) {
-        await loadNearbyClubs(response.subscriber.latitude, response.subscriber.longitude);
+        await loadOpenMatches({ latitude: response.subscriber.latitude, longitude: response.subscriber.longitude });
       }
     } catch {
-      setDiscoveryFeedback({ tone: 'info', message: 'Discovery non disponibile ora. Usa la tua posizione o apri la directory club.' });
-    } finally {
-      setDiscoveryLoading(false);
-    }
-  }
-
-  async function loadNearbyClubs(latitude: number, longitude: number) {
-    setNearbyLoading(true);
-    try {
-      const response = await listPublicClubsNearby(latitude, longitude);
-      const items = response.items.slice(0, NEARBY_CLUBS_LIMIT);
-      setNearbyClubs(items);
-      setNearbyFeedback(items.length > 0 ? null : { tone: 'info', message: 'Nessun club vicino trovato con i dati disponibili. Apri la directory per cercare manualmente.' });
-    } catch {
-      setNearbyClubs([]);
-      setNearbyFeedback({ tone: 'info', message: 'I club vicini non sono disponibili ora. Continua dalla directory completa.' });
-    } finally {
-      setNearbyLoading(false);
+      setDiscovery({ subscriber: null, recent_notifications: [], unread_notifications_count: 0 });
     }
   }
 
@@ -138,7 +102,7 @@ export function MatchinnHomePage() {
       if (response.items.length > 0) {
         setOpenMatchesFeedback(null);
       } else if (response.location_source === 'none') {
-        setOpenMatchesFeedback({ tone: 'info', message: 'Aggiungi la posizione o attiva discovery per vedere partite aperte vicino a te.' });
+        setOpenMatchesFeedback({ tone: 'info', message: 'Apri la directory club per scegliere dove giocare e attivare Match Alert sul club giusto.' });
       } else {
         setOpenMatchesFeedback({ tone: 'info', message: 'Nessuna partita aperta visibile vicino a te in questo momento.' });
       }
@@ -150,31 +114,7 @@ export function MatchinnHomePage() {
     }
   }
 
-  function requestCurrentPosition() {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setNearbyFeedback({ tone: 'warning', message: 'Questo browser non supporta la geolocalizzazione. Usa la directory per cercare per citta o provincia.' });
-      return;
-    }
-
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocating(false);
-        void Promise.all([
-          loadNearbyClubs(position.coords.latitude, position.coords.longitude),
-          loadOpenMatches({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-        ]);
-      },
-      (error) => {
-        setLocating(false);
-        setNearbyFeedback({ tone: 'warning', message: geolocationDeniedMessage(error) });
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
-    );
-  }
-
   const recognizedCommunitySlugs = new Set(communities.map((club) => club.club_slug));
-  const discoverySubscriber = discovery.subscriber;
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -199,24 +139,10 @@ export function MatchinnHomePage() {
                 </Link>
               </div>
             </div>
-
-            <div className='w-full max-w-sm rounded-[24px] border border-white/10 bg-white/5 p-4 text-white'>
-              <p className='text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Stato rapido</p>
-              <div className='mt-4 space-y-3'>
-                <QuickMetric label='Community riconosciute' value={String(communities.length)} />
-                <QuickMetric label='Club vicini caricati' value={String(nearbyClubs.length)} />
-                <QuickMetric label='Partite aperte in evidenza' value={String(openMatches.length)} />
-              </div>
-              <div className='mt-4 rounded-2xl border border-white/10 bg-slate-950/30 p-3 text-sm text-slate-200'>
-                {discoverySubscriber
-                  ? `Discovery attiva: ${formatPlayLevel(discoverySubscriber.preferred_level)} • raggio ${discoverySubscriber.nearby_radius_km} km.`
-                  : 'Nessuna discovery salvata: usa la posizione o apri la directory club.'}
-              </div>
-            </div>
           </div>
         </header>
 
-        <div className='grid items-start gap-6 lg:grid-cols-[1.15fr_0.85fr]'>
+        <div className='grid items-start gap-6 lg:grid-cols-[1.25fr_0.75fr]'>
           <SectionCard title='Le tue community' elevated>
             {communitiesLoading ? (
               <LoadingBlock label='Cerco le community riconosciute…' labelClassName='text-base' />
@@ -270,38 +196,7 @@ export function MatchinnHomePage() {
             )}
           </SectionCard>
 
-          <div className='space-y-6'>
-            <section className='surface-card bg-gradient-to-br from-white to-cyan-50'>
-              <div className='flex items-start justify-between gap-4'>
-                <div>
-                  <p className='text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700'>Posizione</p>
-                  <h2 className='mt-2 text-xl font-semibold text-slate-950'>Trova i campi più vicini a te</h2>
-                  <p className='mt-2 text-sm text-slate-600'>Usa la geolocalizzazione o cerca un campo</p>
-                </div>
-                <ShieldCheck size={20} className='shrink-0 text-cyan-700' />
-              </div>
-              <div className='mt-4 action-cluster'>
-                <button type='button' className='btn-primary' onClick={requestCurrentPosition} disabled={locating || nearbyLoading || openMatchesLoading}>
-                  <LocateFixed size={16} />
-                  <span>{locating ? 'Posizione in corso…' : 'Usa la mia posizione'}</span>
-                </button>
-                <Link className='btn-secondary' to='/clubs'>Cerca un campo</Link>
-              </div>
-              {discoveryLoading ? (
-                <div className='mt-4'>
-                  <LoadingBlock label='Leggo la sessione discovery…' labelClassName='text-sm' />
-                </div>
-              ) : discoveryFeedback ? (
-                <div className='mt-4'>
-                  <AlertBanner tone={discoveryFeedback.tone}>{discoveryFeedback.message}</AlertBanner>
-                </div>
-              ) : discoverySubscriber ? (
-                <div className='mt-4 rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-700'>
-                  Discovery salvata: livello {formatPlayLevel(discoverySubscriber.preferred_level)} • raggio {discoverySubscriber.nearby_radius_km} km • notifiche non lette {discovery.unread_notifications_count}.
-                </div>
-              ) : null}
-            </section>
-
+          <div>
             <section className='surface-card-compact border border-slate-200'>
               <div className='flex items-start justify-between gap-4'>
                 <div>
@@ -366,17 +261,6 @@ export function MatchinnHomePage() {
           )}
         </SectionCard>
       </div>
-    </div>
-  );
-}
-
-function QuickMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className='flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5'>
-      <span className='text-sm text-slate-200'>{label}</span>
-      <span className='inline-flex min-w-9 items-center justify-center rounded-full bg-white/10 px-2.5 py-1 text-sm font-semibold text-white'>
-        {value}
-      </span>
     </div>
   );
 }

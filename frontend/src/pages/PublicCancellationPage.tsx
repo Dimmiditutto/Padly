@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelPublicBooking, getPublicCancellation, getPublicConfig } from '../services/publicApi';
@@ -81,7 +82,14 @@ export function PublicCancellationPage() {
   return (
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell max-w-3xl space-y-6'>
-        <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary inline-flex'>Torna alla prenotazione</Link>
+        <PageBrandBar
+          actions={(
+            <>
+              <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary inline-flex'>Torna alla prenotazione</Link>
+              <Link to='/' className='btn-secondary inline-flex'>Torna alla home</Link>
+            </>
+          )}
+        />
 
         {loading ? (
           <LoadingBlock label='Sto verificando il link di annullamento…' />

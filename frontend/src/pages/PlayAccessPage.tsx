@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { getPublicConfig } from '../services/publicApi';
 import { getPlaySession, resendPlayAccessOtp, startPlayAccessOtp, verifyPlayAccessOtp } from '../services/playApi';
@@ -237,6 +238,20 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-4xl'>
         <header className='product-hero-panel'>
+          <PageBrandBar
+            className='mb-6'
+            actions={(
+              <>
+                <Link className='hero-action-secondary' to={bookingPath}>
+                  <ArrowLeft size={16} />
+                  <span>Torna al booking</span>
+                </Link>
+                <Link className='hero-action-secondary' to='/'>
+                  <span>Torna alla home</span>
+                </Link>
+              </>
+            )}
+          />
           <div className='product-hero-layout'>
             <div className='product-hero-copy'>
               <CommunityMatchinnBrand clubName={clubDisplayName} />
@@ -245,13 +260,9 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
             </div>
 
             <div className='product-hero-actions'>
-              <Link className='hero-action-secondary' to={bookingPath}>
-                <ArrowLeft size={16} />
-                <span>Torna al booking</span>
-              </Link>
               <Link className='hero-action-secondary' to={currentAccessPath}>
                 <KeyRound size={16} />
-                <span>Ricarica accesso</span>
+                <span>Ricomincia accesso</span>
               </Link>
             </div>
           </div>
@@ -293,7 +304,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
             <>
               {isGenericAccess ? (
                 <section className='surface-card'>
-                  <h2 className='section-title'>Scegli il flusso</h2>
+                  <h2 className='section-title'>Come vuoi entrare?</h2>
                   <div className='mt-4 grid gap-3 sm:grid-cols-2'>
                     <button
                       type='button'
@@ -306,7 +317,7 @@ export function PlayAccessPage({ inviteToken: inviteTokenProp = null }: { invite
                       }}
                     >
                       <Mail size={16} />
-                      <span>Rientra con email</span>
+                      <span>Ho gia un profilo</span>
                     </button>
                     <button
                       type='button'

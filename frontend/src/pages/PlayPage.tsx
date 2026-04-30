@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { CreateMatchForm, type PlayCreateIntent } from '../components/play/CreateMatchForm';
@@ -606,6 +607,20 @@ export function PlayPage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
         <header className='product-hero-panel'>
+          <PageBrandBar
+            className='mb-6'
+            actions={(
+              <>
+                <Link className='hero-action-secondary' to={withTenantPath('/booking', tenantSlug)}>
+                  <ArrowLeft size={16} />
+                  <span>Torna al booking</span>
+                </Link>
+                <Link className='hero-action-secondary' to='/'>
+                  <span>Torna alla home</span>
+                </Link>
+              </>
+            )}
+          />
           <div className='product-hero-layout'>
             <div className='product-hero-copy'>
               <CommunityMatchinnBrand clubName={clubDisplayName} />
@@ -617,7 +632,7 @@ export function PlayPage() {
               {!currentPlayer ? (
                 <Link className='hero-action-primary' to={accessPath}>
                   <UsersRound size={16} />
-                  <span>Entra o rientra</span>
+                  <span>Entra o rientra nella community</span>
                 </Link>
               ) : null}
               {currentPlayer ? (
@@ -635,10 +650,6 @@ export function PlayPage() {
                   </button>
                 </>
               ) : null}
-              <Link className='hero-action-secondary' to={withTenantPath('/booking', tenantSlug)}>
-                <ArrowLeft size={16} />
-                <span>Torna al booking</span>
-              </Link>
             </div>
           </div>
         </header>
@@ -705,12 +716,11 @@ export function PlayPage() {
                 </SectionCard>
               ) : (
                 <SectionCard title='Le mie partite'>
-                  <div className='surface-muted flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                  <div className='surface-muted flex items-start gap-3'>
                     <div className='flex items-center gap-3'>
                       <UsersRound size={18} className='text-cyan-700' />
-                      <p className='text-sm text-slate-700'>Per entrare o rientrare nella community usa la pagina accesso dedicata. I pulsanti di join e creazione restano secondari.</p>
+                      <p className='text-sm text-slate-700'>Quando attivi il profilo community, qui ritrovi join, creazione e notifiche. Usa il pulsante in alto per entrare o rientrare senza aprire un secondo passaggio.</p>
                     </div>
-                    <Link className='btn-secondary' to={accessPath}>Apri accesso community</Link>
                   </div>
                 </SectionCard>
               )}

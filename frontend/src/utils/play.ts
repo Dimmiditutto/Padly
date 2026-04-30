@@ -48,6 +48,10 @@ export function buildInviteAcceptPath(tenantSlug: string, inviteToken: string): 
 
 
 export function formatClubDisplayName(tenantSlug: string): string {
+  if (String(tenantSlug).trim().toLowerCase() === DEFAULT_PLAY_ALIAS_SLUG) {
+    return 'il tuo club';
+  }
+
   return String(tenantSlug)
     .split('-')
     .filter(Boolean)

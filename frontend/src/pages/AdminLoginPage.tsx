@@ -2,7 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { loginAdmin, requestAdminPasswordReset } from '../services/adminApi';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 
@@ -66,10 +66,17 @@ export function AdminLoginPage() {
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
       <div className='surface-card w-full max-w-md'>
-        <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary inline-flex'>
-          <ArrowLeft size={16} /> Torna alla prenotazione
-        </Link>
-        <AppBrand />
+        <PageBrandBar
+          className='mb-5'
+          actions={(
+            <>
+              <Link to={withTenantPath('/booking', tenantSlug)} className='btn-secondary inline-flex'>
+                <ArrowLeft size={16} /> Torna alla prenotazione
+              </Link>
+              <Link to='/' className='btn-secondary inline-flex'>Torna alla home</Link>
+            </>
+          )}
+        />
         <p className='mt-5 text-sm font-semibold text-cyan-700'>Area admin</p>
         <h1 className='mt-2 text-3xl font-bold text-slate-950'>Accesso riservato</h1>
 
@@ -81,12 +88,12 @@ export function AdminLoginPage() {
           <div>
             <label className='field-label' htmlFor='admin-password'>Password</label>
             <input id='admin-password' className='text-input' type='password' value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <div className='mt-2 flex items-center justify-between gap-3'>
+            <div className='surface-muted mt-4 space-y-3'>
               <p className='text-sm text-slate-500'>Usa l'email admin per ricevere un link di reset.</p>
               <button
                 type='button'
                 onClick={() => void handlePasswordResetRequest()}
-                className='text-sm font-semibold text-cyan-700 underline-offset-4 transition hover:text-cyan-800 hover:underline disabled:cursor-not-allowed disabled:opacity-60'
+                className='btn-secondary w-full justify-center disabled:cursor-not-allowed disabled:opacity-60'
                 disabled={loading || requestingReset}
               >
                 {requestingReset ? 'Invio link…' : 'Password dimenticata?'}

@@ -294,14 +294,18 @@ describe('AdminBookingsPage', () => {
     renderPage();
 
     await screen.findByText('Ricerca avanzata e gestione ricorrenze');
-    expect(screen.getByText('Booking da /play')).toBeInTheDocument();
+    expect(screen.getByText('Booking da community')).toBeInTheDocument();
     expect(screen.getByText('Match /play completato')).toBeInTheDocument();
     expect(screen.getAllByText('Play community').length).toBeGreaterThan(0);
+
+    expect(screen.getByRole('option', { name: 'Solo booking da community' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Escludi booking da community' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Origine'), { target: { value: 'PLAY_ONLY' } });
 
     expect(screen.getByText('Match /play completato')).toBeInTheDocument();
     expect(screen.queryByText('Cliente Singolo')).not.toBeInTheDocument();
     expect(screen.queryByText('Corso serale')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Solo booking da community').length).toBeGreaterThan(1);
   });
 });

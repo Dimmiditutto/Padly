@@ -1,8 +1,9 @@
-import { ArrowRight, Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LocateFixed, LogIn, Mail, MapPin, Phone, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LocateFixed, LogIn, Mail, MapPin, Phone, ShieldCheck } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
 import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig, listPublicClubsNearby } from '../services/publicApi';
@@ -15,7 +16,6 @@ const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const COLLAPSED_COURT_SLOT_COUNT = 8;
 const NEARBY_CLUBS_LIMIT = 10;
 const today = toDateInputValue(new Date());
-const logoUrl = '/Logo_BG.png';
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
 const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
@@ -247,6 +247,15 @@ export function PublicBookingPage() {
       <div className='min-h-screen text-slate-900'>
         <div className='page-shell max-w-4xl space-y-6'>
           <header className='product-hero-panel'>
+            <PageBrandBar
+              className='mb-6'
+              actions={(
+                <Link className='hero-action-secondary' to='/'>
+                  <ArrowLeft size={16} />
+                  <span>Torna alla home</span>
+                </Link>
+              )}
+            />
             <div className='product-hero-copy'>
               <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico</p>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>Seleziona prima il club in cui vuoi giocare</h1>
@@ -259,8 +268,6 @@ export function PublicBookingPage() {
           <SectionCard title='Scegli il club' description='Apri la directory pubblica o la scheda del club per entrare nel booking tenant-aware.' elevated>
             <div className='action-cluster'>
               <Link className='btn-primary' to='/clubs'>Apri directory club</Link>
-              <Link className='btn-secondary' to='/clubs/nearby'>Cerca club vicini</Link>
-              <Link className='btn-secondary' to='/'>Torna alla home Matchinn</Link>
             </div>
           </SectionCard>
         </div>
@@ -273,9 +280,20 @@ export function PublicBookingPage() {
       <div className='page-shell max-w-6xl'>
         <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
           <div className='product-hero-panel'>
-            <div className='flex items-center justify-center rounded-[24px] border border-white/10 bg-[#00497a] px-0 py-3'>
-              <img src={logoUrl} alt='Logo BG' className='mx-auto block h-auto w-2/3 min-w-[220px] max-w-[430px] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.28)]' />
-            </div>
+            <PageBrandBar
+              className='mb-6'
+              actions={(
+                <>
+                  <Link className='hero-action-secondary' to='/clubs'>
+                    <ArrowLeft size={16} />
+                    <span>Torna ai club</span>
+                  </Link>
+                  <Link className='hero-action-secondary' to='/'>
+                    <span>Torna alla home</span>
+                  </Link>
+                </>
+              )}
+            />
             <div className='mt-6 product-hero-copy'>
               <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico tenant-aware</p>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>{tenantDisplayName}: prenota il tuo match in pochi minuti</h1>
@@ -374,79 +392,6 @@ export function PublicBookingPage() {
         </header>
 
         <main className='space-y-6'>
-          <SectionCard title='Come funziona' description='Un flusso lineare e leggibile, ottimizzato per smartphone.'>
-            <div className='grid gap-3 sm:grid-cols-3'>
-              <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
-              <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
-              <StepCard index='3' title={depositRequired ? 'Versa la caparra' : 'Conferma la prenotazione'} description={depositRequired ? 'Completa il checkout e ricevi subito la conferma.' : 'Invia la richiesta e ricevi subito la conferma del booking.'} />
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title='Club vicini a te'
-            description='Se sei in viaggio, in vacanza o vuoi giocare fuori zona, usa la geolocalizzazione per scoprire i club del network e capire subito dove ha senso entrare nella community.'
-            actions={(
-              <div className='flex flex-col gap-2 sm:flex-row'>
-                <button type='button' className='btn-secondary' onClick={requestNearbyClubs} disabled={loadingNearbyClubs}>
-                  <LocateFixed size={16} />
-                  <span>{loadingNearbyClubs ? 'Ricerca in corso…' : 'Usa la mia posizione'}</span>
-                </button>
-                <Link className='btn-secondary' to='/clubs'>
-                  <span>Apri directory club</span>
-                </Link>
-              </div>
-            )}
-          >
-            <div className='space-y-4'>
-              {nearbyFeedback ? <AlertBanner tone={nearbyFeedback.tone}>{nearbyFeedback.message}</AlertBanner> : null}
-              {loadingNearbyClubs ? <LoadingBlock label='Sto cercando i club piu vicini…' /> : null}
-              {!loadingNearbyClubs && nearbyClubs.length > 0 ? (
-                <div className='grid gap-4 lg:grid-cols-2'>
-                  {nearbyClubs.map((club) => (
-                    <article key={club.club_id} data-testid='nearby-club-card' className='rounded-2xl border border-slate-200 bg-white p-4'>
-                      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                        <div className='min-w-0'>
-                          <p className='text-base font-semibold text-slate-950'>{club.public_name}</p>
-                          <p className='mt-2 flex items-start gap-2 text-sm text-slate-600'>
-                            <MapPin size={16} className='mt-0.5 shrink-0 text-cyan-700' />
-                            <span>{buildNearbyClubLocationLine(club)}</span>
-                          </p>
-                          <p className='mt-2 text-sm text-slate-600'>
-                            {formatDistance(club.distance_km)} • {club.courts_count} {club.courts_count === 1 ? 'campo' : 'campi'}
-                          </p>
-                        </div>
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${club.is_community_open ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {club.is_community_open ? 'Community aperta' : 'Community su richiesta'}
-                        </span>
-                      </div>
-
-                      <div className='mt-4 grid gap-2 sm:grid-cols-3'>
-                        <NearbyClubCountCard label='3/4' value={club.open_matches_three_of_four_count} helper='Da chiudere subito' />
-                        <NearbyClubCountCard label='2/4' value={club.open_matches_two_of_four_count} helper='Buone occasioni' />
-                        <NearbyClubCountCard label='1/4' value={club.open_matches_one_of_four_count} helper='Da monitorare' />
-                      </div>
-
-                      <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                        <p className='text-sm text-slate-600'>{club.public_activity_label}</p>
-                        <Link aria-label={`Apri scheda club ${club.public_name}`} className='btn-secondary sm:w-auto' to={`/c/${club.club_slug}`}>
-                          <span>Apri scheda club</span>
-                          <ArrowRight size={16} />
-                        </Link>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-              {!loadingNearbyClubs && nearbyClubs.length === 0 && !nearbyFeedback ? (
-                <div className='surface-muted text-sm text-slate-600'>
-                  {hasRequestedNearbyClubs
-                    ? 'Nessun club vicino disponibile in questo momento. Apri la directory completa per cercare manualmente.'
-                    : 'Attiva la geolocalizzazione solo quando ti serve: vedrai i 10 club piu vicini e potrai aprire la scheda pubblica di ciascun club.'}
-                </div>
-              ) : null}
-            </div>
-          </SectionCard>
-
           <div className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
             <section>
               <SectionCard title='Scegli data e durata' description={`${openingHoursText}. La disponibilità cambia in tempo reale.`} elevated>
@@ -629,6 +574,79 @@ export function PublicBookingPage() {
               </div>
             </section>
           </div>
+
+          <SectionCard title='Come funziona' description='Un flusso lineare e leggibile, ottimizzato per smartphone.'>
+            <div className='grid gap-3 sm:grid-cols-3'>
+              <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
+              <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
+              <StepCard index='3' title={depositRequired ? 'Versa la caparra' : 'Conferma la prenotazione'} description={depositRequired ? 'Completa il checkout e ricevi subito la conferma.' : 'Invia la richiesta e ricevi subito la conferma del booking.'} />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title='Club vicini a te'
+            description='Se stai giocando fuori zona, usa la geolocalizzazione per trovare i club del network che vale la pena aprire subito.'
+            actions={(
+              <div className='flex flex-col gap-2 sm:flex-row'>
+                <button type='button' className='btn-secondary' onClick={requestNearbyClubs} disabled={loadingNearbyClubs}>
+                  <LocateFixed size={16} />
+                  <span>{loadingNearbyClubs ? 'Ricerca in corso…' : 'Usa la mia posizione'}</span>
+                </button>
+                <Link className='btn-secondary' to='/clubs'>
+                  <span>Apri directory club</span>
+                </Link>
+              </div>
+            )}
+          >
+            <div className='space-y-4'>
+              {nearbyFeedback ? <AlertBanner tone={nearbyFeedback.tone}>{nearbyFeedback.message}</AlertBanner> : null}
+              {loadingNearbyClubs ? <LoadingBlock label='Sto cercando i club piu vicini…' /> : null}
+              {!loadingNearbyClubs && nearbyClubs.length > 0 ? (
+                <div className='grid gap-4 lg:grid-cols-2'>
+                  {nearbyClubs.map((club) => (
+                    <article key={club.club_id} data-testid='nearby-club-card' className='rounded-2xl border border-slate-200 bg-white p-4'>
+                      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                        <div className='min-w-0'>
+                          <p className='text-base font-semibold text-slate-950'>{club.public_name}</p>
+                          <p className='mt-2 flex items-start gap-2 text-sm text-slate-600'>
+                            <MapPin size={16} className='mt-0.5 shrink-0 text-cyan-700' />
+                            <span>{buildNearbyClubLocationLine(club)}</span>
+                          </p>
+                          <p className='mt-2 text-sm text-slate-600'>
+                            {formatDistance(club.distance_km)} • {club.courts_count} {club.courts_count === 1 ? 'campo' : 'campi'}
+                          </p>
+                        </div>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${club.is_community_open ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                          {club.is_community_open ? 'Community aperta' : 'Community su richiesta'}
+                        </span>
+                      </div>
+
+                      <div className='mt-4 grid gap-2 sm:grid-cols-3'>
+                        <NearbyClubCountCard label='3/4' value={club.open_matches_three_of_four_count} helper='Da chiudere subito' />
+                        <NearbyClubCountCard label='2/4' value={club.open_matches_two_of_four_count} helper='Buone occasioni' />
+                        <NearbyClubCountCard label='1/4' value={club.open_matches_one_of_four_count} helper='Da monitorare' />
+                      </div>
+
+                      <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                        <p className='text-sm text-slate-600'>{club.public_activity_label}</p>
+                        <Link aria-label={`Apri scheda club ${club.public_name}`} className='btn-secondary sm:w-auto' to={`/c/${club.club_slug}`}>
+                          <span>Apri scheda club</span>
+                          <ArrowRight size={16} />
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {!loadingNearbyClubs && nearbyClubs.length === 0 && !nearbyFeedback ? (
+                <div className='surface-muted text-sm text-slate-600'>
+                  {hasRequestedNearbyClubs
+                    ? 'Nessun club vicino disponibile in questo momento. Apri la directory completa per cercare manualmente.'
+                    : 'Attiva la geolocalizzazione solo quando ti serve: vedrai i 10 club piu vicini e potrai aprire la scheda pubblica di ciascun club.'}
+                </div>
+              ) : null}
+            </div>
+          </SectionCard>
         </main>
       </div>
     </div>

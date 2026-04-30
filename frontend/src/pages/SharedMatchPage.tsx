@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { MatchCard } from '../components/play/MatchCard';
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
@@ -124,6 +125,24 @@ export function SharedMatchPage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-4xl'>
         <div className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
+          <PageBrandBar
+            className='mb-6'
+            actions={tenantSlug ? (
+              <>
+                <Link className='hero-action-secondary' to={buildClubPlayPath(tenantSlug)}>
+                  <ArrowLeft size={16} />
+                  <span>Torna a Partite aperte</span>
+                </Link>
+                <Link className='hero-action-secondary' to='/'>
+                  <span>Torna alla home</span>
+                </Link>
+              </>
+            ) : (
+              <Link className='hero-action-secondary' to='/'>
+                <span>Torna alla home</span>
+              </Link>
+            )}
+          />
           <CommunityMatchinnBrand clubName={clubDisplayName} />
           <h1 className='mt-4 text-3xl font-bold tracking-tight text-white'>Partita condivisa</h1>
           <p className='mt-3 text-sm leading-6 text-slate-300'>Questo link apre una partita gia condivisa del club. Se sei gia riconosciuto puoi unirti subito, altrimenti attivi il profilo e torni qui senza perdere il contesto.</p>
@@ -152,10 +171,6 @@ export function SharedMatchPage() {
 
           {tenantSlug ? (
             <div className='flex flex-col gap-3 sm:flex-row'>
-              <Link className='btn-secondary' to={buildClubPlayPath(tenantSlug)}>
-                <ArrowLeft size={16} />
-                <span>Torna a Partite aperte</span>
-              </Link>
               {match ? (
                 <button type='button' className='btn-secondary' onClick={handleShare}>
                   <Share2 size={16} />

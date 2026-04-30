@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import {
   followPublicClub,
@@ -358,19 +359,19 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
         <header className='product-hero-panel'>
-          <div className='product-hero-logo-slot'>
-            <img className='product-hero-logo-image' src='/dark.png' alt='Matchinn' />
-          </div>
+          <PageBrandBar
+            className='mb-6'
+            actions={(
+              <Link className='hero-action-secondary' to='/'>
+                <ArrowLeft size={16} />
+                <span>Torna alla home</span>
+              </Link>
+            )}
+          />
           <div className='product-hero-layout gap-6'>
             <div className='product-hero-copy'>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl'>Scopri i club vicino a te</h1>
               <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>Trova un club, scegli una partita ed entra in campo.</p>
-              <div className='mt-6 product-hero-actions'>
-                <Link className='hero-action-secondary' to='/'>
-                  <ArrowLeft size={16} />
-                  <span>Torna alla home</span>
-                </Link>
-              </div>
             </div>
           </div>
         </header>
@@ -398,7 +399,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
               </button>
               <button type='button' className='btn-primary' disabled={locating} onClick={() => void requestNearby()}>
                 <LocateFixed size={16} />
-                <span>{locating ? 'Rilevamento…' : autoLocateOnMount ? 'Riprova geolocalizzazione' : 'Trova club vicino a me'}</span>
+                <span>{locating ? 'Rilevamento…' : autoLocateOnMount ? 'Riprova geolocalizzazione club' : 'Usa la mia posizione per i club'}</span>
               </button>
             </form>
           </SectionCard>
@@ -498,7 +499,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                         </div>
                         <button type='button' className='match-alert-location-button' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
                           <LocateFixed size={16} />
-                          <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la mia posizione'}</span>
+                          <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la mia posizione per gli alert'}</span>
                         </button>
                       </div>
                     </div>

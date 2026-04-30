@@ -143,7 +143,7 @@ describe('PublicBookingPage', () => {
 
     await screen.findByText('15 minuti');
     await screen.findByRole('button', { name: '18:00' });
-    expect(screen.getByRole('img', { name: 'Logo BG' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login');
     expect(screen.getByText('Campo aperto da Lunedì a Domenica dalle 7 alle 24. La disponibilità cambia in tempo reale.')).toBeInTheDocument();
     expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
@@ -474,7 +474,7 @@ describe('PublicBookingPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Seleziona prima il club in cui vuoi giocare' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Apri directory club' })).toHaveAttribute('href', '/clubs');
-    expect(screen.getByRole('link', { name: 'Torna alla home Matchinn' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Torna alla home' })).toHaveAttribute('href', '/');
     expect(getAvailability).not.toHaveBeenCalled();
   });
 

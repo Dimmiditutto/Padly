@@ -1,6 +1,6 @@
 import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AlertBanner } from './components/AlertBanner';
-import { AppBrand } from './components/AppBrand';
+import { PageBrandBar } from './components/PageBrandBar';
 import { AdminBookingDetailPage } from './pages/AdminBookingDetailPage';
 import { AdminBookingsPage } from './pages/AdminBookingsPage';
 import { AdminCurrentBookingsPage } from './pages/AdminCurrentBookingsPage';
@@ -36,17 +36,39 @@ function PlayAliasTenantRequiredPage({
   message: string;
 }) {
   return (
-    <div className='page-shell max-w-3xl'>
-      <section className='surface-card'>
-        <AppBrand label='Play' />
-        <h1 className='mt-4 text-3xl font-bold tracking-tight text-slate-950'>{title}</h1>
-        <div className='mt-4'>
+    <div className='min-h-screen text-slate-900'>
+      <div className='page-shell max-w-4xl'>
+        <section className='product-hero-panel'>
+          <PageBrandBar
+            className='mb-6'
+            actions={(
+              <>
+                <Link className='hero-action-secondary' to='/booking'>
+                  Torna al booking
+                </Link>
+                <Link className='hero-action-secondary' to='/'>
+                  Torna alla home
+                </Link>
+              </>
+            )}
+          />
+          <div className='product-hero-layout'>
+            <div className='product-hero-copy'>
+              <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Community Matchinn</p>
+              <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>{title}</h1>
+              <p className='product-hero-description'>Apri il link completo del club per continuare nel punto giusto, senza perdere il contesto della community.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className='surface-card mt-6'>
           <AlertBanner tone='error'>{message}</AlertBanner>
-        </div>
-        <div className='mt-6 flex flex-col gap-3 sm:flex-row'>
-          <Link className='btn-secondary' to='/booking'>Torna al booking</Link>
-        </div>
-      </section>
+          <div className='mt-6 flex flex-col gap-3 sm:flex-row'>
+            <Link className='btn-primary' to='/booking'>Torna al booking</Link>
+            <Link className='btn-secondary' to='/'>Torna alla home</Link>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

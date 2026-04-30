@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, CircleX, LoaderCircle } from 'lucide-react
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { StatusBadge } from '../components/StatusBadge';
 import type { PublicBookingSummary } from '../types';
 import { getPublicBookingStatus } from '../services/publicApi';
@@ -81,6 +82,10 @@ export function PaymentStatusPage({ variant }: { variant: 'success' | 'cancelled
   return (
     <div className='flex min-h-screen items-center justify-center px-4 py-10'>
       <div className='surface-card max-w-xl text-center'>
+        <PageBrandBar
+          className='mb-6'
+          actions={<Link to='/' className='btn-secondary inline-flex'>Torna alla home</Link>}
+        />
         {loading ? (
           <div className='space-y-4'>
             <LoaderCircle className='mx-auto animate-spin text-cyan-600' size={40} />

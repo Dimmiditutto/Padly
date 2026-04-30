@@ -6,6 +6,7 @@ import { AdminNav } from '../components/AdminNav';
 import { AlertBanner } from '../components/AlertBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import {
@@ -34,6 +35,16 @@ function getRequestStatus(error: any) {
 
 function getRequestMessage(error: any, fallback: string) {
   return error?.response?.data?.detail || fallback;
+}
+
+function getOriginFilterLabel(originFilter: OriginFilter) {
+  if (originFilter === 'PLAY_ONLY') {
+    return 'Solo booking da community';
+  }
+  if (originFilter === 'NON_PLAY') {
+    return 'Escludi booking da community';
+  }
+  return 'Tutte le origini';
 }
 
 export function AdminBookingsPage() {
@@ -267,6 +278,10 @@ export function AdminBookingsPage() {
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel space-y-4'>
+          <PageBrandBar
+            className='mb-2'
+            actions={<Link className='admin-hero-button-secondary' to='/'>Torna alla home</Link>}
+          />
           <div className='admin-hero-layout'>
             <div className='admin-hero-copy'>
               <p className='admin-hero-kicker'>Dashboard admin</p>
@@ -355,8 +370,8 @@ export function AdminBookingsPage() {
                 onChange={(event) => setOriginFilter(event.target.value as OriginFilter)}
               >
                 <option value='ALL'>Tutte le origini</option>
-                <option value='PLAY_ONLY'>Solo /play</option>
-                <option value='NON_PLAY'>Escludi /play</option>
+                <option value='PLAY_ONLY'>Solo booking da community</option>
+                <option value='NON_PLAY'>Escludi booking da community</option>
               </select>
             </div>
             <div className='flex flex-wrap gap-3 lg:col-span-6'>
@@ -377,20 +392,20 @@ export function AdminBookingsPage() {
           </form>
         </SectionCard>
 
-        <SectionCard title='Origine booking' description='Segnale rapido per distinguere le prenotazioni nate dal booking pubblico, dall’admin o dal completamento di un match `/play`.'>
+        <SectionCard title='Origine booking' description='Segnale rapido per distinguere le prenotazioni nate dal booking pubblico, dall’admin o dal completamento di un match community.'>
           <div className='grid gap-4 sm:grid-cols-3'>
             <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4'>
               <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Totale filtrato</p>
               <p className='mt-2 text-2xl font-semibold text-slate-950'>{filteredBookings.length}</p>
             </div>
             <div className='rounded-[24px] border border-cyan-200 bg-cyan-50 p-4'>
-              <p className='text-sm font-semibold uppercase tracking-[0.14em] text-cyan-700'>Booking da /play</p>
+              <p className='text-sm font-semibold uppercase tracking-[0.14em] text-cyan-700'>Booking da community</p>
               <p className='mt-2 text-2xl font-semibold text-cyan-950'>{playOriginCount}</p>
             </div>
             <div className='rounded-[24px] border border-slate-200 bg-slate-50 p-4'>
               <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Filtro origine attivo</p>
               <p className='mt-2 text-base font-semibold text-slate-950'>
-                {originFilter === 'PLAY_ONLY' ? 'Solo /play' : originFilter === 'NON_PLAY' ? 'Escludi /play' : 'Tutte le origini'}
+                {getOriginFilterLabel(originFilter)}
               </p>
             </div>
           </div>

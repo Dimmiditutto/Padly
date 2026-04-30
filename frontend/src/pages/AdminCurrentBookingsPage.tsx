@@ -5,6 +5,7 @@ import { AdminNav } from '../components/AdminNav';
 import { AlertBanner } from '../components/AlertBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
+import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
@@ -321,6 +322,10 @@ export function AdminCurrentBookingsPage() {
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel space-y-4'>
+          <PageBrandBar
+            className='mb-2'
+            actions={<Link className='admin-hero-button-secondary' to='/'>Torna alla home</Link>}
+          />
           <div className='admin-hero-layout'>
             <div className='admin-hero-copy'>
               <p className='admin-hero-kicker'>Dashboard admin</p>

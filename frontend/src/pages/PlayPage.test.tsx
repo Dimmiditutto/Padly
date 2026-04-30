@@ -386,6 +386,35 @@ describe('Play phase 2 pages', () => {
     expect(prefetchAvailabilityWindow).toHaveBeenLastCalledWith(expect.any(String), 120, 'roma-club', 6);
   });
 
+  it('masks the default play alias placeholder in the fallback community header', async () => {
+    vi.mocked(getPublicConfig).mockResolvedValue({
+      app_name: 'PadelBooking',
+      tenant_id: 'tenant-default',
+      tenant_slug: 'default-club',
+      public_name: '',
+      timezone: 'Europe/Rome',
+      currency: 'EUR',
+      contact_email: 'desk@default-club.example',
+      support_email: 'help@default-club.example',
+      support_phone: '+39021234567',
+      booking_hold_minutes: 15,
+      cancellation_window_hours: 24,
+      member_hourly_rate: 7,
+      non_member_hourly_rate: 9,
+      member_ninety_minute_rate: 10,
+      non_member_ninety_minute_rate: 13,
+      stripe_enabled: true,
+      paypal_enabled: true,
+    });
+
+    renderApp('/c/default-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+
+    expect(screen.getByText((_, node) => node?.textContent === 'COMMUNITY matchinn IL TUO CLUB')).toBeInTheDocument();
+    expect(screen.queryByText((_, node) => node?.textContent === 'COMMUNITY matchinn DEFAULT CLUB')).not.toBeInTheDocument();
+  });
+
   it('renders the main sections in the requested order for a recognized player', async () => {
     vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings, unread_notifications_count: 2 } });
     vi.mocked(getPlayMatches).mockResolvedValue({
@@ -417,6 +446,15 @@ describe('Play phase 2 pages', () => {
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
     expect(getPlayMatches).toHaveBeenCalledWith('roma-club');
+  });
+
+  it('shows a single clear community access path for anonymous users', async () => {
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+
+    expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/roma-club/play/access');
+    expect(screen.queryByRole('link', { name: 'Apri accesso community' })).not.toBeInTheDocument();
   });
 
   it('asks for identification when an anonymous user tries to join a match', async () => {
@@ -550,7 +588,22 @@ describe('Play phase 2 pages', () => {
 
     await screen.findByRole('heading', { name: 'Link invito incompleto' });
     expect(screen.getByText(/Questo invito play richiede il club corretto/)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Torna al booking' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Torna al booking' })[0]).toHaveAttribute('href', '/booking');
+    expect(screen.getAllByRole('link', { name: 'Torna alla home' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Torna alla home' })[0]).toHaveAttribute('href', '/');
     expect(acceptCommunityInvite).not.toHaveBeenCalled();
+  });
+
+  it('shows the branded fallback shell when the access alias is opened without a tenant context', async () => {
+    renderApp('/play/access');
+
+    await screen.findByRole('heading', { name: 'Link accesso incompleto' });
+    expect(screen.getAllByRole('link', { name: 'Torna al booking' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Torna al booking' })[0]).toHaveAttribute('href', '/booking');
+    expect(screen.getAllByRole('link', { name: 'Torna alla home' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Torna alla home' })[0]).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Torna alla home Matchinn' })).toHaveAttribute('href', '/');
   });
 
   it('shows a clear error when the match alias is opened without a tenant context', async () => {
