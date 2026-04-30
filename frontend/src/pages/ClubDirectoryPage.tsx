@@ -354,6 +354,9 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
 
   const allTimeSlotsSelected = allDiscoveryTimeSlotsSelected(discoveryForm.preferred_time_slots);
   const hasSavedDiscoveryCoordinates = discoveryForm.latitude.trim() !== '' && discoveryForm.longitude.trim() !== '';
+  const discoveryLocationDescription = hasSavedDiscoveryCoordinates
+    ? "L'app usa la tua posizione solo per trovare club compatibili nel raggio scelto."
+    : 'Usa la tua posizione per ricevere alert sui club vicini senza inserire coordinate manualmente.';
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -491,11 +494,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                       <div className='match-alert-location-card'>
                         <div>
                           <p className='font-semibold text-slate-900'>{hasSavedDiscoveryCoordinates ? 'Posizione salvata' : 'Posizione non ancora salvata'}</p>
-                          <p className='mt-1 text-sm leading-6 text-slate-600'>
-                            {hasSavedDiscoveryCoordinates
-                              ? 'L'app usa la tua posizione solo per trovare club compatibili nel raggio scelto.'
-                              : 'Usa la tua posizione per ricevere alert sui club vicini senza inserire coordinate manualmente.'}
-                          </p>
+                          <p className='mt-1 text-sm leading-6 text-slate-600'>{discoveryLocationDescription}</p>
                         </div>
                         <button type='button' className='match-alert-location-button' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
                           <LocateFixed size={16} />
