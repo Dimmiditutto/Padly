@@ -180,12 +180,12 @@ export function MatchinnHomePage() {
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl space-y-6'>
         <header className='product-hero-panel'>
+          <div className='product-hero-logo-slot'>
+            <img className='product-hero-logo-image' src='/logo_matchinn_dark.png' alt='Matchinn' />
+          </div>
           <div className='product-hero-layout gap-6'>
             <div className='product-hero-copy'>
-              <div className='inline-flex rounded-2xl bg-white px-4 py-3 shadow-sm'>
-                <img className='h-10 w-auto sm:h-12' src='/logo_matchinn_dark.png' alt='Matchinn' />
-              </div>
-              <h1 className='mt-4 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>
+              <h1 className='max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>
                 Matchinn ti trova il club e la partita giusta. Tu devi solo entrare in campo.
               </h1>
               <div className='mt-6 product-hero-actions'>

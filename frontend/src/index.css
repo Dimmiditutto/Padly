@@ -103,6 +103,28 @@ h4 {
     @apply rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft;
   }
 
+  .product-hero-logo-slot {
+    margin-bottom: 1.5rem;
+    width: 100%;
+  }
+
+  .product-hero-logo-image {
+    display: block;
+    width: min(100%, 42rem);
+    height: auto;
+  }
+
+  @media (min-width: 1024px) {
+    .product-hero-logo-slot {
+      max-width: calc(100% - 24rem - 1.5rem);
+    }
+
+    .product-hero-logo-image {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
   .product-hero-layout {
     @apply flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between;
   }

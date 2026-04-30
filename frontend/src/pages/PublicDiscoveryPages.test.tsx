@@ -209,6 +209,9 @@ describe('Public discovery routes', () => {
 
     renderApp('/clubs');
 
+    expect(await screen.findByRole('heading', { name: 'Scopri i club vicino a te' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Matchinn' })).toHaveAttribute('src', '/logo_matchinn_dark.png');
+    expect(screen.getByRole('link', { name: 'Torna alla home' })).toHaveAttribute('href', '/');
     expect(await screen.findByText('Roma Club')).toBeInTheDocument();
     await user.clear(screen.getByLabelText('Citta, CAP o provincia'));
     await user.type(screen.getByLabelText('Citta, CAP o provincia'), 'savona');

@@ -1,9 +1,8 @@
 import { AxiosError } from 'axios';
-import { ArrowRight, BellRing, Building2, LocateFixed, Mail, MapPin, Phone, Search, UsersRound } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BellRing, Building2, LocateFixed, Mail, MapPin, Phone, Search, UsersRound } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
-import { AppBrand } from '../components/AppBrand';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { SectionCard } from '../components/SectionCard';
 import {
@@ -327,16 +326,20 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
   return (
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
-        <header className='rounded-[28px] border border-cyan-400/20 bg-slate-950/80 p-6 text-white shadow-soft'>
-          <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
-            <div className='max-w-3xl'>
-              <AppBrand light label='Club pubblici' />
-              <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>Trova un club del network prima di entrare nella community</h1>
-              <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>La directory pubblica mostra solo i dati minimi utili del club. La community resta privata: qui scopri, poi decidi se vale la pena entrare.</p>
-            </div>
-            <div className='surface-muted max-w-sm bg-white/10 text-white'>
-              <p className='text-sm font-semibold text-cyan-100'>Ricerca senza servizi esterni</p>
-              <p className='mt-2 text-sm leading-6 text-slate-200'>Cerca manualmente per citta, CAP o provincia, oppure usa la posizione del browser per ordinare i club vicini.</p>
+        <header className='product-hero-panel'>
+          <div className='product-hero-logo-slot'>
+            <img className='product-hero-logo-image' src='/logo_matchinn_dark.png' alt='Matchinn' />
+          </div>
+          <div className='product-hero-layout gap-6'>
+            <div className='product-hero-copy'>
+              <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl'>Scopri i club vicino a te</h1>
+              <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>Trova un club, scegli una partita ed entra in campo.</p>
+              <div className='mt-6 product-hero-actions'>
+                <Link className='hero-action-secondary' to='/'>
+                  <ArrowLeft size={16} />
+                  <span>Torna alla home</span>
+                </Link>
+              </div>
             </div>
           </div>
         </header>
@@ -345,8 +348,8 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
           {feedback ? <AlertBanner tone={feedback.tone}>{feedback.message}</AlertBanner> : null}
 
           <SectionCard
-            title={autoLocateOnMount ? 'Club vicini a me' : 'Directory club'}
-            description='Ricerca manuale sempre disponibile. Geolocalizzazione opzionale e limitata all ordinamento per distanza.'
+            title='Trova dove giocare'
+            description='Cerca un club o usa la posizione per vedere quelli più vicini a te.'
             elevated
           >
             <form className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]' onSubmit={handleSearch}>
