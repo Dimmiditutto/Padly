@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LocateFixed, LogIn, Mail, MapPin, Phone, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Building2, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, CreditCard, LogIn, Mail, Phone } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
@@ -6,15 +6,14 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { SlotGrid } from '../components/SlotGrid';
-import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig, listPublicClubsNearby } from '../services/publicApi';
-import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBookingSummary, PublicClubSummary, PublicConfig, TimeSlot } from '../types';
-import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
+import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
+import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBookingSummary, PublicConfig, TimeSlot } from '../types';
+import { getTenantSlugFromSearchParams } from '../utils/tenantContext';
 import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
 import { buildPlayAccessPath } from '../utils/play';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const COLLAPSED_COURT_SLOT_COUNT = 8;
-const NEARBY_CLUBS_LIMIT = 10;
 const today = toDateInputValue(new Date());
 const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
@@ -40,10 +39,6 @@ export function PublicBookingPage() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
-  const [nearbyClubs, setNearbyClubs] = useState<PublicClubSummary[]>([]);
-  const [loadingNearbyClubs, setLoadingNearbyClubs] = useState(false);
-  const [nearbyFeedback, setNearbyFeedback] = useState<FeedbackState>(null);
-  const [hasRequestedNearbyClubs, setHasRequestedNearbyClubs] = useState(false);
   const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>('STRIPE');
   const [lastBooking, setLastBooking] = useState<PublicBookingSummary | null>(null);
   const [formData, setFormData] = useState({
@@ -61,7 +56,6 @@ export function PublicBookingPage() {
   );
   const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'Booking pubblico';
   const communityAccessPath = publicConfig ? buildPlayAccessPath(publicConfig.tenant_slug) : null;
-  const playerRates = useMemo(() => buildPublicRateLines(publicConfig), [publicConfig]);
   const publicBookingDepositEnabled = useMemo(() => hasEnabledPublicBookingDeposit(publicConfig), [publicConfig]);
   const publicBookingExtras = publicConfig?.public_booking_extras || [];
 
@@ -143,44 +137,6 @@ export function PublicBookingPage() {
     }
   }
 
-  async function loadNearbyClubs(latitude: number, longitude: number) {
-    setLoadingNearbyClubs(true);
-    try {
-      const response = await listPublicClubsNearby(latitude, longitude);
-      const items = response.items.slice(0, NEARBY_CLUBS_LIMIT);
-      setNearbyClubs(items);
-      setNearbyFeedback(items.length > 0 ? null : { tone: 'info', message: 'Nessun club vicino trovato con i dati disponibili. Apri la directory completa per cercare manualmente.' });
-    } catch {
-      setNearbyClubs([]);
-      setNearbyFeedback({ tone: 'error', message: 'Non riesco a caricare i club vicini in questo momento.' });
-    } finally {
-      setLoadingNearbyClubs(false);
-    }
-  }
-
-  function requestNearbyClubs() {
-    setHasRequestedNearbyClubs(true);
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setNearbyClubs([]);
-      setNearbyFeedback({ tone: 'warning', message: 'Questo browser non supporta la geolocalizzazione. Usa la directory pubblica per cercare per citta, CAP o provincia.' });
-      return;
-    }
-
-    setLoadingNearbyClubs(true);
-    setNearbyFeedback(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        void loadNearbyClubs(position.coords.latitude, position.coords.longitude);
-      },
-      (error) => {
-        setLoadingNearbyClubs(false);
-        setNearbyClubs([]);
-        setNearbyFeedback({ tone: 'warning', message: geolocationDeniedMessage(error) });
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
-    );
-  }
-
   const selectedSlot = useMemo(
     () => flattenCourtSlots(visibleCourtGroups).find((slot) => slot.slot_id === selectedSlotId && (!selectedCourtId || slot.court_id === selectedCourtId)),
     [selectedCourtId, selectedSlotId, visibleCourtGroups]
@@ -196,6 +152,10 @@ export function PublicBookingPage() {
   const highlightedSlotIds = useMemo(
     () => buildHighlightedSlotIds(selectedCourtSlots, selectedSlotId, duration),
     [duration, selectedCourtSlots, selectedSlotId]
+  );
+  const bookingOverviewCards = useMemo(
+    () => buildBookingOverviewCards(publicConfig, duration, depositRequired, depositAmount),
+    [depositAmount, depositRequired, duration, publicConfig]
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -278,7 +238,7 @@ export function PublicBookingPage() {
   return (
     <div className='min-h-screen text-slate-900'>
       <div className='page-shell max-w-6xl'>
-        <header className='mb-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
+        <header className='mb-6'>
           <div className='product-hero-panel'>
             <PageBrandBar
               className='mb-6'
@@ -295,7 +255,6 @@ export function PublicBookingPage() {
               )}
             />
             <div className='mt-6 product-hero-copy'>
-              <p className='text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Booking pubblico tenant-aware</p>
               <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight'>{tenantDisplayName}: prenota il tuo match in pochi minuti</h1>
               <p className='product-hero-description max-w-xl'>
                 {depositRequired
@@ -304,10 +263,9 @@ export function PublicBookingPage() {
               </p>
             </div>
             <div className='mt-6 border-t border-white/10 pt-5'>
-              <div className='grid gap-3 sm:grid-cols-3'>
+              <div className='grid gap-3 sm:grid-cols-2'>
                 <InfoPill icon={<Clock3 size={16} />} title='Campo aperto' text='Da Lunedì a Domenica dalle 7 alle 24' />
-                <InfoPill icon={<CreditCard size={16} />} title={depositRequired ? 'Caparra online' : 'Prenotazione'} text={depositRequired ? 'Stripe o PayPal' : 'Conferma diretta'} />
-                <InfoPill icon={<ShieldCheck size={16} />} title='Conferma rapida' text='Slot protetto server-side' />
+                <InfoPill icon={<CreditCard size={16} />} title='Prenotazione diretta' text={depositRequired ? 'Caparra e listino nella prima scheda' : 'Conferma diretta del club'} />
               </div>
             </div>
             {publicConfig ? (
@@ -345,39 +303,45 @@ export function PublicBookingPage() {
               </div>
             ) : null}
           </div>
+        </header>
 
-          <div className='surface-card bg-gradient-to-br from-white to-cyan-50'>
-            <p className='text-base font-semibold text-cyan-700'>{depositRequired ? 'Caparra online' : 'Tariffe e regole del club'}</p>
-            {depositRequired ? <div className='mt-2 text-4xl font-bold text-slate-950'>{formatCurrency(depositAmount)}</div> : null}
-            <p className='mt-2 text-base leading-6 text-slate-600'>
-              {depositRequired
-                ? buildPublicDepositRuleText(publicConfig, depositAmount)
-                : 'Per questo club la caparra online non e attiva. Vedi listino ed eventuali extra direttamente sotto.'}
-            </p>
-            {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' labelClassName='text-base' /></div> : null}
-            {publicConfig ? (
-              <div className='mt-4 grid gap-3 sm:grid-cols-2'>
-                <div className='surface-muted'>
-                  <p className={eyebrowTextClassName}>Hold pagamento</p>
-                  <p className='mt-2 text-base font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
-                  <p className='mt-1 text-sm leading-6 text-slate-600'>Tempo massimo per completare il checkout.</p>
-                </div>
-                <div className='surface-muted'>
-                  <p className={eyebrowTextClassName}>Cancellazione</p>
-                  <p className='mt-2 text-base font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
-                  <p className='mt-1 text-sm leading-6 text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
-                </div>
-              </div>
-            ) : null}
-            <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-base text-slate-100'>
-              <p className='font-semibold'>Tariffe del club per giocatore</p>
-              <ul className='mt-2 space-y-1 text-slate-300'>
-                {playerRates.map((rate) => (
-                  <li key={rate}>• {rate}</li>
+        <main className='space-y-6'>
+          <div className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
+            <section>
+              <SectionCard title='Scegli data e durata' description={`${openingHoursText}. La disponibilità cambia in tempo reale.`} elevated>
+              <div className='grid gap-3 md:grid-cols-3'>
+                {bookingOverviewCards.map((card) => (
+                  <div key={card.label} className='surface-muted'>
+                    <p className={eyebrowTextClassName}>{card.label}</p>
+                    <p className='mt-2 text-xl font-semibold text-slate-950'>{card.value}</p>
+                    <p className='mt-2 text-sm leading-6 text-slate-600'>{card.helper}</p>
+                  </div>
                 ))}
-              </ul>
+              </div>
+              {publicConfig ? (
+                <p className='mt-4 text-sm leading-6 text-slate-600'>
+                  {depositRequired
+                    ? buildPublicDepositRuleText(publicConfig, depositAmount)
+                    : 'Per questo club la caparra online non e attiva. La prenotazione viene confermata direttamente con le regole del circolo.'}
+                </p>
+              ) : null}
+              {loadingConfig ? <div className='mt-4'><LoadingBlock label='Sto leggendo le regole operative…' labelClassName='text-base' /></div> : null}
+              {publicConfig ? (
+                <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                  <div className='surface-muted'>
+                    <p className={eyebrowTextClassName}>Hold pagamento</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>{publicConfig.booking_hold_minutes} minuti</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Tempo massimo per completare il checkout.</p>
+                  </div>
+                  <div className='surface-muted'>
+                    <p className={eyebrowTextClassName}>Cancellazione</p>
+                    <p className='mt-2 text-base font-medium text-slate-900'>Self-service fino all'inizio della prenotazione</p>
+                    <p className='mt-1 text-sm leading-6 text-slate-600'>Rimborso automatico solo se annulli prima di {publicConfig.cancellation_window_hours} ore. Nelle ultime {publicConfig.cancellation_window_hours} ore la caparra non e rimborsabile.</p>
+                  </div>
+                </div>
+              ) : null}
               {publicBookingExtras.length > 0 ? (
-                <div className='mt-4'>
+                <div className='mt-4 rounded-2xl bg-slate-950 p-4 text-base text-slate-100'>
                   <p className='text-sm font-semibold text-slate-100'>Extra del club</p>
                   <ul className='mt-2 space-y-1 text-slate-300'>
                     {publicBookingExtras.map((extra) => (
@@ -386,15 +350,7 @@ export function PublicBookingPage() {
                   </ul>
                 </div>
               ) : null}
-              <p className='mt-3 text-sm leading-5 text-slate-400'>Listini e extra sono mostrati solo nel contesto del club selezionato.</p>
-            </div>
-          </div>
-        </header>
-
-        <main className='space-y-6'>
-          <div className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
-            <section>
-              <SectionCard title='Scegli data e durata' description={`${openingHoursText}. La disponibilità cambia in tempo reale.`} elevated>
+              <p className='mt-4 text-sm leading-5 text-slate-500'>Listini e extra sono mostrati solo nel contesto del club selezionato.</p>
               <div className='mb-4 flex items-center gap-2'>
                 <Calendar size={18} className='text-cyan-600' />
                 <p className={secondarySectionTitleClassName}>Selezione slot</p>
@@ -476,6 +432,14 @@ export function PublicBookingPage() {
                 )}
               </div>
             </SectionCard>
+
+              <div className='mt-6 surface-card'>
+                <div className='grid gap-3 sm:grid-cols-3'>
+                  <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
+                  <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
+                  <StepCard index='3' title={depositRequired ? 'Versa la caparra' : 'Conferma la prenotazione'} description={depositRequired ? 'Completa il checkout e ricevi subito la conferma.' : 'Invia la richiesta e ricevi subito la conferma del booking.'} />
+                </div>
+              </div>
             </section>
 
             <section>
@@ -563,90 +527,8 @@ export function PublicBookingPage() {
                 </button>
               </form>
             </SectionCard>
-              <div className='mt-4 flex justify-end'>
-                <Link
-                  to={withTenantPath('/admin/login', tenantSlug)}
-                  className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-200'
-                >
-                  <LogIn size={16} />
-                  Accesso admin
-                </Link>
-              </div>
             </section>
           </div>
-
-          <SectionCard title='Come funziona' description='Un flusso lineare e leggibile, ottimizzato per smartphone.'>
-            <div className='grid gap-3 sm:grid-cols-3'>
-              <StepCard index='1' title='Seleziona slot' description='Scegli data, orario e durata tra le fasce realmente libere.' />
-              <StepCard index='2' title='Compila i dati' description='Inserisci contatti e una nota facoltativa per il campo.' />
-              <StepCard index='3' title={depositRequired ? 'Versa la caparra' : 'Conferma la prenotazione'} description={depositRequired ? 'Completa il checkout e ricevi subito la conferma.' : 'Invia la richiesta e ricevi subito la conferma del booking.'} />
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title='Club vicini a te'
-            description='Se stai giocando fuori zona, usa la geolocalizzazione per trovare i club del network che vale la pena aprire subito.'
-            actions={(
-              <div className='flex flex-col gap-2 sm:flex-row'>
-                <button type='button' className='btn-secondary' onClick={requestNearbyClubs} disabled={loadingNearbyClubs}>
-                  <LocateFixed size={16} />
-                  <span>{loadingNearbyClubs ? 'Ricerca in corso…' : 'Usa la mia posizione'}</span>
-                </button>
-                <Link className='btn-secondary' to='/clubs'>
-                  <span>Apri directory club</span>
-                </Link>
-              </div>
-            )}
-          >
-            <div className='space-y-4'>
-              {nearbyFeedback ? <AlertBanner tone={nearbyFeedback.tone}>{nearbyFeedback.message}</AlertBanner> : null}
-              {loadingNearbyClubs ? <LoadingBlock label='Sto cercando i club piu vicini…' /> : null}
-              {!loadingNearbyClubs && nearbyClubs.length > 0 ? (
-                <div className='grid gap-4 lg:grid-cols-2'>
-                  {nearbyClubs.map((club) => (
-                    <article key={club.club_id} data-testid='nearby-club-card' className='rounded-2xl border border-slate-200 bg-white p-4'>
-                      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-                        <div className='min-w-0'>
-                          <p className='text-base font-semibold text-slate-950'>{club.public_name}</p>
-                          <p className='mt-2 flex items-start gap-2 text-sm text-slate-600'>
-                            <MapPin size={16} className='mt-0.5 shrink-0 text-cyan-700' />
-                            <span>{buildNearbyClubLocationLine(club)}</span>
-                          </p>
-                          <p className='mt-2 text-sm text-slate-600'>
-                            {formatDistance(club.distance_km)} • {club.courts_count} {club.courts_count === 1 ? 'campo' : 'campi'}
-                          </p>
-                        </div>
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${club.is_community_open ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {club.is_community_open ? 'Community aperta' : 'Community su richiesta'}
-                        </span>
-                      </div>
-
-                      <div className='mt-4 grid gap-2 sm:grid-cols-3'>
-                        <NearbyClubCountCard label='3/4' value={club.open_matches_three_of_four_count} helper='Da chiudere subito' />
-                        <NearbyClubCountCard label='2/4' value={club.open_matches_two_of_four_count} helper='Buone occasioni' />
-                        <NearbyClubCountCard label='1/4' value={club.open_matches_one_of_four_count} helper='Da monitorare' />
-                      </div>
-
-                      <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                        <p className='text-sm text-slate-600'>{club.public_activity_label}</p>
-                        <Link aria-label={`Apri scheda club ${club.public_name}`} className='btn-secondary sm:w-auto' to={`/c/${club.club_slug}`}>
-                          <span>Apri scheda club</span>
-                          <ArrowRight size={16} />
-                        </Link>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-              {!loadingNearbyClubs && nearbyClubs.length === 0 && !nearbyFeedback ? (
-                <div className='surface-muted text-sm text-slate-600'>
-                  {hasRequestedNearbyClubs
-                    ? 'Nessun club vicino disponibile in questo momento. Apri la directory completa per cercare manualmente.'
-                    : 'Attiva la geolocalizzazione solo quando ti serve: vedrai i 10 club piu vicini e potrai aprire la scheda pubblica di ciascun club.'}
-                </div>
-              ) : null}
-            </div>
-          </SectionCard>
         </main>
       </div>
     </div>
@@ -665,42 +547,6 @@ function formatBookingDayLabel(value: string, timezone = 'Europe/Rome') {
     timeZone: timezone,
   }).format(normalizedDate);
   return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function geolocationDeniedMessage(error: GeolocationPositionError | { code?: number } | null | undefined) {
-  if (error?.code === 1) {
-    return 'Permesso geolocalizzazione negato. Usa la directory pubblica per cercare per citta, CAP o provincia.';
-  }
-  return 'Geolocalizzazione non disponibile in questo momento. Usa la directory pubblica per trovare il club giusto.';
-}
-
-function buildNearbyClubLocationLine(club: PublicClubSummary) {
-  return [club.public_city, club.public_province, club.public_postal_code].filter(Boolean).join(' • ') || 'Zona non disponibile';
-}
-
-function formatDistance(distanceKm: number | null | undefined) {
-  if (distanceKm == null) {
-    return 'Distanza non disponibile';
-  }
-  return `${distanceKm.toFixed(1).replace('.', ',')} km`;
-}
-
-function buildPublicRateLines(config: PublicConfig | null) {
-  if (!config) {
-    return [];
-  }
-
-  const memberHourlyRate = config.member_hourly_rate;
-  const nonMemberHourlyRate = config.non_member_hourly_rate;
-  const memberNinetyMinuteRate = config.member_ninety_minute_rate;
-  const nonMemberNinetyMinuteRate = config.non_member_ninety_minute_rate;
-
-  return [
-    `Tesserati: ${formatCurrency(memberHourlyRate)}/ora per giocatore`,
-    `Non tesserati: ${formatCurrency(nonMemberHourlyRate)}/ora per giocatore`,
-    `90 minuti: ${formatCurrency(memberNinetyMinuteRate)} per giocatore tesserato`,
-    `90 minuti: ${formatCurrency(nonMemberNinetyMinuteRate)} per giocatore non tesserato`,
-  ];
 }
 
 function hasEnabledPublicBookingDeposit(config: PublicConfig | null) {
@@ -732,6 +578,55 @@ function buildPublicDepositRuleText(config: PublicConfig | null, currentDepositA
   }
 
   return `${formatCurrency(baseAmount)} fino a ${includedMinutes} minuti. Nessun extra oltre la soglia configurata dal club.`;
+}
+
+function buildBookingOverviewCards(config: PublicConfig | null, durationMinutes: number, depositRequired: boolean, depositAmount: number) {
+  return [
+    {
+      label: 'Caparra',
+      value: depositRequired ? formatCurrency(depositAmount) : 'Non prevista',
+      helper: depositRequired ? `${durationMinutes} minuti • pagamento online` : 'Conferma diretta del club',
+    },
+    {
+      label: 'Tesserati',
+      value: formatBookingRateValue(calculatePublicPlayerRate(config, durationMinutes, 'member')),
+      helper: `${durationMinutes} minuti per giocatore`,
+    },
+    {
+      label: 'Non tesserati',
+      value: formatBookingRateValue(calculatePublicPlayerRate(config, durationMinutes, 'non-member')),
+      helper: `${durationMinutes} minuti per giocatore`,
+    },
+  ];
+}
+
+function calculatePublicPlayerRate(config: PublicConfig | null, durationMinutes: number, playerType: 'member' | 'non-member') {
+  if (!config) {
+    return null;
+  }
+
+  const hourlyRate = playerType === 'member' ? config.member_hourly_rate : config.non_member_hourly_rate;
+  const ninetyMinuteRate = playerType === 'member' ? config.member_ninety_minute_rate : config.non_member_ninety_minute_rate;
+
+  if (durationMinutes <= 60) {
+    return hourlyRate;
+  }
+
+  if (durationMinutes === 90) {
+    return ninetyMinuteRate;
+  }
+
+  const halfHourStepRate = ninetyMinuteRate - hourlyRate;
+  const extraHalfHourBlocks = Math.max(0, Math.round((durationMinutes - 90) / 30));
+  return ninetyMinuteRate + (extraHalfHourBlocks * halfHourStepRate);
+}
+
+function formatBookingRateValue(rate: number | null) {
+  if (rate == null) {
+    return 'In aggiornamento';
+  }
+
+  return formatCurrency(rate);
 }
 
 function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability[] {
@@ -877,16 +772,6 @@ function InfoPill({ icon, title, text }: { icon: ReactNode; title: string; text:
       <div className='mb-2 text-cyan-300'>{icon}</div>
       <p className='text-sm font-semibold'>{title}</p>
       <p className='mt-1 text-sm leading-5 text-slate-400'>{text}</p>
-    </div>
-  );
-}
-
-function NearbyClubCountCard({ label, value, helper }: { label: string; value: number; helper: string }) {
-  return (
-    <div className='rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3'>
-      <p className='text-xs font-semibold uppercase tracking-[0.16em] text-slate-500'>{label}</p>
-      <p className='mt-2 text-2xl font-semibold text-slate-950'>{value}</p>
-      <p className='mt-1 text-xs text-slate-600'>{helper}</p>
     </div>
   );
 }

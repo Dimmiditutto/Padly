@@ -9,10 +9,9 @@ vi.mock('../services/publicApi', () => ({
   createPublicCheckout: vi.fn(),
   getAvailability: vi.fn(),
   getPublicConfig: vi.fn(),
-  listPublicClubsNearby: vi.fn(),
 }));
 
-import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig, listPublicClubsNearby } from '../services/publicApi';
+import { createPublicBooking, createPublicCheckout, getAvailability, getPublicConfig } from '../services/publicApi';
 
 const originalLocation = window.location;
 
@@ -116,7 +115,6 @@ describe('PublicBookingPage', () => {
     vi.stubGlobal('location', { ...originalLocation, assign: assignMock });
     vi.mocked(getPublicConfig).mockResolvedValue({ ...baseConfig });
     vi.mocked(getAvailability).mockResolvedValue({ ...availabilityResponse });
-    vi.mocked(listPublicClubsNearby).mockResolvedValue({ query: null, items: [] });
     vi.mocked(createPublicBooking).mockResolvedValue({
       booking: { ...createdBooking },
       checkout_ready: true,
@@ -144,16 +142,17 @@ describe('PublicBookingPage', () => {
     await screen.findByText('15 minuti');
     await screen.findByRole('button', { name: '18:00' });
     expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login');
+    expect(screen.queryByRole('link', { name: 'Accesso admin' })).not.toBeInTheDocument();
     expect(screen.getByText('Campo aperto da Lunedì a Domenica dalle 7 alle 24. La disponibilità cambia in tempo reale.')).toBeInTheDocument();
+    expect(screen.queryByText('Booking pubblico tenant-aware')).not.toBeInTheDocument();
+    expect(screen.queryByText('Conferma rapida')).not.toBeInTheDocument();
     expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
     expect(screen.getByText('Rimborso automatico solo se annulli prima di 24 ore. Nelle ultime 24 ore la caparra non e rimborsabile.')).toBeInTheDocument();
     expect(screen.getByText('Tempo massimo per completare il checkout.')).toBeInTheDocument();
-    expect(screen.getByText('Tariffe del club per giocatore')).toBeInTheDocument();
-    expect(screen.getByText(/Tesserati: .*ora per giocatore/)).toBeInTheDocument();
-    expect(screen.getByText(/Non tesserati: .*ora per giocatore/)).toBeInTheDocument();
-    expect(screen.getByText(/90 minuti: .*giocatore tesserato/)).toBeInTheDocument();
-    expect(screen.getByText(/90 minuti: .*giocatore non tesserato/)).toBeInTheDocument();
+    expect(screen.getByText('Caparra')).toBeInTheDocument();
+    expect(screen.getByText('Tesserati')).toBeInTheDocument();
+    expect(screen.getByText('Non tesserati')).toBeInTheDocument();
+    expect(screen.getAllByText('90 minuti per giocatore')).toHaveLength(2);
     expect(screen.getByText('Listini e extra sono mostrati solo nel contesto del club selezionato.')).toBeInTheDocument();
     expect(screen.getByText('Giorno')).toBeInTheDocument();
     expect(screen.getByText('Tenant attivo')).toBeInTheDocument();
@@ -161,6 +160,8 @@ describe('PublicBookingPage', () => {
     expect(screen.getByRole('link', { name: 'help@padelbooking.app' })).toHaveAttribute('href', 'mailto:help@padelbooking.app');
     expect(screen.getByRole('link', { name: '+390101010101' })).toHaveAttribute('href', 'tel:+390101010101');
     expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/default-club/play/access');
+    expect(screen.queryByText('Come funziona')).not.toBeInTheDocument();
+    expect(screen.queryByText('Club vicini a te')).not.toBeInTheDocument();
 
     expect(getPublicConfig).toHaveBeenCalledWith(null);
     expect(getAvailability).toHaveBeenCalledWith(expect.any(String), 90, null);
@@ -237,8 +238,9 @@ describe('PublicBookingPage', () => {
     expect(screen.getByRole('link', { name: 'desk@roma-club.example' })).toHaveAttribute('href', 'mailto:desk@roma-club.example');
     expect(screen.getByRole('link', { name: '+39021234567' })).toHaveAttribute('href', 'tel:+39021234567');
     expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/roma-club/play/access');
-    expect(screen.getByText(/Tesserati: .*ora per giocatore/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Accesso admin' })).toHaveAttribute('href', '/admin/login?tenant=roma-club');
+    expect(screen.getByText('Tesserati')).toBeInTheDocument();
+    expect(screen.getByText('15 €')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Accesso admin' })).not.toBeInTheDocument();
   });
 
   it('shows only slots within the 7:00–24:00 opening window', async () => {
@@ -262,53 +264,6 @@ describe('PublicBookingPage', () => {
     expect(screen.queryByRole('button', { name: '02:00 CEST' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '06:30' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '23:30' })).not.toBeInTheDocument();
-  });
-
-  it('loads nearby clubs on explicit geolocation request and caps the preview to 10 results', async () => {
-    vi.mocked(listPublicClubsNearby).mockResolvedValue({
-      query: null,
-      items: Array.from({ length: 11 }, (_, index) => ({
-        club_id: `club-${index + 1}`,
-        club_slug: `nearby-club-${index + 1}`,
-        public_name: `Nearby Club ${index + 1}`,
-        public_address: `Via ${index + 1}`,
-        public_postal_code: '17100',
-        public_city: 'Savona',
-        public_province: 'SV',
-        public_latitude: 44.3,
-        public_longitude: 8.48,
-        has_coordinates: true,
-        distance_km: index + 1,
-        courts_count: 2,
-        contact_email: null,
-        support_phone: null,
-        is_community_open: index % 2 === 0,
-        public_activity_score: 3,
-        recent_open_matches_count: 3,
-        public_activity_label: 'Buona disponibilita recente',
-        open_matches_three_of_four_count: 1,
-        open_matches_two_of_four_count: 1,
-        open_matches_one_of_four_count: 1,
-      })),
-    });
-    Object.defineProperty(window.navigator, 'geolocation', {
-      configurable: true,
-      value: {
-        getCurrentPosition: vi.fn((success: (position: GeolocationPosition) => void) => {
-          success({ coords: { latitude: 44.3, longitude: 8.48 } } as GeolocationPosition);
-        }),
-      },
-    });
-
-    renderPage();
-
-    await screen.findByText('15 minuti');
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Usa la mia posizione' }));
-
-    await waitFor(() => expect(listPublicClubsNearby).toHaveBeenCalledWith(44.3, 8.48));
-    expect(screen.getAllByTestId('nearby-club-card')).toHaveLength(10);
-    expect(screen.getByRole('link', { name: 'Apri scheda club Nearby Club 1' })).toHaveAttribute('href', '/c/nearby-club-1');
-    expect(screen.queryByText('Nearby Club 11')).not.toBeInTheDocument();
   });
 
   it('highlights all half-hour tabs covered by the selected booking duration', async () => {

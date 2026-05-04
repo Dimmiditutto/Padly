@@ -17,7 +17,7 @@ import {
 import type { PlayLevel, PublicClubDetailResponse, PublicClubWatchSummary, PublicDiscoveryMeResponse } from '../types';
 import { withTenantPath } from '../utils/tenantContext';
 import { formatDate, formatTimeValue } from '../utils/format';
-import { buildClubPlayPath, formatPlayLevel, PLAY_LEVEL_OPTIONS } from '../utils/play';
+import { buildClubPlayPath, buildPlayAccessPath, formatPlayLevel, PLAY_LEVEL_OPTIONS } from '../utils/play';
 
 type LevelFilter = 'ALL' | PlayLevel;
 type FeedbackState = { tone: 'error' | 'warning' | 'success' | 'info'; message: string } | null;
@@ -192,9 +192,8 @@ export function PublicClubPage() {
               />
               <div className='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
                 <div className='max-w-3xl'>
-                  <p className='text-sm font-semibold uppercase tracking-[0.24em] text-cyan-200/80'>Club pubblico</p>
-                  <h1 className='mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl'>{detail.club.public_name}</h1>
-                  <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>La pagina pubblica del club mostra solo identita minima e partite open sintetiche. Nomi dei player, join e funzioni community restano private.</p>
+                  <h1 className='text-3xl font-bold tracking-tight text-white sm:text-4xl'>{detail.club.public_name}</h1>
+                  <p className='mt-3 text-sm leading-6 text-slate-300 sm:text-base'>Pagina del Club.</p>
                   {buildLocationLine(detail.club) ? (
                     <p className='mt-4 flex items-start gap-2 text-sm text-slate-200'>
                       <MapPin size={16} className='mt-0.5 shrink-0 text-cyan-200' />
@@ -204,17 +203,15 @@ export function PublicClubPage() {
                 </div>
 
                 <div className='flex flex-col gap-3 sm:flex-row'>
-                  <Link className='btn-secondary' to={withTenantPath('/booking', detail.club.club_slug)}>
+                  <Link className='hero-action-secondary' to={withTenantPath('/booking', detail.club.club_slug)}>
                     <span>Prenota nel club</span>
                   </Link>
                   {detail.club.is_community_open ? (
-                    <Link className='btn-primary' to={buildClubPlayPath(detail.club.club_slug)}>
-                      <UsersRound size={16} />
+                    <Link className='hero-action-secondary' to={buildClubPlayPath(detail.club.club_slug)}>
                       <span>Entra nella community</span>
                     </Link>
                   ) : (
-                    <a className='btn-primary' href='#club-contact-request'>
-                      <Mail size={16} />
+                    <a className='hero-action-secondary' href='#club-contact-request'>
                       <span>Richiedi accesso</span>
                     </a>
                   )}
@@ -223,7 +220,7 @@ export function PublicClubPage() {
             </header>
 
             <div className='mt-6 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]'>
-              <SectionCard title='Informazioni pubbliche' description='Contatti minimi, presenza nell app e stato di apertura della community.' elevated>
+              <SectionCard title='Informazioni Club' elevated>
                 <div className='space-y-4'>
                   <div className='surface-muted'>
                     <p className='text-sm font-semibold text-slate-900'>Stato community</p>
@@ -306,12 +303,10 @@ export function PublicClubPage() {
                 </div>
               </SectionCard>
 
-              <SectionCard title='Partite da chiudere' description='Vista pubblica leggera e orientata alla scoperta: prima le occasioni piu vicine a chiudersi, poi il resto.'>
+              <SectionCard title='Partite da chiudere' description='Filtra per livello. Poi scegli se entrare nella community o richiedere accesso.'>
                 <div className='space-y-4'>
                   <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end'>
-                    <div className='surface-muted'>
-                      <p className='text-sm text-slate-600'>Filtra per livello, valuta dove ci sono piu probabilita di chiudere un match e poi scegli se entrare nella community o richiedere accesso.</p>
-                    </div>
+                    <div />
                     <div>
                       <label className='field-label' htmlFor='public-club-level-filter'>Livello</label>
                       <select id='public-club-level-filter' className='text-input' value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value as LevelFilter)}>
@@ -367,93 +362,95 @@ export function PublicClubPage() {
               </SectionCard>
             </div>
 
-            <div className='mt-6 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
-              <SectionCard
-                sectionId='club-contact-request'
-                title={detail.club.is_community_open ? 'Richiedi contatto al club' : 'Richiedi accesso alla community'}
-                description={detail.club.is_community_open ? 'Flusso guidato per chi non vuole entrare subito nella community o ha bisogno di un contatto umano.' : 'Se la community del club e chiusa, usa questo passaggio pubblico per chiedere accesso senza esporre dati interni del club.'}
-                elevated
-              >
-                <form
-                  className='grid gap-4 sm:grid-cols-2'
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!clubSlug) {
-                      return;
-                    }
-                    void (async () => {
-                      setContactSubmitting(true);
-                      setContactFeedback(null);
-                      try {
-                        const response = await createPublicClubContactRequest(clubSlug, {
-                          name: contactForm.name,
-                          email: contactForm.email || null,
-                          phone: contactForm.phone || null,
-                          preferred_level: contactForm.preferred_level,
-                          note: contactForm.note || null,
-                          privacy_accepted: contactForm.privacy_accepted,
-                        });
-                        setContactFeedback({ tone: 'success', message: response.message });
-                        setContactForm((prev) => ({ ...prev, note: '', privacy_accepted: false }));
-                      } catch (error) {
-                        setContactFeedback({ tone: 'error', message: parseApiError(error, 'Invio richiesta contatto non riuscito.') });
-                      } finally {
-                        setContactSubmitting(false);
-                      }
-                    })();
-                  }}
+            <div className='mt-6'>
+              {detail.club.is_community_open ? (
+                <SectionCard
+                  sectionId='club-contact-request'
+                  title={`Richiedi l'accesso alla Community di ${detail.club.public_name}`}
+                  description='Accedi al flusso community del club per attivare o recuperare il tuo profilo.'
+                  elevated
                 >
-                  <div>
-                    <label className='field-label' htmlFor='club-contact-name'>Nome</label>
-                    <input id='club-contact-name' className='text-input' value={contactForm.name} onChange={(event) => setContactForm((prev) => ({ ...prev, name: event.target.value }))} required />
-                  </div>
-                  <div>
-                    <label className='field-label' htmlFor='club-contact-level'>Livello dichiarato</label>
-                    <select id='club-contact-level' className='text-input' value={contactForm.preferred_level} onChange={(event) => setContactForm((prev) => ({ ...prev, preferred_level: event.target.value as PlayLevel }))}>
-                      {PLAY_LEVEL_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className='field-label' htmlFor='club-contact-email'>Email</label>
-                    <input id='club-contact-email' className='text-input' type='email' value={contactForm.email} onChange={(event) => setContactForm((prev) => ({ ...prev, email: event.target.value }))} />
-                  </div>
-                  <div>
-                    <label className='field-label' htmlFor='club-contact-phone'>Telefono</label>
-                    <input id='club-contact-phone' className='text-input' value={contactForm.phone} onChange={(event) => setContactForm((prev) => ({ ...prev, phone: event.target.value }))} />
-                  </div>
-                  <div className='sm:col-span-2'>
-                    <label className='field-label' htmlFor='club-contact-note'>Messaggio</label>
-                    <textarea id='club-contact-note' className='text-input min-h-24' value={contactForm.note} onChange={(event) => setContactForm((prev) => ({ ...prev, note: event.target.value }))} placeholder={detail.club.is_community_open ? 'Dimmi se vuoi informazioni su community, livello, orari o modalità di ingresso.' : 'Spiega perche vuoi entrare nella community, il tuo livello e quando ti piacerebbe giocare.'} />
-                  </div>
-                  <label className='sm:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
-                    <input type='checkbox' checked={contactForm.privacy_accepted} onChange={(event) => setContactForm((prev) => ({ ...prev, privacy_accepted: event.target.checked }))} className='mt-1 h-4 w-4 rounded border-slate-300' required />
-                    <span>Accetto il trattamento dei dati per l invio della richiesta di contatto al club.</span>
-                  </label>
-                  <button className='btn-primary sm:col-span-2' type='submit' disabled={contactSubmitting}>
-                    <Mail size={16} />
-                    <span>{contactSubmitting ? 'Invio in corso…' : detail.club.is_community_open ? 'Invia richiesta contatto' : 'Invia richiesta accesso'}</span>
-                  </button>
-                </form>
-              </SectionCard>
-
-              <SectionCard title='Come muoversi da qui' description='La pagina pubblica resta read-only: osservi segnali utili, poi scegli il passo successivo.'>
-                <div className='space-y-4 text-sm text-slate-600'>
                   <div className='surface-muted'>
-                    <p className='font-semibold text-slate-900'>1. Segui il club</p>
-                    <p className='mt-2'>Usa la watchlist pubblica per far comparire alert persistenti quando un match arriva a 2/4 o 3/4.</p>
+                    <p className='text-sm leading-6 text-slate-600'>Da qui puoi entrare nel flusso community del club e completare l accesso con il percorso dedicato.</p>
+                    <div className='mt-4'>
+                      <Link className='btn-primary' to={buildPlayAccessPath(detail.club.club_slug)}>
+                        <UsersRound size={16} />
+                        <span>Entra nella Community</span>
+                      </Link>
+                    </div>
                   </div>
-                  <div className='surface-muted'>
-                    <p className='font-semibold text-slate-900'>2. Valuta le partite open</p>
-                    <p className='mt-2'>Qui vedi solo livello, campo, orario e riempimento. I nomi player restano privati fino all ingresso community.</p>
-                  </div>
-                  <div className='surface-muted'>
-                    <p className='font-semibold text-slate-900'>3. Entra o fatti contattare</p>
-                    <p className='mt-2'>{detail.club.is_community_open ? 'Se vuoi agire subito passa alla community del club; se preferisci un passaggio umano usa il form contatto qui sopra.' : 'La community del club e su richiesta: usa il form qui sopra per chiedere accesso senza uscire dal perimetro pubblico.'}</p>
-                  </div>
-                </div>
-              </SectionCard>
+                </SectionCard>
+              ) : (
+                <SectionCard
+                  sectionId='club-contact-request'
+                  title={`Richiedi l'accesso alla Community di ${detail.club.public_name}`}
+                  description='Se la community del club e chiusa, usa questo passaggio pubblico per chiedere accesso senza esporre dati interni del club.'
+                  elevated
+                >
+                  <form
+                    className='grid gap-4 sm:grid-cols-2'
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!clubSlug) {
+                        return;
+                      }
+                      void (async () => {
+                        setContactSubmitting(true);
+                        setContactFeedback(null);
+                        try {
+                          const response = await createPublicClubContactRequest(clubSlug, {
+                            name: contactForm.name,
+                            email: contactForm.email || null,
+                            phone: contactForm.phone || null,
+                            preferred_level: contactForm.preferred_level,
+                            note: contactForm.note || null,
+                            privacy_accepted: contactForm.privacy_accepted,
+                          });
+                          setContactFeedback({ tone: 'success', message: response.message });
+                          setContactForm((prev) => ({ ...prev, note: '', privacy_accepted: false }));
+                        } catch (error) {
+                          setContactFeedback({ tone: 'error', message: parseApiError(error, 'Invio richiesta contatto non riuscito.') });
+                        } finally {
+                          setContactSubmitting(false);
+                        }
+                      })();
+                    }}
+                  >
+                    <div>
+                      <label className='field-label' htmlFor='club-contact-name'>Nome</label>
+                      <input id='club-contact-name' className='text-input' value={contactForm.name} onChange={(event) => setContactForm((prev) => ({ ...prev, name: event.target.value }))} required />
+                    </div>
+                    <div>
+                      <label className='field-label' htmlFor='club-contact-level'>Livello dichiarato</label>
+                      <select id='club-contact-level' className='text-input' value={contactForm.preferred_level} onChange={(event) => setContactForm((prev) => ({ ...prev, preferred_level: event.target.value as PlayLevel }))}>
+                        {PLAY_LEVEL_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className='field-label' htmlFor='club-contact-email'>Email</label>
+                      <input id='club-contact-email' className='text-input' type='email' value={contactForm.email} onChange={(event) => setContactForm((prev) => ({ ...prev, email: event.target.value }))} />
+                    </div>
+                    <div>
+                      <label className='field-label' htmlFor='club-contact-phone'>Telefono</label>
+                      <input id='club-contact-phone' className='text-input' value={contactForm.phone} onChange={(event) => setContactForm((prev) => ({ ...prev, phone: event.target.value }))} />
+                    </div>
+                    <div className='sm:col-span-2'>
+                      <label className='field-label' htmlFor='club-contact-note'>Messaggio</label>
+                      <textarea id='club-contact-note' className='text-input min-h-24' value={contactForm.note} onChange={(event) => setContactForm((prev) => ({ ...prev, note: event.target.value }))} placeholder='Spiega perche vuoi entrare nella community, il tuo livello e quando ti piacerebbe giocare.' />
+                    </div>
+                    <label className='sm:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700'>
+                      <input type='checkbox' checked={contactForm.privacy_accepted} onChange={(event) => setContactForm((prev) => ({ ...prev, privacy_accepted: event.target.checked }))} className='mt-1 h-4 w-4 rounded border-slate-300' required />
+                      <span>Accetto il trattamento dei dati per l invio della richiesta di contatto al club.</span>
+                    </label>
+                    <button className='btn-primary sm:col-span-2' type='submit' disabled={contactSubmitting}>
+                      <Mail size={16} />
+                      <span>{contactSubmitting ? 'Invio in corso…' : 'Invia richiesta accesso'}</span>
+                    </button>
+                  </form>
+                </SectionCard>
+              )}
             </div>
           </>
         ) : null}

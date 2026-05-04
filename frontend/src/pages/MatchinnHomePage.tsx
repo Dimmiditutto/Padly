@@ -142,6 +142,54 @@ export function MatchinnHomePage() {
           </div>
         </header>
 
+        <SectionCard
+          title='Match da completare'
+          description='Scopri le partite aperte nei club della tua zona e unisciti!'
+        >
+          {openMatchesLoading ? (
+            <LoadingBlock label='Cerco partite aperte vicine…' labelClassName='text-base' />
+          ) : openMatchesFeedback ? (
+            <AlertBanner tone={openMatchesFeedback.tone}>{openMatchesFeedback.message}</AlertBanner>
+          ) : (
+            <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+              {openMatches.map((item) => {
+                const canEnterDirectly = recognizedCommunitySlugs.has(item.club.club_slug);
+                return (
+                  <article key={`${item.club.club_id}-${item.match.id}`} className='surface-card-compact border border-slate-200'>
+                    <div className='flex items-start justify-between gap-3'>
+                      <div>
+                        <p className='text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700'>{item.match.occupancy_label}</p>
+                        <h3 className='mt-2 text-lg font-semibold text-slate-950'>{formatDate(item.match.start_at)}</h3>
+                        <p className='mt-1 text-sm text-slate-600'>
+                          {formatTimeValue(item.match.start_at)} - {formatTimeValue(item.match.end_at)}
+                        </p>
+                      </div>
+                      <span className='rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-800'>{formatPlayLevel(item.match.level_requested)}</span>
+                    </div>
+
+                    <div className='mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+                      <p className='text-sm font-semibold text-slate-900'>{item.match.missing_players_message}</p>
+                      <p className='mt-1 text-sm text-slate-600'>{item.club.public_name} • {formatDistance(item.club.distance_km)}</p>
+                    </div>
+
+                    <div className='mt-4 flex items-center justify-between gap-3'>
+                      <span className='text-xs text-slate-500'>{buildLocationLine(item.club) || 'Club pubblico visibile'}</span>
+                      <Link
+                        className='btn-primary'
+                        to={canEnterDirectly ? buildClubPlayPath(item.club.club_slug) : `/c/${encodeURIComponent(item.club.club_slug)}`}
+                        aria-label={`${canEnterDirectly ? 'Entra e gioca' : 'Apri club'} ${item.club.public_name}`}
+                      >
+                        {canEnterDirectly ? 'Entra e gioca' : 'Apri club'}
+                        <ArrowRight size={16} />
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+
         <div className='grid items-start gap-6 lg:grid-cols-[1.25fr_0.75fr]'>
           <SectionCard title='Le tue community' elevated>
             {communitiesLoading ? (
@@ -212,54 +260,6 @@ export function MatchinnHomePage() {
             </section>
           </div>
         </div>
-
-        <SectionCard
-          title='Match da completare'
-          description='Scopri le partite aperte nei club della tua zona e unisciti!'
-        >
-          {openMatchesLoading ? (
-            <LoadingBlock label='Cerco partite aperte vicine…' labelClassName='text-base' />
-          ) : openMatchesFeedback ? (
-            <AlertBanner tone={openMatchesFeedback.tone}>{openMatchesFeedback.message}</AlertBanner>
-          ) : (
-            <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
-              {openMatches.map((item) => {
-                const canEnterDirectly = recognizedCommunitySlugs.has(item.club.club_slug);
-                return (
-                  <article key={`${item.club.club_id}-${item.match.id}`} className='surface-card-compact border border-slate-200'>
-                    <div className='flex items-start justify-between gap-3'>
-                      <div>
-                        <p className='text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700'>{item.match.occupancy_label}</p>
-                        <h3 className='mt-2 text-lg font-semibold text-slate-950'>{formatDate(item.match.start_at)}</h3>
-                        <p className='mt-1 text-sm text-slate-600'>
-                          {formatTimeValue(item.match.start_at)} - {formatTimeValue(item.match.end_at)}
-                        </p>
-                      </div>
-                      <span className='rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-800'>{formatPlayLevel(item.match.level_requested)}</span>
-                    </div>
-
-                    <div className='mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
-                      <p className='text-sm font-semibold text-slate-900'>{item.match.missing_players_message}</p>
-                      <p className='mt-1 text-sm text-slate-600'>{item.club.public_name} • {formatDistance(item.club.distance_km)}</p>
-                    </div>
-
-                    <div className='mt-4 flex items-center justify-between gap-3'>
-                      <span className='text-xs text-slate-500'>{buildLocationLine(item.club) || 'Club pubblico visibile'}</span>
-                      <Link
-                        className='btn-primary'
-                        to={canEnterDirectly ? buildClubPlayPath(item.club.club_slug) : `/c/${encodeURIComponent(item.club.club_slug)}`}
-                        aria-label={`${canEnterDirectly ? 'Entra e gioca' : 'Apri club'} ${item.club.public_name}`}
-                      >
-                        {canEnterDirectly ? 'Entra e gioca' : 'Apri club'}
-                        <ArrowRight size={16} />
-                      </Link>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </SectionCard>
       </div>
     </div>
   );

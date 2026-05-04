@@ -411,6 +411,8 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
             title='Match Alert'
             description='Scopri i match piu rilevanti per te, segui i club che ti interessano e ricevi notifiche quando si libera la partita giusta.'
             elevated
+            collapsible
+            defaultExpanded={false}
           >
             {discoveryFeedback ? <AlertBanner tone={discoveryFeedback.tone}>{discoveryFeedback.message}</AlertBanner> : null}
 
@@ -498,7 +500,7 @@ export function ClubDirectoryPage({ autoLocateOnMount = false }: { autoLocateOnM
                         </div>
                         <button type='button' className='match-alert-location-button' onClick={() => void requestDiscoveryCoordinates()} disabled={locatingDiscovery}>
                           <LocateFixed size={16} />
-                          <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la mia posizione per gli alert'}</span>
+                          <span>{locatingDiscovery ? 'Rilevamento…' : 'Usa la mia posizione'}</span>
                         </button>
                       </div>
                     </div>

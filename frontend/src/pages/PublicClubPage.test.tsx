@@ -127,11 +127,20 @@ describe('PublicClubPage', () => {
 
     await screen.findByText('Partite da chiudere');
     expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
+    expect(screen.queryByText('Club pubblico')).not.toBeInTheDocument();
+    expect(screen.getByText('Pagina del Club.')).toBeInTheDocument();
     expect(screen.getByText('Da chiudere subito')).toBeInTheDocument();
     expect(screen.getByText('Buone occasioni')).toBeInTheDocument();
     expect(screen.getByText('Da monitorare')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Prenota nel club' })).toHaveAttribute('href', '/booking?tenant=test-club');
     expect(screen.getByRole('link', { name: 'Entra nella community' })).toHaveAttribute('href', '/c/test-club/play');
+    expect(screen.getByRole('heading', { name: 'Informazioni Club' })).toBeInTheDocument();
+    expect(screen.queryByText('Informazioni pubbliche')).not.toBeInTheDocument();
+    expect(screen.queryByText('Contatti minimi, presenza nell app e stato di apertura della community.')).not.toBeInTheDocument();
+    expect(screen.getByText('Filtra per livello. Poi scegli se entrare nella community o richiedere accesso.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: "Richiedi l'accesso alla Community di Test Club" })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Entra nella Community' })).toHaveAttribute('href', '/c/test-club/play/access');
+    expect(screen.queryByRole('heading', { name: 'Come muoversi da qui' })).not.toBeInTheDocument();
 
     const cards = screen.getAllByTestId('public-open-match-card');
     expect(within(cards[0]).getByText('Manca 1 giocatore')).toBeInTheDocument();
@@ -144,11 +153,12 @@ describe('PublicClubPage', () => {
 
     renderPage();
 
-    await screen.findByText('Richiedi accesso alla community');
+    await screen.findByText("Richiedi l'accesso alla Community di Test Club");
     expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Richiedi accesso' })).toHaveAttribute('href', '#club-contact-request');
     expect(screen.queryByRole('link', { name: 'Entra nella community' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Invia richiesta accesso' })).toBeInTheDocument();
-    expect(screen.getByText('La community del club e su richiesta: usa il form qui sopra per chiedere accesso senza uscire dal perimetro pubblico.')).toBeInTheDocument();
+    expect(screen.getByText('Se la community del club e chiusa, usa questo passaggio pubblico per chiedere accesso senza esporre dati interni del club.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Come muoversi da qui' })).not.toBeInTheDocument();
   });
 });

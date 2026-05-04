@@ -149,6 +149,9 @@ describe('MatchinnHomePage', () => {
     expect(screen.getByRole('link', { name: 'Entra nella community Roma Club' })).toHaveAttribute('href', '/c/roma-club/play');
     expect(screen.getByRole('link', { name: 'Entra e gioca Roma Club' })).toHaveAttribute('href', '/c/roma-club/play');
     expect(screen.getByRole('link', { name: 'Apri club Savona Club' })).toHaveAttribute('href', '/c/savona-club');
+    const matchCardHeading = screen.getByRole('heading', { name: 'Match da completare' });
+    const communitiesHeading = screen.getByRole('heading', { name: 'Le tue community' });
+    expect(matchCardHeading.compareDocumentPosition(communitiesHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(screen.queryByText('Stato rapido')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trova i campi più vicini a te' })).not.toBeInTheDocument();
   });
