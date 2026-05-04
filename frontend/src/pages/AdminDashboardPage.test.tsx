@@ -220,6 +220,18 @@ describe('AdminDashboardPage', () => {
     expect(screen.queryByText('LOGIN PAGE')).not.toBeInTheDocument();
   });
 
+  it('orders hero actions on the right and shows the logged club name below them', async () => {
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+
+    const heroActions = screen.getByTestId('admin-hero-actions');
+    const orderedLabels = Array.from(heroActions.querySelectorAll('button, a')).map((element) => element.textContent?.trim());
+
+    expect(orderedLabels).toEqual(['Aggiorna pagina', 'Torna alla home', 'Esci']);
+    expect(screen.getByTestId('admin-hero-club-pill')).toHaveTextContent('PadelBooking');
+  });
+
   it('redirects to login when session validation returns 401', async () => {
     vi.mocked(getAdminSession).mockRejectedValue({ response: { status: 401, data: { detail: 'Unauthorized' } } });
 

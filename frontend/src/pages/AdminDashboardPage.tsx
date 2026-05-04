@@ -197,6 +197,7 @@ export function AdminDashboardPage() {
   });
   const [recurringPreview, setRecurringPreview] = useState<RecurringOccurrence[]>([]);
   const adminTimezone = settings?.timezone || session?.timezone || null;
+  const adminClubName = settings?.public_name || session?.club_public_name || 'Club admin';
   const normalizedCommunityInviteSearch = communityInviteSearchQuery.trim().toLowerCase();
   const normalizedCommunityInviteDigitsSearch = communityInviteSearchQuery.replace(/\D/g, '');
   const filteredCommunityInvites = communityInvites.filter((invite) => {
@@ -610,10 +611,7 @@ export function AdminDashboardPage() {
     <div className='min-h-screen px-4 py-6 sm:px-6 lg:px-8'>
       <div className='page-shell space-y-6'>
         <div className='admin-hero-panel space-y-4'>
-          <PageBrandBar
-            className='mb-2'
-            actions={<Link className='admin-hero-button-secondary' to='/'>Torna alla home</Link>}
-          />
+          <PageBrandBar className='mb-2' />
           <div className='admin-hero-layout'>
             <div className='admin-hero-copy'>
               <p className='admin-hero-kicker'>Dashboard admin</p>
@@ -623,9 +621,15 @@ export function AdminDashboardPage() {
                 <span aria-hidden='true' className='block'>&nbsp;</span>
               </p>
             </div>
-            <div className='admin-hero-actions'>
-              <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna pagina</button>
-              <button onClick={logout} className='admin-hero-button-secondary'>Esci</button>
+            <div className='admin-hero-side'>
+              <div className='admin-hero-actions' data-testid='admin-hero-actions'>
+                <button onClick={() => void refreshDashboard()} className='admin-hero-button-primary'>Aggiorna pagina</button>
+                <Link className='admin-hero-button-secondary' to='/'>Torna alla home</Link>
+                <button onClick={logout} className='admin-hero-button-secondary'>Esci</button>
+              </div>
+              <div className='admin-hero-club-pill' data-testid='admin-hero-club-pill'>
+                <span>{adminClubName}</span>
+              </div>
             </div>
           </div>
           <AdminNav session={session} notificationEmail={settings?.notification_email || null} />

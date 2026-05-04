@@ -61,7 +61,7 @@ body {
   width: min(160px, 42vw);
   height: auto;
   transform-origin: center;
-  animation: loaderSpin 9s linear infinite;
+  animation: loaderSpin 7.5s linear infinite;
 }
 
 @keyframes loaderSpin {
@@ -337,12 +337,20 @@ h4 {
     @apply sticky top-3 z-20 -mx-1 flex w-full flex-col gap-3 rounded-[24px] bg-slate-950/95 p-1 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:items-stretch sm:justify-end sm:bg-transparent sm:p-0;
   }
 
+  .admin-hero-side {
+    @apply flex w-full flex-col gap-3 lg:max-w-max lg:items-end;
+  }
+
   .admin-hero-button-primary {
     @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-brand-100 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:border-brand-700 hover:text-brand-700 active:border-brand-700 active:bg-brand-100 active:text-brand-700 focus:border-brand-700 focus:bg-brand-100 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[164px] sm:w-auto;
   }
 
   .admin-hero-button-secondary {
     @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:border-cyan-300/60 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[128px] sm:w-auto;
+  }
+
+  .admin-hero-club-pill {
+    @apply inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:w-auto sm:min-w-[164px];
   }
 
   .admin-nav {
