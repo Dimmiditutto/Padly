@@ -46,8 +46,10 @@ const availabilityResponse = {
   duration_minutes: 90,
   deposit_amount: 20,
   slots: [
+    { slot_id: '2026-05-10T07:00:00+00:00', start_time: '07:00', end_time: '08:30', display_start_time: '07:00', display_end_time: '08:30', available: false, reason: 'Occupato' },
     { slot_id: '2026-05-10T18:00:00+00:00', start_time: '18:00', end_time: '19:30', display_start_time: '18:00', display_end_time: '19:30', available: true, reason: null },
     { slot_id: '2026-05-10T18:30:00+00:00', start_time: '18:30', end_time: '20:00', display_start_time: '18:30', display_end_time: '20:00', available: false, reason: 'Lo slot non è più disponibile' },
+    { slot_id: '2026-05-10T22:30:00+00:00', start_time: '22:30', end_time: '00:00', display_start_time: '22:30', display_end_time: '00:00', available: false, reason: 'Occupato' },
   ],
 };
 
@@ -143,7 +145,7 @@ describe('PublicBookingPage', () => {
     await screen.findByRole('button', { name: '18:00' });
     expect(screen.getByRole('img', { name: 'Matchinn' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Accesso admin' })).not.toBeInTheDocument();
-    expect(screen.getByText('Campo aperto da Lunedì a Domenica dalle 7 alle 24. La disponibilità cambia in tempo reale.')).toBeInTheDocument();
+    expect(screen.getByText('Orari del club per la data selezionata: dalle 07:00 alle 24:00. La disponibilità cambia in tempo reale.')).toBeInTheDocument();
     expect(screen.queryByText('Booking pubblico tenant-aware')).not.toBeInTheDocument();
     expect(screen.queryByText('Conferma rapida')).not.toBeInTheDocument();
     expect(screen.getByText("Self-service fino all'inizio della prenotazione")).toBeInTheDocument();
@@ -154,9 +156,10 @@ describe('PublicBookingPage', () => {
     expect(screen.getByText('Non tesserati')).toBeInTheDocument();
     expect(screen.getAllByText('90 minuti per giocatore')).toHaveLength(2);
     expect(screen.getByText('Listini e extra sono mostrati solo nel contesto del club selezionato.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Vai' })).toHaveAttribute('href', '/c/default-club#club-rates');
     expect(screen.getByText('Giorno')).toBeInTheDocument();
-    expect(screen.getByText('Tenant attivo')).toBeInTheDocument();
-    expect(screen.getByText('Slug: default-club • Fuso: Europe/Rome')).toBeInTheDocument();
+    expect(screen.queryByText('Tenant attivo')).not.toBeInTheDocument();
+    expect(screen.queryByText('Slug: default-club • Fuso: Europe/Rome')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'help@padelbooking.app' })).toHaveAttribute('href', 'mailto:help@padelbooking.app');
     expect(screen.getByRole('link', { name: '+390101010101' })).toHaveAttribute('href', 'tel:+390101010101');
     expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/default-club/play/access');
@@ -238,12 +241,13 @@ describe('PublicBookingPage', () => {
     expect(screen.getByRole('link', { name: 'desk@roma-club.example' })).toHaveAttribute('href', 'mailto:desk@roma-club.example');
     expect(screen.getByRole('link', { name: '+39021234567' })).toHaveAttribute('href', 'tel:+39021234567');
     expect(screen.getByRole('link', { name: 'Entra o rientra nella community' })).toHaveAttribute('href', '/c/roma-club/play/access');
+    expect(screen.getByRole('link', { name: 'Vai' })).toHaveAttribute('href', '/c/roma-club#club-rates');
     expect(screen.getByText('Tesserati')).toBeInTheDocument();
     expect(screen.getByText('15 €')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Accesso admin' })).not.toBeInTheDocument();
   });
 
-  it('shows only slots within the 7:00–24:00 opening window', async () => {
+  it('keeps valid early and after-midnight slots while hiding ambiguous daylight-saving entries', async () => {
     vi.mocked(getAvailability).mockResolvedValue({
       date: '2026-10-25',
       duration_minutes: 60,
@@ -259,11 +263,12 @@ describe('PublicBookingPage', () => {
 
     renderPage();
 
+    await screen.findByText('Orari del club per la data selezionata: dalle 06:30 alle 00:30. La disponibilità cambia in tempo reale.');
+    await screen.findByRole('button', { name: '06:30' });
     await screen.findByRole('button', { name: '07:00' });
     await screen.findByRole('button', { name: '23:00' });
+    await screen.findByRole('button', { name: '23:30' });
     expect(screen.queryByRole('button', { name: '02:00 CEST' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '06:30' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '23:30' })).not.toBeInTheDocument();
   });
 
   it('highlights all half-hour tabs covered by the selected booking duration', async () => {

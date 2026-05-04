@@ -2,12 +2,13 @@ import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PublicClubPage } from './PublicClubPage';
-import type { PublicClubDetailResponse, PublicDiscoveryMeResponse } from '../types';
+import type { PublicClubDetailResponse, PublicConfig, PublicDiscoveryMeResponse } from '../types';
 
 vi.mock('../services/publicApi', () => ({
   createPublicClubContactRequest: vi.fn(),
   followPublicClub: vi.fn(),
   getPublicClubDetail: vi.fn(),
+  getPublicConfig: vi.fn(),
   getPublicDiscoveryMe: vi.fn(),
   listPublicWatchlist: vi.fn(),
   unfollowPublicClub: vi.fn(),
@@ -17,6 +18,7 @@ import {
   createPublicClubContactRequest,
   followPublicClub,
   getPublicClubDetail,
+  getPublicConfig,
   getPublicDiscoveryMe,
   listPublicWatchlist,
   unfollowPublicClub,
@@ -26,6 +28,32 @@ const discoveryResponse: PublicDiscoveryMeResponse = {
   subscriber: null,
   recent_notifications: [],
   unread_notifications_count: 0,
+};
+
+const clubConfig: PublicConfig = {
+  app_name: 'Matchinn',
+  tenant_id: 'club-1',
+  tenant_slug: 'test-club',
+  public_name: 'Test Club',
+  timezone: 'Europe/Rome',
+  currency: 'EUR',
+  contact_email: 'info@testclub.example',
+  support_email: 'info@testclub.example',
+  support_phone: '+390101010101',
+  booking_hold_minutes: 15,
+  cancellation_window_hours: 24,
+  member_hourly_rate: 8,
+  non_member_hourly_rate: 11,
+  member_ninety_minute_rate: 12,
+  non_member_ninety_minute_rate: 15,
+  public_booking_deposit_enabled: true,
+  public_booking_base_amount: 18,
+  public_booking_included_minutes: 90,
+  public_booking_extra_amount: 9,
+  public_booking_extra_step_minutes: 30,
+  public_booking_extras: ['Luci serali'],
+  stripe_enabled: true,
+  paypal_enabled: true,
 };
 
 function buildClubDetail(isCommunityOpen: boolean): PublicClubDetailResponse {
@@ -112,6 +140,7 @@ describe('PublicClubPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getPublicDiscoveryMe).mockResolvedValue({ ...discoveryResponse });
+    vi.mocked(getPublicConfig).mockResolvedValue({ ...clubConfig });
     vi.mocked(listPublicWatchlist).mockResolvedValue({ items: [] });
     vi.mocked(createPublicClubContactRequest).mockResolvedValue({ request_id: 'request-1', message: 'ok' });
   });
@@ -137,6 +166,8 @@ describe('PublicClubPage', () => {
     expect(screen.getByRole('heading', { name: 'Informazioni Club' })).toBeInTheDocument();
     expect(screen.queryByText('Informazioni pubbliche')).not.toBeInTheDocument();
     expect(screen.queryByText('Contatti minimi, presenza nell app e stato di apertura della community.')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Tariffe ed extra' })).toBeInTheDocument();
+    expect(screen.getByText(/Luci serali/)).toBeInTheDocument();
     expect(screen.getByText('Filtra per livello. Poi scegli se entrare nella community o richiedere accesso.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: "Richiedi l'accesso alla Community di Test Club" })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Entra nella Community' })).toHaveAttribute('href', '/c/test-club/play/access');

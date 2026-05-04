@@ -11,11 +11,11 @@ import type { AvailabilityResponse, CourtAvailability, PaymentProvider, PublicBo
 import { getTenantSlugFromSearchParams } from '../utils/tenantContext';
 import { formatCurrency, formatDate, toDateInputValue } from '../utils/format';
 import { buildPlayAccessPath } from '../utils/play';
+import { buildBookingOverviewCards, buildPublicDepositRuleText, hasEnabledPublicBookingDeposit } from '../utils/publicBooking';
 
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
 const COLLAPSED_COURT_SLOT_COUNT = 8;
 const today = toDateInputValue(new Date());
-const openingHoursText = 'Campo aperto da Lunedì a Domenica dalle 7 alle 24';
 const secondarySectionTitleClassName = 'text-base font-semibold text-slate-800';
 const eyebrowTextClassName = 'text-sm font-semibold uppercase tracking-[0.16em] text-slate-500';
 type FeedbackState = { tone: 'error' | 'success' | 'info' | 'warning'; message: string } | null;
@@ -51,13 +51,25 @@ export function PublicBookingPage() {
   });
   const bookingDayLabel = useMemo(() => formatBookingDayLabel(bookingDate, publicConfig?.timezone), [bookingDate, publicConfig?.timezone]);
   const visibleCourtGroups = useMemo(
-    () => courtGroups.map((group) => ({ ...group, slots: group.slots.filter(isSlotWithinOpeningHours) })),
+    () => courtGroups
+      .map((group) => ({ ...group, slots: group.slots.filter(isDisplayableSlot) }))
+      .filter((group) => group.slots.length > 0),
     [courtGroups]
   );
   const tenantDisplayName = publicConfig?.public_name || publicConfig?.app_name || 'Booking pubblico';
   const communityAccessPath = publicConfig ? buildPlayAccessPath(publicConfig.tenant_slug) : null;
+  const clubRatesPath = publicConfig ? `/c/${encodeURIComponent(publicConfig.tenant_slug)}#club-rates` : null;
   const publicBookingDepositEnabled = useMemo(() => hasEnabledPublicBookingDeposit(publicConfig), [publicConfig]);
   const publicBookingExtras = publicConfig?.public_booking_extras || [];
+  const openingHoursSummary = useMemo(() => buildOpeningHoursSummary(visibleCourtGroups), [visibleCourtGroups]);
+  const openingHoursDescription = useMemo(() => {
+    if (!openingHoursSummary) {
+      return 'Gli orari del club per la data selezionata sono in aggiornamento. La disponibilità cambia in tempo reale.';
+    }
+
+    return `Orari del club per la data selezionata: dalle ${openingHoursSummary.opensAt} alle ${openingHoursSummary.closesAt}. La disponibilità cambia in tempo reale.`;
+  }, [openingHoursSummary]);
+  const openingHoursPillText = openingHoursSummary ? `${openingHoursSummary.opensAt} - ${openingHoursSummary.closesAt}` : 'Orari in aggiornamento';
 
   useEffect(() => {
     void loadConfig();
@@ -264,20 +276,24 @@ export function PublicBookingPage() {
             </div>
             <div className='mt-6 border-t border-white/10 pt-5'>
               <div className='grid gap-3 sm:grid-cols-2'>
-                <InfoPill icon={<Clock3 size={16} />} title='Campo aperto' text='Da Lunedì a Domenica dalle 7 alle 24' />
+                <InfoPill icon={<Clock3 size={16} />} title='Campo aperto' text={openingHoursPillText} />
                 <InfoPill icon={<CreditCard size={16} />} title='Prenotazione diretta' text={depositRequired ? 'Caparra e listino nella prima scheda' : 'Conferma diretta del club'} />
               </div>
             </div>
             {publicConfig ? (
               <div className='product-context-panel'>
                 <div className='product-context-layout'>
-                  <div>
-                    <p className='text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/80'>Tenant attivo</p>
+                  <div className='space-y-4'>
                     <div className='mt-2 flex items-center gap-2 text-lg font-semibold text-white'>
                       <Building2 size={18} className='text-cyan-200' />
                       <span>{tenantDisplayName}</span>
                     </div>
-                    <p className='mt-1 text-sm text-slate-300'>Slug: {publicConfig.tenant_slug} • Fuso: {publicConfig.timezone}</p>
+                    {communityAccessPath ? (
+                      <Link to={communityAccessPath} className='hero-action-secondary'>
+                        <LogIn size={16} className='text-cyan-200' />
+                        <span>Entra o rientra nella community</span>
+                      </Link>
+                    ) : null}
                   </div>
                   <div className='flex flex-col gap-2 text-sm text-slate-200'>
                     {publicConfig.contact_email ? (
@@ -292,12 +308,6 @@ export function PublicBookingPage() {
                         <span>{publicConfig.support_phone}</span>
                       </a>
                     ) : null}
-                    {communityAccessPath ? (
-                      <Link to={communityAccessPath} className='hero-action-secondary'>
-                        <LogIn size={16} className='text-cyan-200' />
-                        <span>Entra o rientra nella community</span>
-                      </Link>
-                    ) : null}
                   </div>
                 </div>
               </div>
@@ -308,7 +318,7 @@ export function PublicBookingPage() {
         <main className='space-y-6'>
           <div className='grid gap-6 lg:grid-cols-[1.05fr_0.95fr]'>
             <section>
-              <SectionCard title='Scegli data e durata' description={`${openingHoursText}. La disponibilità cambia in tempo reale.`} elevated>
+              <SectionCard title='Scegli data e durata' description={openingHoursDescription} elevated>
               <div className='grid gap-3 md:grid-cols-3'>
                 {bookingOverviewCards.map((card) => (
                   <div key={card.label} className='surface-muted'>
@@ -350,7 +360,14 @@ export function PublicBookingPage() {
                   </ul>
                 </div>
               ) : null}
-              <p className='mt-4 text-sm leading-5 text-slate-500'>Listini e extra sono mostrati solo nel contesto del club selezionato.</p>
+              <div className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                <p className='text-sm leading-5 text-slate-500'>Listini e extra sono mostrati solo nel contesto del club selezionato.</p>
+                {clubRatesPath ? (
+                  <Link className='btn-secondary sm:min-w-24' to={clubRatesPath}>
+                    <span>Vai</span>
+                  </Link>
+                ) : null}
+              </div>
               <div className='mb-4 flex items-center gap-2'>
                 <Calendar size={18} className='text-cyan-600' />
                 <p className={secondarySectionTitleClassName}>Selezione slot</p>
@@ -549,86 +566,6 @@ function formatBookingDayLabel(value: string, timezone = 'Europe/Rome') {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-function hasEnabledPublicBookingDeposit(config: PublicConfig | null) {
-  if (!config) {
-    return false;
-  }
-
-  const enabled = config.public_booking_deposit_enabled ?? true;
-  const baseAmount = config.public_booking_base_amount ?? 20;
-  const includedMinutes = config.public_booking_included_minutes ?? 90;
-
-  return Boolean(enabled)
-    && Number(baseAmount) > 0
-    && Number(includedMinutes) > 0;
-}
-
-function buildPublicDepositRuleText(config: PublicConfig | null, currentDepositAmount: number) {
-  if (!config || !hasEnabledPublicBookingDeposit(config)) {
-    return 'Nessuna caparra online prevista per questo club.';
-  }
-
-  const baseAmount = Number(config.public_booking_base_amount ?? 20);
-  const includedMinutes = Number(config.public_booking_included_minutes ?? 90);
-  const extraAmount = Number(config.public_booking_extra_amount ?? 10);
-  const extraStepMinutes = Number(config.public_booking_extra_step_minutes ?? 30);
-
-  if (extraAmount > 0 && extraStepMinutes > 0) {
-    return `${formatCurrency(baseAmount)} fino a ${includedMinutes} minuti. Poi si aggiungono ${formatCurrency(extraAmount)} ogni ${extraStepMinutes} minuti successivi. Importo attuale: ${formatCurrency(currentDepositAmount)}.`;
-  }
-
-  return `${formatCurrency(baseAmount)} fino a ${includedMinutes} minuti. Nessun extra oltre la soglia configurata dal club.`;
-}
-
-function buildBookingOverviewCards(config: PublicConfig | null, durationMinutes: number, depositRequired: boolean, depositAmount: number) {
-  return [
-    {
-      label: 'Caparra',
-      value: depositRequired ? formatCurrency(depositAmount) : 'Non prevista',
-      helper: depositRequired ? `${durationMinutes} minuti • pagamento online` : 'Conferma diretta del club',
-    },
-    {
-      label: 'Tesserati',
-      value: formatBookingRateValue(calculatePublicPlayerRate(config, durationMinutes, 'member')),
-      helper: `${durationMinutes} minuti per giocatore`,
-    },
-    {
-      label: 'Non tesserati',
-      value: formatBookingRateValue(calculatePublicPlayerRate(config, durationMinutes, 'non-member')),
-      helper: `${durationMinutes} minuti per giocatore`,
-    },
-  ];
-}
-
-function calculatePublicPlayerRate(config: PublicConfig | null, durationMinutes: number, playerType: 'member' | 'non-member') {
-  if (!config) {
-    return null;
-  }
-
-  const hourlyRate = playerType === 'member' ? config.member_hourly_rate : config.non_member_hourly_rate;
-  const ninetyMinuteRate = playerType === 'member' ? config.member_ninety_minute_rate : config.non_member_ninety_minute_rate;
-
-  if (durationMinutes <= 60) {
-    return hourlyRate;
-  }
-
-  if (durationMinutes === 90) {
-    return ninetyMinuteRate;
-  }
-
-  const halfHourStepRate = ninetyMinuteRate - hourlyRate;
-  const extraHalfHourBlocks = Math.max(0, Math.round((durationMinutes - 90) / 30));
-  return ninetyMinuteRate + (extraHalfHourBlocks * halfHourStepRate);
-}
-
-function formatBookingRateValue(rate: number | null) {
-  if (rate == null) {
-    return 'In aggiornamento';
-  }
-
-  return formatCurrency(rate);
-}
-
 function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability[] {
   if (response.courts && response.courts.length > 0) {
     return response.courts;
@@ -657,6 +594,60 @@ function normalizeCourtGroups(response: AvailabilityResponse): CourtAvailability
 
 function flattenCourtSlots(groups: CourtAvailability[]) {
   return groups.flatMap((group) => group.slots);
+}
+
+function buildOpeningHoursSummary(groups: CourtAvailability[]) {
+  const slots = flattenCourtSlots(groups).filter(isDisplayableSlot);
+  if (slots.length === 0) {
+    return null;
+  }
+
+  let earliestStartTime = slots[0].start_time;
+  let latestSlot = slots[0];
+  let earliestStartMinutes = toTimeMinutes(slots[0].start_time);
+  let latestEndMinutes = toSlotEndMinutes(slots[0]);
+
+  for (const slot of slots.slice(1)) {
+    const slotStartMinutes = toTimeMinutes(slot.start_time);
+    const slotEndMinutes = toSlotEndMinutes(slot);
+
+    if (slotStartMinutes < earliestStartMinutes) {
+      earliestStartMinutes = slotStartMinutes;
+      earliestStartTime = slot.start_time;
+    }
+
+    if (slotEndMinutes > latestEndMinutes) {
+      latestEndMinutes = slotEndMinutes;
+      latestSlot = slot;
+    }
+  }
+
+  return {
+    opensAt: formatOperatingTimeLabel(earliestStartTime),
+    closesAt: formatOperatingTimeLabel(latestSlot.end_time, { treatMidnightAs24: true }),
+  };
+}
+
+function toTimeMinutes(timeValue: string) {
+  const [hours, minutes] = timeValue.split(':').map(Number);
+  return (hours * 60) + minutes;
+}
+
+function toSlotEndMinutes(slot: TimeSlot) {
+  const startMinutes = toTimeMinutes(slot.start_time);
+  const endMinutes = toTimeMinutes(slot.end_time);
+  if (endMinutes < startMinutes) {
+    return endMinutes + (24 * 60);
+  }
+  return endMinutes;
+}
+
+function formatOperatingTimeLabel(timeValue: string, options?: { treatMidnightAs24?: boolean }) {
+  if (options?.treatMidnightAs24 && timeValue === '00:00') {
+    return '24:00';
+  }
+
+  return timeValue;
 }
 
 function getDisplayedCourtSlots({
@@ -745,12 +736,8 @@ function buildHighlightedSlotIds(slots: TimeSlot[], selectedSlotId: string, dura
     .map((slot) => slot.slot_id);
 }
 
-function isSlotWithinOpeningHours(slot: TimeSlot) {
-  if (slot.start_time < '07:00') {
-    return false;
-  }
-
-  return slot.end_time === '00:00' || slot.end_time > slot.start_time;
+function isDisplayableSlot(slot: TimeSlot) {
+  return slot.end_time !== slot.start_time;
 }
 
 function StepCard({ index, title, description }: { index: string; title: string; description: string }) {

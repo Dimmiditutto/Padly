@@ -12,6 +12,7 @@
   --radius-xl: 1.5rem;
   --radius-2xl: 1.75rem;
   --shadow-soft: 0 18px 60px rgba(4, 17, 31, 0.12);
+  --matchinn-hero-logo-width: min(60vw, 25.2rem);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -37,6 +38,46 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+#loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.4s ease;
+}
+
+.loader-hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.loader-logo {
+  width: 120px;
+  height: auto;
+  animation: loaderPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes loaderPulse {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
 }
 
 h1,
@@ -110,7 +151,7 @@ h4 {
 
   .product-hero-logo-image {
     display: block;
-    width: min(60%, 25.2rem);
+    width: var(--matchinn-hero-logo-width);
     max-width: 100%;
     height: auto;
   }
@@ -121,7 +162,7 @@ h4 {
     }
 
     .product-hero-logo-image {
-      width: min(60%, 25.2rem);
+      width: var(--matchinn-hero-logo-width);
       max-width: 100%;
     }
   }
@@ -152,7 +193,7 @@ h4 {
 
   .page-brand-logo-image {
     display: block;
-    width: min(60vw, 25.2rem);
+    width: var(--matchinn-hero-logo-width);
     height: auto;
   }
 

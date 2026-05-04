@@ -10,14 +10,16 @@ import {
   createPublicClubContactRequest,
   followPublicClub,
   getPublicClubDetail,
+  getPublicConfig,
   getPublicDiscoveryMe,
   listPublicWatchlist,
   unfollowPublicClub,
 } from '../services/publicApi';
-import type { PlayLevel, PublicClubDetailResponse, PublicClubWatchSummary, PublicDiscoveryMeResponse } from '../types';
+import type { PlayLevel, PublicClubDetailResponse, PublicClubWatchSummary, PublicConfig, PublicDiscoveryMeResponse } from '../types';
 import { withTenantPath } from '../utils/tenantContext';
-import { formatDate, formatTimeValue } from '../utils/format';
+import { formatCurrency, formatDate, formatTimeValue } from '../utils/format';
 import { buildClubPlayPath, buildPlayAccessPath, formatPlayLevel, PLAY_LEVEL_OPTIONS } from '../utils/play';
+import { calculatePublicPlayerRate, formatBookingRateValue, hasEnabledPublicBookingDeposit } from '../utils/publicBooking';
 
 type LevelFilter = 'ALL' | PlayLevel;
 type FeedbackState = { tone: 'error' | 'warning' | 'success' | 'info'; message: string } | null;
@@ -84,6 +86,7 @@ function buildPriorityGroups(matches: PublicClubDetailResponse['open_matches']) 
 export function PublicClubPage() {
   const { clubSlug } = useParams();
   const [detail, setDetail] = useState<PublicClubDetailResponse | null>(null);
+  const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [selectedLevel, setSelectedLevel] = useState<LevelFilter>('ALL');
@@ -113,6 +116,13 @@ export function PublicClubPage() {
       return;
     }
     void loadDiscoveryContext();
+  }, [clubSlug]);
+
+  useEffect(() => {
+    if (!clubSlug) {
+      return;
+    }
+    void loadClubConfig(clubSlug);
   }, [clubSlug]);
 
   async function loadDetail(resolvedClubSlug: string, level: PlayLevel | null) {
@@ -150,12 +160,22 @@ export function PublicClubPage() {
     }
   }
 
+  async function loadClubConfig(resolvedClubSlug: string) {
+    try {
+      const response = await getPublicConfig(resolvedClubSlug);
+      setPublicConfig(response);
+    } catch {
+      setPublicConfig(null);
+    }
+  }
+
   const levelOptions = useMemo(() => PLAY_LEVEL_OPTIONS.filter((option) => option.value !== 'NO_PREFERENCE'), []);
   const watchItem = useMemo(
     () => watchlist.find((item) => item.club.club_slug === clubSlug),
     [clubSlug, watchlist]
   );
   const priorityGroups = useMemo(() => (detail ? buildPriorityGroups(detail.open_matches) : []), [detail]);
+  const clubPublicBookingExtras = publicConfig?.public_booking_extras ?? [];
 
   if (!clubSlug) {
     return (
@@ -220,88 +240,130 @@ export function PublicClubPage() {
             </header>
 
             <div className='mt-6 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]'>
-              <SectionCard title='Informazioni Club' elevated>
-                <div className='space-y-4'>
-                  <div className='surface-muted'>
-                    <p className='text-sm font-semibold text-slate-900'>Stato community</p>
-                    <p className='mt-2 text-sm text-slate-600'>{detail.club.is_community_open ? 'Il club accetta nuovi ingressi nella community.' : 'La community del club resta privata e l accesso va richiesto.'}</p>
-                  </div>
-                  <div className='surface-muted'>
-                    <p className='text-sm font-semibold text-slate-900'>Match Alert</p>
-                    <p className='mt-2 text-sm text-slate-600'>
-                      {watchItem
-                        ? `Stai seguendo questo club. Match compatibili ora visibili nei club seguiti: ${watchItem.matching_open_match_count}.`
-                        : discovery.subscriber
-                          ? 'Puoi seguire questo club per ricevere alert 2/4, 3/4 e tenerlo tra i club seguiti.'
-                          : 'Per seguire il club devi prima salvare i Match Alert dalla directory pubblica.'}
-                    </p>
-                    <div className='mt-3 flex flex-col gap-3 sm:flex-row'>
-                      <button
-                        type='button'
-                        className='btn-secondary'
-                        disabled={watchActionLoading || discoveryLoading}
-                        onClick={() => void (async () => {
-                          if (!clubSlug) {
-                            return;
-                          }
-                          if (!discovery.subscriber) {
-                            setContactFeedback({ tone: 'info', message: 'Salva prima i Match Alert dalla directory per seguire i club pubblici.' });
-                            return;
-                          }
-                          setWatchActionLoading(true);
-                          setContactFeedback(null);
-                          try {
-                            if (watchItem) {
-                              await unfollowPublicClub(clubSlug);
-                              setContactFeedback({ tone: 'success', message: 'Club rimosso dai club seguiti.' });
-                            } else {
-                              await followPublicClub(clubSlug);
-                              setContactFeedback({ tone: 'success', message: 'Club aggiunto ai club seguiti.' });
+              <div className='space-y-6'>
+                <SectionCard title='Informazioni Club' elevated>
+                  <div className='space-y-4'>
+                    <div className='surface-muted'>
+                      <p className='text-sm font-semibold text-slate-900'>Stato community</p>
+                      <p className='mt-2 text-sm text-slate-600'>{detail.club.is_community_open ? 'Il club accetta nuovi ingressi nella community.' : 'La community del club resta privata e l accesso va richiesto.'}</p>
+                    </div>
+                    <div className='surface-muted'>
+                      <p className='text-sm font-semibold text-slate-900'>Match Alert</p>
+                      <p className='mt-2 text-sm text-slate-600'>
+                        {watchItem
+                          ? `Stai seguendo questo club. Match compatibili ora visibili nei club seguiti: ${watchItem.matching_open_match_count}.`
+                          : discovery.subscriber
+                            ? 'Puoi seguire questo club per ricevere alert 2/4, 3/4 e tenerlo tra i club seguiti.'
+                            : 'Per seguire il club devi prima salvare i Match Alert dalla directory pubblica.'}
+                      </p>
+                      <div className='mt-3 flex flex-col gap-3 sm:flex-row'>
+                        <button
+                          type='button'
+                          className='btn-secondary'
+                          disabled={watchActionLoading || discoveryLoading}
+                          onClick={() => void (async () => {
+                            if (!clubSlug) {
+                              return;
                             }
-                            await loadDiscoveryContext();
-                          } catch (error) {
-                            setContactFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento club seguiti non riuscito.') });
-                          } finally {
-                            setWatchActionLoading(false);
-                          }
-                        })()}
-                      >
-                        <BellRing size={16} />
-                        <span>
-                          {watchActionLoading
-                            ? 'Aggiornamento…'
-                            : watchItem
-                              ? 'Rimuovi dalla watchlist'
-                              : 'Segui questo club'}
-                        </span>
-                      </button>
-                      <Link className='btn-secondary' to='/clubs'>
-                        <span>{discovery.subscriber ? 'Apri Match Alert' : 'Attiva Match Alert'}</span>
-                      </Link>
+                            if (!discovery.subscriber) {
+                              setContactFeedback({ tone: 'info', message: 'Salva prima i Match Alert dalla directory per seguire i club pubblici.' });
+                              return;
+                            }
+                            setWatchActionLoading(true);
+                            setContactFeedback(null);
+                            try {
+                              if (watchItem) {
+                                await unfollowPublicClub(clubSlug);
+                                setContactFeedback({ tone: 'success', message: 'Club rimosso dai club seguiti.' });
+                              } else {
+                                await followPublicClub(clubSlug);
+                                setContactFeedback({ tone: 'success', message: 'Club aggiunto ai club seguiti.' });
+                              }
+                              await loadDiscoveryContext();
+                            } catch (error) {
+                              setContactFeedback({ tone: 'error', message: parseApiError(error, 'Aggiornamento club seguiti non riuscito.') });
+                            } finally {
+                              setWatchActionLoading(false);
+                            }
+                          })()}
+                        >
+                          <BellRing size={16} />
+                          <span>
+                            {watchActionLoading
+                              ? 'Aggiornamento…'
+                              : watchItem
+                                ? 'Rimuovi dalla watchlist'
+                                : 'Segui questo club'}
+                          </span>
+                        </button>
+                        <Link className='btn-secondary' to='/clubs'>
+                          <span>{discovery.subscriber ? 'Apri Match Alert' : 'Attiva Match Alert'}</span>
+                        </Link>
+                      </div>
                     </div>
-                  </div>
-                  <div className='grid gap-3 sm:grid-cols-2'>
+                    <div className='grid gap-3 sm:grid-cols-2'>
+                      <div className='surface-muted'>
+                        <p className='text-sm font-semibold text-slate-900'>Campi attivi</p>
+                        <p className='mt-2 text-2xl font-semibold text-slate-950'>{detail.club.courts_count}</p>
+                      </div>
+                      <div className='surface-muted'>
+                        <p className='text-sm font-semibold text-slate-900'>Finestra partite open</p>
+                        <p className='mt-2 text-sm text-slate-600'>Mostriamo solo i prossimi {detail.public_match_window_days} giorni utili.</p>
+                      </div>
+                    </div>
                     <div className='surface-muted'>
-                      <p className='text-sm font-semibold text-slate-900'>Campi attivi</p>
-                      <p className='mt-2 text-2xl font-semibold text-slate-950'>{detail.club.courts_count}</p>
+                      <p className='text-sm font-semibold text-slate-900'>Ranking pubblico minimo</p>
+                      <p className='mt-2 text-sm text-slate-600'>{detail.club.public_activity_label}</p>
+                      <p className='mt-2 text-sm text-slate-600'>Score pubblico {detail.club.public_activity_score} calcolato su {detail.club.recent_open_matches_count} match open visibili nei prossimi {detail.public_match_window_days} giorni.</p>
                     </div>
-                    <div className='surface-muted'>
-                      <p className='text-sm font-semibold text-slate-900'>Finestra partite open</p>
-                      <p className='mt-2 text-sm text-slate-600'>Mostriamo solo i prossimi {detail.public_match_window_days} giorni utili.</p>
+                    <div className='surface-muted text-sm text-slate-600'>
+                      {detail.club.contact_email ? <p className='flex items-center gap-2'><Mail size={16} className='text-cyan-700' /> {detail.club.contact_email}</p> : null}
+                      {detail.support_phone ? <p className='mt-2 flex items-center gap-2'><Phone size={16} className='text-cyan-700' /> {detail.support_phone}</p> : null}
+                      {!detail.club.contact_email && !detail.support_phone ? <p>Contatti pubblici non disponibili.</p> : null}
                     </div>
                   </div>
-                  <div className='surface-muted'>
-                    <p className='text-sm font-semibold text-slate-900'>Ranking pubblico minimo</p>
-                    <p className='mt-2 text-sm text-slate-600'>{detail.club.public_activity_label}</p>
-                    <p className='mt-2 text-sm text-slate-600'>Score pubblico {detail.club.public_activity_score} calcolato su {detail.club.recent_open_matches_count} match open visibili nei prossimi {detail.public_match_window_days} giorni.</p>
-                  </div>
-                  <div className='surface-muted text-sm text-slate-600'>
-                    {detail.club.contact_email ? <p className='flex items-center gap-2'><Mail size={16} className='text-cyan-700' /> {detail.club.contact_email}</p> : null}
-                    {detail.support_phone ? <p className='mt-2 flex items-center gap-2'><Phone size={16} className='text-cyan-700' /> {detail.support_phone}</p> : null}
-                    {!detail.club.contact_email && !detail.support_phone ? <p>Contatti pubblici non disponibili.</p> : null}
-                  </div>
-                </div>
-              </SectionCard>
+                </SectionCard>
+
+                {publicConfig ? (
+                  <SectionCard sectionId='club-rates' title='Tariffe ed extra' description='Riferimenti pubblici del club per caparra, tariffe e servizi extra.' elevated>
+                    <div className='space-y-4'>
+                      <div className='grid gap-3 md:grid-cols-3'>
+                        <div className='surface-muted'>
+                          <p className='text-sm font-semibold uppercase tracking-[0.16em] text-slate-500'>Caparra online</p>
+                          <p className='mt-2 text-xl font-semibold text-slate-950'>{hasEnabledPublicBookingDeposit(publicConfig) ? formatCurrency(Number(publicConfig.public_booking_base_amount ?? 0)) : 'Non prevista'}</p>
+                          <p className='mt-2 text-sm leading-6 text-slate-600'>
+                            {hasEnabledPublicBookingDeposit(publicConfig)
+                              ? `Fino a ${publicConfig.public_booking_included_minutes} minuti, poi si applicano gli extra del club.`
+                              : 'Il club conferma direttamente senza caparra online.'}
+                          </p>
+                        </div>
+                        <div className='surface-muted'>
+                          <p className='text-sm font-semibold uppercase tracking-[0.16em] text-slate-500'>Tesserati</p>
+                          <p className='mt-2 text-xl font-semibold text-slate-950'>{formatBookingRateValue(calculatePublicPlayerRate(publicConfig, 60, 'member'))}</p>
+                          <p className='mt-2 text-sm leading-6 text-slate-600'>60 minuti per giocatore. 90 minuti: {formatBookingRateValue(calculatePublicPlayerRate(publicConfig, 90, 'member'))}.</p>
+                        </div>
+                        <div className='surface-muted'>
+                          <p className='text-sm font-semibold uppercase tracking-[0.16em] text-slate-500'>Non tesserati</p>
+                          <p className='mt-2 text-xl font-semibold text-slate-950'>{formatBookingRateValue(calculatePublicPlayerRate(publicConfig, 60, 'non-member'))}</p>
+                          <p className='mt-2 text-sm leading-6 text-slate-600'>60 minuti per giocatore. 90 minuti: {formatBookingRateValue(calculatePublicPlayerRate(publicConfig, 90, 'non-member'))}.</p>
+                        </div>
+                      </div>
+                      <div className='surface-muted'>
+                        <p className='text-sm font-semibold text-slate-900'>Extra del club</p>
+                        {clubPublicBookingExtras.length > 0 ? (
+                          <ul className='mt-2 space-y-1 text-sm text-slate-600'>
+                            {clubPublicBookingExtras.map((extra) => (
+                              <li key={extra}>• {extra}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className='mt-2 text-sm text-slate-600'>Nessun extra pubblico configurato.</p>
+                        )}
+                      </div>
+                    </div>
+                  </SectionCard>
+                ) : null}
+              </div>
 
               <SectionCard title='Partite da chiudere' description='Filtra per livello. Poi scegli se entrare nella community o richiedere accesso.'>
                 <div className='space-y-4'>
