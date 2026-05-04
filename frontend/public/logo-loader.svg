@@ -1,5 +1,15 @@
 <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="60" cy="60" r="54" stroke="#22D3EE" stroke-opacity="0.32" stroke-width="4"/>
-  <circle cx="60" cy="60" r="38" stroke="#22D3EE" stroke-opacity="0.16" stroke-width="2" stroke-dasharray="6 6"/>
-  <path d="M22 86V34H34L60 62L86 34H98V86H84V55.5L60 81L36 55.5V86H22Z" fill="white"/>
+  <defs>
+    <linearGradient id="matchinnGradient" x1="24" y1="18" x2="96" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DFF4FF"/>
+      <stop offset="0.55" stop-color="#4EB4EA"/>
+      <stop offset="1" stop-color="#0D84C0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="54" stroke="#22D3EE" stroke-opacity="0.22" stroke-width="4"/>
+  <circle cx="60" cy="60" r="40" stroke="#22D3EE" stroke-opacity="0.12" stroke-width="2" stroke-dasharray="6 6"/>
+  <path d="M30 42V34C30 27.3726 35.3726 22 42 22H52" stroke="url(#matchinnGradient)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M68 22H78C84.6274 22 90 27.3726 90 34V42" stroke="url(#matchinnGradient)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M90 78V86C90 92.6274 84.6274 98 78 98H68" stroke="url(#matchinnGradient)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M52 98H42C35.3726 98 30 92.6274 30 86V78" stroke="url(#matchinnGradient)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
