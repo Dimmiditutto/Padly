@@ -58,25 +58,19 @@ body {
 }
 
 .loader-logo {
-  width: 120px;
+  width: min(160px, 42vw);
   height: auto;
-  animation: loaderPulse 1.4s ease-in-out infinite;
+  transform-origin: center;
+  animation: loaderSpin 9s linear infinite;
 }
 
-@keyframes loaderPulse {
+@keyframes loaderSpin {
   0% {
-    transform: rotate(0deg) scale(0.92);
-    opacity: 0.55;
-  }
-
-  50% {
-    transform: rotate(180deg) scale(1);
-    opacity: 1;
+    transform: rotate(0deg);
   }
 
   100% {
-    transform: rotate(360deg) scale(0.92);
-    opacity: 0.55;
+    transform: rotate(360deg);
   }
 }
 

@@ -8,7 +8,7 @@ export function GlobalLoader() {
 
   return (
     <div id='loader' className={isVisible ? '' : 'loader-hidden'} aria-hidden={!isVisible}>
-      <img src='/logo-loader.svg' alt='Caricamento Matchinn' className='loader-logo' />
+      <img src='/logo-loader.svg?v=20260504-2' alt='Caricamento Matchinn' className='loader-logo' />
     </div>
   );
 }
