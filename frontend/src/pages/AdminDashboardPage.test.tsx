@@ -799,7 +799,7 @@ describe('AdminDashboardPage', () => {
     expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
     expect(decoded).toContain('📈 Livello Intermedio medio\n📍 PadelBooking');
     expect(decoded).toContain('📍 PadelBooking\n\n🎾 Luca Smash');
-    expect(decoded).toContain('🎾 Marco Topspin\n\nClicca ed entra! `👇🏻`');
+    expect(decoded).toContain('🎾 Marco Topspin\n\nClicca ed unisciti alla partita! `👇🏻`');
     expect(decoded).toContain('📅 *');
     expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('📍 PadelBooking');

@@ -137,7 +137,7 @@ export function buildPlayMatchShareText({
     lines.push('', ...participantLines);
   }
 
-  lines.push('', 'Clicca ed entra! `👇🏻`', shareUrl);
+  lines.push('', 'Clicca ed unisciti alla partita! `👇🏻`', shareUrl);
 
   return lines.join('\n');
 }

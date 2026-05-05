@@ -420,6 +420,42 @@ def test_play_match_search_players_route_dispatches_once_and_then_enforces_coold
         assert len(events) == 1
 
 
+def test_play_match_search_players_route_notifies_compatible_one_of_four_candidates_on_manual_trigger(client):
+    creator = identify_as(client, profile_name='Search Trigger Solo Creator', phone='3337600191')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id']],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='1 su 4 cerca giocatori manuale',
+    )
+
+    candidate_id = seed_player(
+        club_id=DEFAULT_CLUB_ID,
+        profile_name='Search Trigger Solo Candidate',
+        phone='3337600192',
+        declared_level=PlayLevel.INTERMEDIATE_MEDIUM,
+    )
+
+    response = client.post(f'/api/play/matches/{match_id}/search-players')
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['notifications_created'] == 1
+    assert payload['cooldown_remaining_seconds'] == 0
+    assert payload['message'] == 'Abbiamo avvisato 1 player compatibili.'
+
+    with SessionLocal() as db:
+        logs = db.scalars(select(NotificationLog).where(NotificationLog.match_id == match_id)).all()
+        assert {item.player_id for item in logs} == {candidate_id}
+        assert logs[0].kind == NotificationKind.MATCH_ONE_OF_FOUR
+        assert logs[0].payload['event'] == 'manual_search_players'
+
+
 def test_play_match_search_players_route_rejects_non_creator(client):
     creator = identify_as(client, profile_name='Search Trigger Creator Guard', phone='3337600094')
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)

@@ -607,18 +607,20 @@ def revoke_push_subscription(
     return len(subscriptions)
 
 
-def _notification_kind_for_match(match: Match, *, now: datetime) -> NotificationKind | None:
+def _notification_kind_for_match(match: Match, *, now: datetime, manual_search: bool = False) -> NotificationKind | None:
     participant_count = len(match.participants)
     if participant_count >= 3:
         return NotificationKind.MATCH_THREE_OF_FOUR
     if participant_count == 2:
         return NotificationKind.MATCH_TWO_OF_FOUR
-    if participant_count == 1 and _as_utc(match.start_at) <= now + timedelta(hours=24):
+    if participant_count == 1 and (manual_search or _as_utc(match.start_at) <= now + timedelta(hours=24)):
         return NotificationKind.MATCH_ONE_OF_FOUR
     return None
 
 
-def _kind_enabled(preference: PlayerNotificationPreference | None, kind: NotificationKind) -> bool:
+def _kind_enabled(preference: PlayerNotificationPreference | None, kind: NotificationKind, *, manual_search: bool = False) -> bool:
+    if manual_search and kind == NotificationKind.MATCH_ONE_OF_FOUR:
+        return True
     if preference is None:
         return kind != NotificationKind.MATCH_ONE_OF_FOUR
     if kind == NotificationKind.MATCH_THREE_OF_FOUR:
@@ -1143,6 +1145,7 @@ def dispatch_play_notifications_for_match(
     club_id: str,
     club_timezone: str | None,
     match_id: str,
+    manual_search: bool = False,
 ) -> dict:
     match = db.scalar(
         select(Match)
@@ -1161,7 +1164,7 @@ def dispatch_play_notifications_for_match(
     if _as_utc(match.start_at) <= now:
         return {'matches_processed': 0, 'notifications_created': 0}
 
-    kind = _notification_kind_for_match(match, now=now)
+    kind = _notification_kind_for_match(match, now=now, manual_search=manual_search)
     if kind is None:
         return {'matches_processed': 1, 'notifications_created': 0}
 
@@ -1187,7 +1190,7 @@ def dispatch_play_notifications_for_match(
     for candidate in candidates:
         profile = candidate.play_profile
         preference = candidate.notification_preference
-        if not _kind_enabled(preference, kind):
+        if not _kind_enabled(preference, kind, manual_search=manual_search):
             continue
         if preference and not preference.in_app_enabled and not preference.web_push_enabled:
             continue
@@ -1227,6 +1230,8 @@ def dispatch_play_notifications_for_match(
     for _, candidate, _, preference in scored_candidates[:recipient_limit]:
         title, message = _notification_copy_for_match(match, kind=kind, participant_count=participant_count)
         payload = _build_notification_payload(match, participant_count=participant_count)
+        if manual_search:
+            payload['event'] = 'manual_search_players'
         candidate_notified = False
         if preference is None or preference.in_app_enabled:
             if _create_notification_log_if_absent(

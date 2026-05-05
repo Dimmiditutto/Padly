@@ -2001,6 +2001,7 @@ def search_players_for_play_match(
             club_id=club_id,
             club_timezone=club_timezone,
             match_id=match.id,
+            manual_search=True,
         )
         recipients_count = int(result.get('recipients_count', 0))
         record_player_activity(

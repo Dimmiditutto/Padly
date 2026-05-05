@@ -1118,8 +1118,8 @@ describe('Play phase 2 pages', () => {
     expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
     expect(decoded).toContain('📈 Livello Intermedio medio\n📍 Roma Club');
     expect(decoded).toContain('📍 Roma Club\n\n🎾 Player 1');
-    expect(decoded).toContain('🎾 Player 2\n\nClicca ed entra! `👇🏻`');
-    expect(decoded).toContain('Clicca ed entra! `👇🏻`');
+    expect(decoded).toContain('🎾 Player 2\n\nClicca ed unisciti alla partita! `👇🏻`');
+    expect(decoded).toContain('Clicca ed unisciti alla partita! `👇🏻`');
     expect(decoded).toContain('📅 *');
     expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('🎾 Player 1');
