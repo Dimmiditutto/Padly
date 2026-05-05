@@ -73,6 +73,23 @@ function shouldUseMobileWhatsAppLink(): boolean {
 }
 
 
+function normalizeClubPublicName(publicName?: string | null): string | null {
+  const normalizedPublicName = String(publicName || '').trim();
+  if (!normalizedPublicName) {
+    return null;
+  }
+
+  if (!/^(?:[a-z][a-z\d+.-]*:\/\/|www\.)/i.test(normalizedPublicName)) {
+    return normalizedPublicName;
+  }
+
+  return normalizedPublicName
+    .replace(/^[a-z][a-z\d+.-]*:\/\//i, '')
+    .replace(/^www\./i, '')
+    .replace(/\/+$/g, '');
+}
+
+
 export function buildPlayMatchShareText({
   startAt,
   endAt,
@@ -93,6 +110,7 @@ export function buildPlayMatchShareText({
   const normalizedParticipantNames = participantNames
     .map((name) => String(name).trim())
     .filter(Boolean);
+  const normalizedClubName = normalizeClubPublicName(clubName);
 
   const participantLines = normalizedParticipantNames.map((name) => `🎾 ${name}`);
 
@@ -103,22 +121,23 @@ export function buildPlayMatchShareText({
     : `🕒 *Ore ${formattedStartTime}*`;
 
   const lines = [
-    '🎾 Match aperto',
+    '📣 MATCH APERTO',
+    '',
     `📅 *${formatShareWeekdayDate(startAt, timeZone)}*`,
     timeRangeLabel,
     '',
     `📈 Livello ${formatPlayLevel(levelRequested)}`,
   ];
 
-  if (clubName) {
-    lines.push(`📍 ${clubName}`);
+  if (normalizedClubName) {
+    lines.push(`📍 ${normalizedClubName}`);
   }
 
   if (participantLines.length > 0) {
     lines.push('', ...participantLines);
   }
 
-  lines.push('', 'Chi gioca?', shareUrl);
+  lines.push('', 'Clicca ed entra! `👇🏻`', shareUrl);
 
   return lines.join('\n');
 }
@@ -189,12 +208,12 @@ export function getRememberedClubPublicName(tenantSlug: string): string | null {
 
 
 export function resolveClubDisplayName(tenantSlug: string, publicName?: string | null): string | null {
-  const normalizedPublicName = String(publicName || '').trim();
+  const normalizedPublicName = normalizeClubPublicName(publicName);
   if (normalizedPublicName) {
     return normalizedPublicName;
   }
 
-  const rememberedPublicName = getRememberedClubPublicName(tenantSlug);
+  const rememberedPublicName = normalizeClubPublicName(getRememberedClubPublicName(tenantSlug));
   if (rememberedPublicName) {
     return rememberedPublicName;
   }

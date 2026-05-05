@@ -58,6 +58,9 @@ import {
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
 type InlineFeedback = { tone: FeedbackTone; message: string };
+type PlayMatchLevelFilter = PlayLevel | 'ALL';
+type PlayMatchDateOption = { value: string; label: string };
+type PlayMatchFilters = { date: string; level: PlayMatchLevelFilter };
 
 type PendingAction =
   | { kind: 'join'; match: PlayMatchSummary }
@@ -81,6 +84,142 @@ function paymentProviderLabel(provider: PaymentProvider) {
 function getApiErrorMessage(error: unknown, fallback: string) {
   const requestError = error as AxiosError<{ detail?: string }>;
   return requestError?.response?.data?.detail || (error instanceof Error ? error.message : fallback);
+}
+
+function getDateParts(dateValue: Date | string, timeZone?: string | null) {
+  const formatter = new Intl.DateTimeFormat('it-IT', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    ...(timeZone ? { timeZone } : {}),
+  });
+  const parts = formatter.formatToParts(typeof dateValue === 'string' ? new Date(dateValue) : dateValue);
+  return {
+    year: parts.find((part) => part.type === 'year')?.value || '0000',
+    month: parts.find((part) => part.type === 'month')?.value || '01',
+    day: parts.find((part) => part.type === 'day')?.value || '01',
+  };
+}
+
+function getMatchDateKey(dateValue: Date | string, timeZone?: string | null) {
+  const { year, month, day } = getDateParts(dateValue, timeZone);
+  return `${year}-${month}-${day}`;
+}
+
+function formatMatchDateOptionLabel(dateValue: string, timeZone?: string | null) {
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(dateValue));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function compareMatchesByStartAt(left: PlayMatchSummary, right: PlayMatchSummary) {
+  return new Date(left.start_at).getTime() - new Date(right.start_at).getTime();
+}
+
+function sortOpenPlayMatches(matches: PlayMatchSummary[]) {
+  return [...matches].sort((left, right) => (
+    (right.participant_count - left.participant_count)
+    || compareMatchesByStartAt(left, right)
+    || (new Date(left.created_at).getTime() - new Date(right.created_at).getTime())
+  ));
+}
+
+function sortMyPlayMatches(matches: PlayMatchSummary[]) {
+  return [...matches].sort((left, right) => (
+    compareMatchesByStartAt(left, right)
+    || (right.participant_count - left.participant_count)
+    || (new Date(left.created_at).getTime() - new Date(right.created_at).getTime())
+  ));
+}
+
+function filterPlayMatches(matches: PlayMatchSummary[], filters: PlayMatchFilters, timeZone?: string | null) {
+  return matches.filter((match) => {
+    if (filters.date && getMatchDateKey(match.start_at, timeZone) !== filters.date) {
+      return false;
+    }
+    if (filters.level !== 'ALL' && match.level_requested !== filters.level) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function buildPlayMatchDateOptions(matches: PlayMatchSummary[], timeZone?: string | null): PlayMatchDateOption[] {
+  const seen = new Set<string>();
+  return matches.flatMap((match) => {
+    const value = getMatchDateKey(match.start_at, timeZone);
+    if (seen.has(value)) {
+      return [];
+    }
+    seen.add(value);
+    return [{ value, label: formatMatchDateOptionLabel(match.start_at, timeZone) }];
+  });
+}
+
+function isMatchWithinNextSevenDays(dateValue: string, timeZone?: string | null) {
+  const today = new Date();
+  const windowEnd = new Date(today);
+  windowEnd.setDate(windowEnd.getDate() + 6);
+  const matchKey = getMatchDateKey(dateValue, timeZone);
+  return matchKey >= getMatchDateKey(today, timeZone) && matchKey <= getMatchDateKey(windowEnd, timeZone);
+}
+
+function formatMatchCount(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function PlayMatchFilterBar({
+  sectionLabel,
+  dateOptions,
+  dateFilter,
+  levelFilter,
+  onDateChange,
+  onLevelChange,
+}: {
+  sectionLabel: string;
+  dateOptions: PlayMatchDateOption[];
+  dateFilter: string;
+  levelFilter: PlayMatchLevelFilter;
+  onDateChange: (value: string) => void;
+  onLevelChange: (value: PlayMatchLevelFilter) => void;
+}) {
+  return (
+    <div className='surface-muted grid gap-3 lg:grid-cols-2'>
+      <label className='block'>
+        <span className='mb-2 block text-sm font-medium text-slate-700'>{`Data ${sectionLabel}`}</span>
+        <select
+          aria-label={`Data ${sectionLabel}`}
+          className='text-input min-h-11 py-2'
+          value={dateFilter}
+          onChange={(event) => onDateChange(event.target.value)}
+        >
+          <option value=''>Tutte le date</option>
+          {dateOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className='block'>
+        <span className='mb-2 block text-sm font-medium text-slate-700'>{`Livello ${sectionLabel}`}</span>
+        <select
+          aria-label={`Livello ${sectionLabel}`}
+          className='text-input min-h-11 py-2'
+          value={levelFilter}
+          onChange={(event) => onLevelChange(event.target.value as PlayMatchLevelFilter)}
+        >
+          <option value='ALL'>Tutti i livelli</option>
+          {PLAY_LEVEL_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
 }
 
 export function PlayPage() {
@@ -113,6 +252,12 @@ export function PlayPage() {
   const [readingNotificationId, setReadingNotificationId] = useState<string | null>(null);
   const [searchingPlayersMatchId, setSearchingPlayersMatchId] = useState<string | null>(null);
   const [browserPushEndpoint, setBrowserPushEndpoint] = useState<string | null>(null);
+  const [openMatchesExpanded, setOpenMatchesExpanded] = useState(false);
+  const [myMatchesExpanded, setMyMatchesExpanded] = useState(false);
+  const [openMatchDateFilter, setOpenMatchDateFilter] = useState('');
+  const [openMatchLevelFilter, setOpenMatchLevelFilter] = useState<PlayMatchLevelFilter>('ALL');
+  const [myMatchDateFilter, setMyMatchDateFilter] = useState('');
+  const [myMatchLevelFilter, setMyMatchLevelFilter] = useState<PlayMatchLevelFilter>('ALL');
   const browserSupportsPush = useMemo(() => isPlayPushSupported(), []);
 
   useEffect(() => {
@@ -156,8 +301,52 @@ export function PlayPage() {
     };
   }, [browserSupportsPush, currentPlayer, tenantSlug]);
 
+  useEffect(() => {
+    setOpenMatchesExpanded(false);
+    setMyMatchesExpanded(false);
+    setOpenMatchDateFilter('');
+    setOpenMatchLevelFilter('ALL');
+    setMyMatchDateFilter('');
+    setMyMatchLevelFilter('ALL');
+  }, [tenantSlug]);
+
   const openMatches = useMemo(() => playData?.open_matches || [], [playData]);
   const myMatches = useMemo(() => playData?.my_matches || [], [playData]);
+  const playTimezone = clubConfig?.timezone || null;
+  const sortedOpenMatches = useMemo(() => sortOpenPlayMatches(openMatches), [openMatches]);
+  const sortedMyMatches = useMemo(() => sortMyPlayMatches(myMatches), [myMatches]);
+  const openMatchDateOptions = useMemo(() => buildPlayMatchDateOptions(sortedOpenMatches, playTimezone), [sortedOpenMatches, playTimezone]);
+  const myMatchDateOptions = useMemo(() => buildPlayMatchDateOptions(sortedMyMatches, playTimezone), [sortedMyMatches, playTimezone]);
+  const filteredOpenMatches = useMemo(() => filterPlayMatches(sortedOpenMatches, {
+    date: openMatchDateFilter,
+    level: openMatchLevelFilter,
+  }, playTimezone), [sortedOpenMatches, openMatchDateFilter, openMatchLevelFilter, playTimezone]);
+  const filteredMyMatches = useMemo(() => filterPlayMatches(sortedMyMatches, {
+    date: myMatchDateFilter,
+    level: myMatchLevelFilter,
+  }, playTimezone), [sortedMyMatches, myMatchDateFilter, myMatchLevelFilter, playTimezone]);
+  const openMatchesReadyToComplete = useMemo(() => openMatches.filter((match) => match.participant_count === 3).length, [openMatches]);
+  const myMatchesNextSevenDays = useMemo(() => myMatches.filter((match) => isMatchWithinNextSevenDays(match.start_at, playTimezone)), [myMatches, playTimezone]);
+  const openMatchesSummary = openMatches.length > 0
+    ? `${formatMatchCount(openMatchesReadyToComplete, 'partita', 'partite')} su ${openMatches.length} da completare`
+    : 'Nessuna partita da completare';
+  const myMatchesSummary = !currentPlayer
+    ? 'Attiva il profilo community'
+    : myMatchesNextSevenDays.length > 0
+      ? `Sei dentro a ${formatMatchCount(myMatchesNextSevenDays.length, 'partita', 'partite')} nei prossimi 7 giorni`
+      : 'Nessuna partita nei prossimi 7 giorni';
+
+  useEffect(() => {
+    if (openMatchDateFilter && !openMatchDateOptions.some((option) => option.value === openMatchDateFilter)) {
+      setOpenMatchDateFilter('');
+    }
+  }, [openMatchDateFilter, openMatchDateOptions]);
+
+  useEffect(() => {
+    if (myMatchDateFilter && !myMatchDateOptions.some((option) => option.value === myMatchDateFilter)) {
+      setMyMatchDateFilter('');
+    }
+  }, [myMatchDateFilter, myMatchDateOptions]);
 
   function applyNotificationSettings(nextSettings: PlayNotificationSettings | null) {
     setNotificationSettings(nextSettings);
@@ -737,38 +926,107 @@ export function PlayPage() {
             <LoadingBlock label='Carico la bacheca community del club…' labelClassName='text-base' />
           ) : (
             <>
-              <SectionCard
-                title='Partite da completare'
-                elevated
-              >
-                <MatchBoard matches={openMatches} onJoin={handleJoin} onShare={handleShare} />
-              </SectionCard>
-
-              {currentPlayer ? (
-                <SectionCard sectionId='play-user-section' title='Le mie partite'>
-                  <MyMatches
-                    matches={myMatches}
-                    currentPlayerId={currentPlayer.id}
-                    onOpen={handleOpenShared}
-                    onShare={handleShare}
-                    onSearchPlayers={(match) => void handleSearchPlayers(match)}
-                    onRotateShareToken={(match) => void handleRotateShareToken(match)}
-                    onRevokeShareToken={(match) => void handleRevokeShareToken(match)}
-                    onLeave={(match) => void handleLeave(match)}
-                    onEdit={openManagePanel}
-                    onCancel={(match) => void handleCancel(match)}
-                  />
-                </SectionCard>
-              ) : (
-                <SectionCard title='Le mie partite'>
-                  <div className='surface-muted flex items-start gap-3'>
-                    <div className='flex items-center gap-3'>
-                      <UsersRound size={18} className='text-cyan-700' />
-                      <p className='text-sm text-slate-700'>Quando attivi il profilo community, qui ritrovi join, creazione e notifiche. Usa il pulsante in alto per entrare o rientrare senza aprire un secondo passaggio.</p>
+              <div className='grid gap-6 xl:grid-cols-2 xl:items-start'>
+                <div className={openMatchesExpanded ? 'xl:col-span-2' : ''}>
+                  <SectionCard
+                    title='Partite da completare'
+                    description='Filtra per data e livello. Le partite 3/4 vengono visualizzate prima di 2/4 e 1/4.'
+                    collapsedDescription='Apri per filtrare per data e livello.'
+                    elevated
+                    collapsible
+                    defaultExpanded={false}
+                    expanded={openMatchesExpanded}
+                    onExpandedChange={setOpenMatchesExpanded}
+                    collapsedUniform
+                    collapsedClassName='section-card-collapsed-compact'
+                    actions={(expanded) => (!expanded ? (
+                      <div className='rounded-full bg-slate-100 px-3 py-2 text-right text-xs font-semibold text-slate-600'>
+                        {openMatchesSummary}
+                      </div>
+                    ) : null)}
+                  >
+                    <div className='space-y-4'>
+                      <PlayMatchFilterBar
+                        sectionLabel='partite aperte'
+                        dateOptions={openMatchDateOptions}
+                        dateFilter={openMatchDateFilter}
+                        levelFilter={openMatchLevelFilter}
+                        onDateChange={setOpenMatchDateFilter}
+                        onLevelChange={setOpenMatchLevelFilter}
+                      />
+                      <MatchBoard matches={filteredOpenMatches} onJoin={handleJoin} onShare={handleShare} />
                     </div>
-                  </div>
-                </SectionCard>
-              )}
+                  </SectionCard>
+                </div>
+
+                <div className={myMatchesExpanded ? 'xl:col-span-2' : ''}>
+                  {currentPlayer ? (
+                    <SectionCard
+                      sectionId='play-user-section'
+                      title='Le mie partite'
+                      description='Filtra per data e livello i match in cui sei gia dentro.'
+                      collapsedDescription='Apri per filtrare per data e livello.'
+                      collapsible
+                      defaultExpanded={false}
+                      expanded={myMatchesExpanded}
+                      onExpandedChange={setMyMatchesExpanded}
+                      collapsedUniform
+                      collapsedClassName='section-card-collapsed-compact'
+                      actions={(expanded) => (!expanded ? (
+                        <div className='rounded-full bg-slate-100 px-3 py-2 text-right text-xs font-semibold text-slate-600'>
+                          {myMatchesSummary}
+                        </div>
+                      ) : null)}
+                    >
+                      <div className='space-y-4'>
+                        <PlayMatchFilterBar
+                          sectionLabel='mie partite'
+                          dateOptions={myMatchDateOptions}
+                          dateFilter={myMatchDateFilter}
+                          levelFilter={myMatchLevelFilter}
+                          onDateChange={setMyMatchDateFilter}
+                          onLevelChange={setMyMatchLevelFilter}
+                        />
+                        <MyMatches
+                          matches={filteredMyMatches}
+                          currentPlayerId={currentPlayer.id}
+                          onOpen={handleOpenShared}
+                          onShare={handleShare}
+                          onSearchPlayers={(match) => void handleSearchPlayers(match)}
+                          onRotateShareToken={(match) => void handleRotateShareToken(match)}
+                          onRevokeShareToken={(match) => void handleRevokeShareToken(match)}
+                          onLeave={(match) => void handleLeave(match)}
+                          onEdit={openManagePanel}
+                          onCancel={(match) => void handleCancel(match)}
+                        />
+                      </div>
+                    </SectionCard>
+                  ) : (
+                    <SectionCard
+                      title='Le mie partite'
+                      collapsedDescription='Apri per capire come rivedere i tuoi match.'
+                      collapsible
+                      defaultExpanded={false}
+                      expanded={myMatchesExpanded}
+                      onExpandedChange={setMyMatchesExpanded}
+                      collapsedUniform
+                      collapsedClassName='section-card-collapsed-compact'
+                      actions={(expanded) => (!expanded ? (
+                        <div className='rounded-full bg-slate-100 px-3 py-2 text-right text-xs font-semibold text-slate-600'>
+                          {myMatchesSummary}
+                        </div>
+                      ) : null)}
+                    >
+                      <div className='surface-muted flex items-start gap-3'>
+                        <div className='flex items-center gap-3'>
+                          <UsersRound size={18} className='text-cyan-700' />
+                          <p className='text-sm text-slate-700'>Quando attivi il profilo community, qui ritrovi join, creazione e notifiche. Usa il pulsante in alto per entrare o rientrare senza aprire un secondo passaggio.</p>
+                        </div>
+                      </div>
+                    </SectionCard>
+                  )}
+                </div>
+              </div>
 
               <SectionCard
                 title='Crea nuova partita'

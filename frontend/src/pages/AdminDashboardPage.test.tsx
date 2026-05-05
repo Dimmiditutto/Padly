@@ -797,9 +797,9 @@ describe('AdminDashboardPage', () => {
     expect(String(whatsAppUrl)).toContain('https://web.whatsapp.com/send?text=');
     const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
     expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
-    expect(decoded).toContain('📈 Livello Intermedio medio\n\nDove si gioca?\n📍 PadelBooking');
+    expect(decoded).toContain('📈 Livello Intermedio medio\n📍 PadelBooking');
     expect(decoded).toContain('📍 PadelBooking\n\n🎾 Luca Smash');
-    expect(decoded).toContain('🎾 Marco Topspin\n\nChi gioca?');
+    expect(decoded).toContain('🎾 Marco Topspin\n\nClicca ed entra! `👇🏻`');
     expect(decoded).toContain('📅 *');
     expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('📍 PadelBooking');

@@ -1,5 +1,5 @@
 import { AxiosError } from 'axios';
-import { ArrowLeft, Share2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
@@ -225,16 +225,6 @@ export function SharedMatchPage() {
             />
           ) : null}
 
-          {tenantSlug ? (
-            <div className='flex flex-col gap-3 sm:flex-row'>
-              {match ? (
-                <button type='button' className='btn-secondary' onClick={handleShare}>
-                  <Share2 size={16} />
-                  <span>Condividi ancora</span>
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         {tenantSlug ? (

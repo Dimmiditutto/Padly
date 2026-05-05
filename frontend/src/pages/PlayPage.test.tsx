@@ -182,7 +182,7 @@ function renderApp(path: string) {
 }
 
 async function expandSection(user: ReturnType<typeof userEvent.setup>, title: string) {
-  await user.click(screen.getByRole('button', { name: `Espandi ${title}` }));
+  await user.click(await screen.findByRole('button', { name: `Espandi ${title}` }));
 }
 
 describe('Play phase 2 pages', () => {
@@ -327,6 +327,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Partite da completare');
     await expandSection(user, 'Crea nuova partita');
 
     expect(getPlaySession).toHaveBeenCalledWith('roma-club');
@@ -337,6 +338,56 @@ describe('Play phase 2 pages', () => {
     expect(within(cards[0]).getByText('3 su 4')).toBeInTheDocument();
     expect(within(cards[1]).getByText('2 su 4')).toBeInTheDocument();
     expect(within(cards[2]).getByText('1 su 4')).toBeInTheDocument();
+  });
+
+  it('keeps open and personal sections collapsed by default, shows summaries and lets the user filter by date and level', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [
+        { ...buildMatch('match-1of4', '1 su 4', 1), start_at: '2026-05-12T18:00:00Z', end_at: '2026-05-12T19:30:00Z', level_requested: 'BEGINNER' },
+        { ...buildMatch('match-3of4', '3 su 4', 3), start_at: '2026-05-10T18:00:00Z', end_at: '2026-05-10T19:30:00Z', level_requested: 'INTERMEDIATE_MEDIUM' },
+        { ...buildMatch('match-2of4', '2 su 4', 2), start_at: '2026-05-10T20:00:00Z', end_at: '2026-05-10T21:30:00Z', level_requested: 'ADVANCED' },
+      ],
+      my_matches: [
+        { ...buildMatch('my-match-1', 'Mia partita 1', 2), joined_by_current_player: true, created_by_player_id: basePlayer.id, participants: [{ player_id: basePlayer.id, profile_name: basePlayer.profile_name, declared_level: 'INTERMEDIATE_MEDIUM' }, { player_id: 'friend-1', profile_name: 'Compagno 1', declared_level: 'INTERMEDIATE_MEDIUM' }], start_at: '2026-05-10T18:00:00Z', end_at: '2026-05-10T19:30:00Z', level_requested: 'INTERMEDIATE_MEDIUM' },
+        { ...buildMatch('my-match-2', 'Mia partita 2', 3), joined_by_current_player: true, created_by_player_id: 'another-player', participants: [{ player_id: basePlayer.id, profile_name: basePlayer.profile_name, declared_level: 'INTERMEDIATE_MEDIUM' }, { player_id: 'friend-2', profile_name: 'Compagno 2', declared_level: 'ADVANCED' }, { player_id: 'friend-3', profile_name: 'Compagno 3', declared_level: 'ADVANCED' }], start_at: '2026-05-11T18:00:00Z', end_at: '2026-05-11T19:30:00Z', level_requested: 'ADVANCED' },
+      ],
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+    expect(screen.getByText('1 partita su 3 da completare')).toBeInTheDocument();
+    expect(screen.getByText('Sei dentro a 2 partite nei prossimi 7 giorni')).toBeInTheDocument();
+    expect(screen.queryByTestId('play-open-match-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('play-my-match-card')).not.toBeInTheDocument();
+
+    await expandSection(user, 'Partite da completare');
+    expect(screen.getByLabelText('Data partite aperte')).toBeInTheDocument();
+    expect(screen.getByLabelText('Livello partite aperte')).toBeInTheDocument();
+
+    let openCards = await screen.findAllByTestId('play-open-match-card');
+    expect(within(openCards[0]).getByText('3 su 4')).toBeInTheDocument();
+    expect(within(openCards[1]).getByText('2 su 4')).toBeInTheDocument();
+    expect(within(openCards[2]).getByText('1 su 4')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Data partite aperte'), '2026-05-10');
+    await user.selectOptions(screen.getByLabelText('Livello partite aperte'), 'ADVANCED');
+    openCards = await screen.findAllByTestId('play-open-match-card');
+    expect(openCards).toHaveLength(1);
+    expect(within(openCards[0]).getByText('2 su 4')).toBeInTheDocument();
+
+    await expandSection(user, 'Le mie partite');
+    expect(screen.getByLabelText('Data mie partite')).toBeInTheDocument();
+    expect(screen.getByLabelText('Livello mie partite')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Data mie partite'), '2026-05-11');
+    await user.selectOptions(screen.getByLabelText('Livello mie partite'), 'ADVANCED');
+    const myCards = await screen.findAllByTestId('play-my-match-card');
+    expect(myCards).toHaveLength(1);
+    expect(within(myCards[0]).getByText('Mia partita 2')).toBeInTheDocument();
   });
 
   it('shows the same slot-grid language as the public booking page and keeps occupied slots visible', async () => {
@@ -469,6 +520,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Partite da completare');
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Unisciti' }).length).toBeGreaterThan(0));
     await user.click(screen.getAllByRole('button', { name: 'Unisciti' })[0]);
 
@@ -778,6 +830,7 @@ describe('Play phase 2 pages', () => {
     renderApp('/c/roma-club/play');
 
     await screen.findByRole('heading', { name: 'Partite aperte' });
+    await expandSection(user, 'Partite da completare');
     await user.click(screen.getAllByRole('button', { name: 'Unisciti' })[0]);
 
     expect(await screen.findByRole('heading', { name: 'Caparra community da completare' })).toBeInTheDocument();
@@ -862,6 +915,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     expect(within(card).getByRole('button', { name: 'Lascia' })).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Modifica' })).not.toBeInTheDocument();
@@ -890,6 +944,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Modifica' }));
 
@@ -924,6 +979,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Annulla match' }));
 
@@ -970,6 +1026,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Rigenera link' }));
 
@@ -1004,6 +1061,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Condividi' }));
 
@@ -1018,10 +1076,10 @@ describe('Play phase 2 pages', () => {
     expect(String(whatsAppUrl)).toContain('https://web.whatsapp.com/send?text=');
     const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
     expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
-    expect(decoded).toContain('📈 Livello Intermedio medio\n\nDove si gioca?\n📍 Roma Club');
+    expect(decoded).toContain('📈 Livello Intermedio medio\n📍 Roma Club');
     expect(decoded).toContain('📍 Roma Club\n\n🎾 Player 1');
-    expect(decoded).toContain('🎾 Player 2\n\nChi gioca?');
-    expect(decoded).toContain('Chi gioca?');
+    expect(decoded).toContain('🎾 Player 2\n\nClicca ed entra! `👇🏻`');
+    expect(decoded).toContain('Clicca ed entra! `👇🏻`');
     expect(decoded).toContain('📅 *');
     expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('🎾 Player 1');
@@ -1063,6 +1121,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     expect(within(card).getByRole('button', { name: 'Condividi' })).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Cerca giocatori' })).not.toBeInTheDocument();
@@ -1099,6 +1158,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Cerca giocatori' }));
 
@@ -1129,6 +1189,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Cerca giocatori' }));
 
@@ -1159,6 +1220,7 @@ describe('Play phase 2 pages', () => {
 
     renderApp('/c/roma-club/play');
 
+    await expandSection(user, 'Le mie partite');
     const card = (await screen.findAllByTestId('play-my-match-card'))[0];
     await user.click(within(card).getByRole('button', { name: 'Cerca giocatori' }));
 

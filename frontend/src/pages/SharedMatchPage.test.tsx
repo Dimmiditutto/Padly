@@ -134,6 +134,7 @@ describe('SharedMatchPage', () => {
 
     renderPage();
 
+    expect(await screen.findAllByRole('button', { name: 'Condividi' })).toHaveLength(1);
     await user.click(await screen.findByRole('button', { name: 'Condividi' }));
     expect(await screen.findByRole('dialog', { name: 'Condividi questa partita' })).toBeInTheDocument();
     const shareLinkInput = screen.getByLabelText('Link partita') as HTMLInputElement;
@@ -147,10 +148,10 @@ describe('SharedMatchPage', () => {
     expect(String(whatsAppUrl)).toContain('https://web.whatsapp.com/send?text=');
     const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
     expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
-    expect(decoded).toContain('📈 Livello Intermedio medio\n\nDove si gioca?\n📍 Roma Club');
+    expect(decoded).toContain('📈 Livello Intermedio medio\n📍 Roma Club');
     expect(decoded).toContain('📍 Roma Club\n\n🎾 Luca Smash');
-    expect(decoded).toContain('🎾 Marco Topspin\n\nChi gioca?');
-    expect(decoded).toContain('Chi gioca?');
+    expect(decoded).toContain('🎾 Marco Topspin\n\nClicca ed entra! `👇🏻`');
+    expect(decoded).toContain('Clicca ed entra! `👇🏻`');
     expect(decoded).toContain('📅 *');
     expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('🎾 Luca Smash');
