@@ -5,9 +5,10 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
+from sqlalchemy import select
 
 from app.core.db import SessionLocal
-from app.models import Booking, BookingStatus, Club, Court, Match, MatchPlayer, MatchStatus, PaymentProvider, PaymentStatus, PlayLevel, Player
+from app.models import Booking, BookingStatus, Club, Court, Match, MatchPlayer, MatchStatus, NotificationChannel, NotificationKind, NotificationLog, PaymentProvider, PaymentStatus, PlayLevel, Player
 from app.services.booking_service import expire_pending_bookings, resolve_slot_window
 from app.services import play_service as play_service_module
 from app.services.play_service import join_play_match
@@ -473,6 +474,90 @@ def test_play_join_rejects_double_join_for_same_player(client):
     assert first_join.json()['action'] == 'JOINED'
     assert second_join.status_code == 409
     assert second_join.json()['detail'] == 'Sei gia dentro questa partita'
+
+
+def test_play_join_creates_in_app_notification_for_match_creator(client):
+    creator = identify_as(client, profile_name='Creator Notify Join', phone='3337200101')
+    joiner_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Joiner Notify Join', phone='3337200102')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id']],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='creator notification on join',
+    )
+
+    identify_as(client, profile_name='Joiner Notify Join', phone='3337200102')
+    response = client.post(f'/api/play/matches/{match_id}/join')
+
+    assert response.status_code == 200
+
+    with SessionLocal() as db:
+        notification = db.scalar(
+            select(NotificationLog)
+            .where(
+                NotificationLog.player_id == creator['id'],
+                NotificationLog.match_id == match_id,
+                NotificationLog.channel == NotificationChannel.IN_APP,
+                NotificationLog.kind == NotificationKind.MATCH_TWO_OF_FOUR,
+            )
+            .limit(1)
+        )
+
+        assert notification is not None
+        assert notification.title == 'Nuovo ingresso nella tua partita'
+        assert 'Joiner Notify Join si e unito alla tua partita' in notification.message
+        assert notification.payload['joined_player_id'] == joiner_id
+        assert notification.payload['participant_count'] == 2
+
+
+def test_play_join_that_completes_match_notifies_creator(client):
+    creator = identify_as(client, profile_name='Creator Notify Full', phone='3337200111')
+    guest_one_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Notify Full 1', phone='3337200112')
+    guest_two_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Notify Full 2', phone='3337200113')
+    joiner_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Notify Full 3', phone='3337200114')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=17)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one_id, guest_two_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='creator notification on full join',
+    )
+
+    identify_as(client, profile_name='Guest Notify Full 3', phone='3337200114')
+    response = client.post(f'/api/play/matches/{match_id}/join')
+
+    assert response.status_code == 200
+    assert response.json()['action'] == 'COMPLETED'
+
+    with SessionLocal() as db:
+        notification = db.scalar(
+            select(NotificationLog)
+            .where(
+                NotificationLog.player_id == creator['id'],
+                NotificationLog.match_id == match_id,
+                NotificationLog.channel == NotificationChannel.IN_APP,
+                NotificationLog.kind == NotificationKind.MATCH_COMPLETED,
+            )
+            .limit(1)
+        )
+
+        assert notification is not None
+        assert notification.title == 'Partita completata'
+        assert 'Guest Notify Full 3 ha completato la tua partita' in notification.message
+        assert notification.payload['joined_player_id'] == joiner_id
+        assert notification.payload['joined_player_name'] == 'Guest Notify Full 3'
+        assert notification.payload['participant_count'] == 4
 
 
 def test_play_fourth_join_completes_booking_and_blocks_further_joins(client):
@@ -983,6 +1068,47 @@ def test_play_cancel_endpoint_marks_match_cancelled(client):
         match = db.get(Match, match_id)
         assert match is not None
         assert match.status == MatchStatus.CANCELLED
+
+
+def test_play_cancel_notifies_other_participants(client):
+    creator = identify_as(client, profile_name='Creator Cancel Notify', phone='3337500024')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Cancel Notify', phone='3337500025')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=15)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='match da annullare con guest',
+    )
+
+    response = client.post(f'/api/play/matches/{match_id}/cancel')
+
+    assert response.status_code == 200
+    assert response.json()['action'] == 'CANCELLED'
+
+    with SessionLocal() as db:
+        notification = db.scalar(
+            select(NotificationLog)
+            .where(
+                NotificationLog.player_id == guest_id,
+                NotificationLog.match_id == match_id,
+                NotificationLog.channel == NotificationChannel.IN_APP,
+                NotificationLog.kind == NotificationKind.MATCH_CANCELLED,
+            )
+            .limit(1)
+        )
+
+        assert notification is not None
+        assert notification.title == 'Partita annullata'
+        assert 'Creator Cancel Notify ha annullato la partita' in notification.message
+        assert notification.payload['event'] == 'match_cancelled'
+        assert notification.payload['notification_scope'] == 'match_membership_update'
+        assert notification.payload['cancelled_by_player_id'] == creator['id']
 
 
 def test_play_shared_match_returns_not_found_after_cancel(client):

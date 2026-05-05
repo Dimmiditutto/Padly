@@ -36,7 +36,7 @@ from app.models import (
 )
 from app.models import PlayerActivityEventType
 from app.services.email_service import email_service
-from app.services.play_notification_service import dispatch_play_notifications_for_match, record_player_activity
+from app.services.play_notification_service import dispatch_match_cancellation_notifications, dispatch_match_creator_join_notification, dispatch_play_notifications_for_match, record_player_activity
 from app.services.public_discovery_service import dispatch_public_watchlist_notifications_for_match
 from app.services.booking_service import acquire_single_court_lock, assert_slot_available, build_no_deposit_policy_snapshot, expire_pending_booking_if_needed, log_event, make_public_reference, resolve_public_booking_deposit_terms, resolve_slot_window
 from app.services.court_service import resolve_court
@@ -492,6 +492,11 @@ def _send_access_otp_email(db: Session, *, club: Club, challenge: PlayerAccessCh
         expires_at=challenge.expires_at,
         purpose=challenge.purpose,
     )
+    if delivery_status == 'SKIPPED':
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='Provider email non configurato in questo ambiente. Configura Resend o SMTP per inviare il codice OTP.',
+        )
     if delivery_status == 'FAILED':
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Invio del codice non disponibile. Riprova tra poco.')
 
@@ -1713,6 +1718,13 @@ def join_play_match(
                     match=match,
                     payload={'booking_id': booking.id},
                 )
+            dispatch_match_creator_join_notification(
+                db,
+                club_id=club_id,
+                club_timezone=club_timezone,
+                match_id=match.id,
+                joined_player_id=current_player.id,
+            )
         else:
             record_player_activity(
                 db,
@@ -1720,6 +1732,13 @@ def join_play_match(
                 club_timezone=club_timezone,
                 event_type=PlayerActivityEventType.MATCH_JOINED,
                 match=match,
+            )
+            dispatch_match_creator_join_notification(
+                db,
+                club_id=club_id,
+                club_timezone=club_timezone,
+                match_id=match.id,
+                joined_player_id=current_player.id,
             )
             dispatch_play_notifications_for_match(
                 db,
@@ -2033,6 +2052,14 @@ def cancel_play_match(
             club_timezone=club_timezone,
             event_type=PlayerActivityEventType.MATCH_CANCELLED,
             match=match,
+        )
+        dispatch_match_cancellation_notifications(
+            db,
+            club_id=club_id,
+            club_timezone=club_timezone,
+            match_id=match.id,
+            cancelled_by_player_id=current_player.id,
+            cancelled_by_player_name=current_player.profile_name,
         )
         return {
             'action': 'CANCELLED',

@@ -88,6 +88,8 @@ class NotificationKind(str, enum.Enum):
     MATCH_THREE_OF_FOUR = 'MATCH_THREE_OF_FOUR'
     MATCH_TWO_OF_FOUR = 'MATCH_TWO_OF_FOUR'
     MATCH_ONE_OF_FOUR = 'MATCH_ONE_OF_FOUR'
+    MATCH_COMPLETED = 'MATCH_COMPLETED'
+    MATCH_CANCELLED = 'MATCH_CANCELLED'
 
 
 class PublicDiscoveryNotificationKind(str, enum.Enum):

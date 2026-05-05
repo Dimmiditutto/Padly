@@ -667,7 +667,7 @@ export interface MatchParticipantSummary {
 }
 
 export type PlayNotificationChannel = 'IN_APP' | 'WEB_PUSH';
-export type PlayNotificationKind = 'MATCH_THREE_OF_FOUR' | 'MATCH_TWO_OF_FOUR' | 'MATCH_ONE_OF_FOUR';
+export type PlayNotificationKind = 'MATCH_THREE_OF_FOUR' | 'MATCH_TWO_OF_FOUR' | 'MATCH_ONE_OF_FOUR' | 'MATCH_COMPLETED' | 'MATCH_CANCELLED';
 
 export interface PlayNotificationPreferenceSummary {
   in_app_enabled: boolean;

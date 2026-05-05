@@ -7,6 +7,7 @@ from app.services import play_service as play_service_module
 from app.core.db import SessionLocal
 from app.core.security import hash_password
 from app.models import Club, ClubDomain, CommunityAccessLink, CommunityInviteToken, Court, DEFAULT_CLUB_ID, Match, MatchPlayer, MatchStatus, PlayLevel, Player
+from app.services.email_service import email_service
 from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, build_club_player_session_cookie_name, create_community_invite, hash_play_token
 
 
@@ -198,6 +199,7 @@ def test_play_matches_are_ordered_by_fill_level_and_scoped_to_current_club(clien
 
 def test_community_invite_access_requires_verified_otp_before_session(client, monkeypatch):
     monkeypatch.setattr(play_service_module, 'generate_email_otp_code', lambda: '123456')
+    monkeypatch.setattr(email_service, 'play_access_otp', lambda *args, **kwargs: 'SENT')
 
     with SessionLocal() as db:
         valid_invite, valid_raw_token = create_community_invite(

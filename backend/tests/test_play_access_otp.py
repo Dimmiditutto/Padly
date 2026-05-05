@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.core.db import SessionLocal
 from app.models import CommunityAccessLink, DEFAULT_CLUB_ID, PlayLevel, Player, PlayerAccessChallenge
+from app.services.email_service import email_service
 from app.services import play_service as play_service_module
 from app.services.play_service import PLAYER_SESSION_COOKIE_NAME, PLAY_ACCESS_OTP_MAX_ATTEMPTS, create_community_access_link, hash_play_token
+
+
+@pytest.fixture(autouse=True)
+def mock_play_access_email_delivery(monkeypatch):
+    monkeypatch.setattr(email_service, 'play_access_otp', lambda *args, **kwargs: 'SENT')
 
 
 def test_play_access_direct_flow_supports_resend_and_sets_cookie_only_after_verify(client, monkeypatch):
@@ -269,3 +277,22 @@ def test_play_access_direct_flow_invalidates_challenge_after_max_wrong_otp_attem
         assert challenge.verified_at is None
         expires_at = challenge.expires_at if challenge.expires_at.tzinfo else challenge.expires_at.replace(tzinfo=UTC)
         assert expires_at <= datetime.now(UTC)
+
+
+def test_play_access_start_fails_explicitly_when_email_provider_is_not_configured(client, monkeypatch):
+    monkeypatch.setattr(email_service, 'play_access_otp', lambda *args, **kwargs: 'SKIPPED')
+
+    response = client.post(
+        '/api/public/play-access/start',
+        json={
+            'purpose': 'DIRECT',
+            'profile_name': 'Giulia Local',
+            'phone': '+39 333 111 0000',
+            'email': 'giulia.local@example.com',
+            'declared_level': 'INTERMEDIATE_LOW',
+            'privacy_accepted': True,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Provider email non configurato in questo ambiente. Configura Resend o SMTP per inviare il codice OTP.'

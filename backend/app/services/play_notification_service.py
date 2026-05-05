@@ -39,6 +39,11 @@ PLAY_SERVICE_WORKER_PATH = '/play-service-worker.js'
 PERMANENT_WEB_PUSH_STATUS_CODES = {404, 410}
 PLAY_TIME_SLOT_BUCKETS = ('morning', 'lunch_break', 'early_afternoon', 'late_afternoon', 'evening')
 PLAY_TIME_SLOT_GROUPS = ('weekday', 'holiday')
+PLAY_DAILY_CAPPED_NOTIFICATION_KINDS = {
+    NotificationKind.MATCH_THREE_OF_FOUR,
+    NotificationKind.MATCH_TWO_OF_FOUR,
+    NotificationKind.MATCH_ONE_OF_FOUR,
+}
 
 
 def _utcnow() -> datetime:
@@ -646,7 +651,13 @@ def _campaign_keys_for_player_day(
             NotificationLog.created_at < end_at,
         )
     ).all()
-    return {(item.match_id, item.kind) for item in items}
+    return {
+        (item.match_id, item.kind)
+        for item in items
+        if item.kind in PLAY_DAILY_CAPPED_NOTIFICATION_KINDS
+        and (item.payload or {}).get('notification_scope') != 'creator_match_update'
+        and (item.payload or {}).get('event') != 'participant_joined'
+    }
 
 
 def _has_notification_for_match_kind(db: Session, *, player_id: str, match_id: str, kind: NotificationKind) -> bool:
@@ -711,6 +722,41 @@ def _notification_copy_for_match(match: Match, *, kind: NotificationKind, partic
     )
 
 
+def _creator_join_notification_kind(match: Match) -> NotificationKind | None:
+    participant_count = len(match.participants)
+    if participant_count >= 4 or match.status == MatchStatus.FULL or match.booking_id is not None:
+        return NotificationKind.MATCH_COMPLETED
+    if participant_count >= 3:
+        return NotificationKind.MATCH_THREE_OF_FOUR
+    if participant_count == 2:
+        return NotificationKind.MATCH_TWO_OF_FOUR
+    return None
+
+
+def _creator_join_notification_copy(
+    match: Match,
+    *,
+    participant_count: int,
+    joined_player_name: str,
+    kind: NotificationKind,
+) -> tuple[str, str]:
+    court_name = match.court.name if match.court else 'un campo del club'
+    if kind == NotificationKind.MATCH_COMPLETED:
+        return (
+            'Partita completata',
+            f'{joined_player_name} ha completato la tua partita su {court_name}. Ora siete in 4/4.',
+        )
+    if kind == NotificationKind.MATCH_THREE_OF_FOUR:
+        return (
+            'Nuovo ingresso nella tua partita',
+            f'{joined_player_name} si e unito alla tua partita su {court_name}. Ora siete in {participant_count}/4 e manca un solo player.',
+        )
+    return (
+        'Nuovo ingresso nella tua partita',
+        f'{joined_player_name} si e unito alla tua partita su {court_name}. Ora siete in {participant_count}/4.',
+    )
+
+
 def _build_notification_payload(match: Match, *, participant_count: int) -> dict:
     payload = {
         'match_id': match.id,
@@ -720,10 +766,210 @@ def _build_notification_payload(match: Match, *, participant_count: int) -> dict
         'start_at': match.start_at.isoformat(),
         'end_at': match.end_at.isoformat(),
         'level_requested': match.level_requested.value,
+        'notification_scope': 'match_discovery',
     }
     if match.club and match.club.slug:
         payload['url'] = f'/c/{match.club.slug}/play'
     return payload
+
+
+def _dispatch_match_update_to_player(
+    db: Session,
+    *,
+    club_id: str,
+    club_timezone: str | None,
+    match: Match,
+    player: Player,
+    kind: NotificationKind,
+    title: str,
+    message: str,
+    payload: dict | None,
+) -> dict:
+    preference = player.notification_preference
+    if preference and not preference.in_app_enabled and not preference.web_push_enabled:
+        return {'notifications_created': 0, 'recipient_notified': False}
+
+    now = _utcnow()
+    notifications_created = 0
+    recipient_notified = False
+
+    if preference is None or preference.in_app_enabled:
+        if _create_notification_log_if_absent(
+            db,
+            club_id=club_id,
+            player_id=player.id,
+            match_id=match.id,
+            channel=NotificationChannel.IN_APP,
+            kind=kind,
+            status=NotificationDeliveryStatus.SENT,
+            title=title,
+            message=message,
+            payload=payload,
+            sent_at=now,
+        ):
+            notifications_created += 1
+            recipient_notified = True
+
+    if (preference is None or preference.web_push_enabled) and _active_push_subscriptions_for_player(player):
+        web_push_status = _deliver_web_push_notification(
+            db,
+            player=player,
+            club_timezone=club_timezone,
+            title=title,
+            message=message,
+            payload=payload,
+        )
+        if _create_notification_log_if_absent(
+            db,
+            club_id=club_id,
+            player_id=player.id,
+            match_id=match.id,
+            channel=NotificationChannel.WEB_PUSH,
+            kind=kind,
+            status=web_push_status,
+            title=title,
+            message=message,
+            payload=payload,
+            sent_at=now,
+        ):
+            notifications_created += 1
+            recipient_notified = True
+
+    return {
+        'notifications_created': notifications_created,
+        'recipient_notified': recipient_notified,
+    }
+
+
+def dispatch_match_creator_join_notification(
+    db: Session,
+    *,
+    club_id: str,
+    club_timezone: str | None,
+    match_id: str,
+    joined_player_id: str,
+) -> dict:
+    match = db.scalar(
+        select(Match)
+        .options(
+            selectinload(Match.club),
+            selectinload(Match.court),
+            selectinload(Match.participants).selectinload(MatchPlayer.player),
+            selectinload(Match.created_by_player).selectinload(Player.notification_preference),
+            selectinload(Match.created_by_player).selectinload(Player.push_subscriptions),
+        )
+        .where(Match.club_id == club_id, Match.id == match_id)
+        .limit(1)
+    )
+    if not match or not match.created_by_player or match.created_by_player_id == joined_player_id:
+        return {'notifications_created': 0, 'recipients_count': 0}
+
+    kind = _creator_join_notification_kind(match)
+    if kind is None:
+        return {'notifications_created': 0, 'recipients_count': 0}
+
+    joined_player = next((participant.player for participant in match.participants if participant.player_id == joined_player_id and participant.player), None)
+    if joined_player is None:
+        return {'notifications_created': 0, 'recipients_count': 0}
+
+    creator = match.created_by_player
+    preference = creator.notification_preference
+    if preference and not preference.in_app_enabled and not preference.web_push_enabled:
+        return {'notifications_created': 0, 'recipients_count': 0}
+
+    participant_count = len(match.participants)
+    title, message = _creator_join_notification_copy(
+        match,
+        participant_count=participant_count,
+        joined_player_name=joined_player.profile_name,
+        kind=kind,
+    )
+    payload = _build_notification_payload(match, participant_count=participant_count)
+    payload.update({
+        'notification_scope': 'creator_match_update',
+        'event': 'participant_joined',
+        'joined_player_id': joined_player.id,
+        'joined_player_name': joined_player.profile_name,
+    })
+    result = _dispatch_match_update_to_player(
+        db,
+        club_id=club_id,
+        club_timezone=club_timezone,
+        match=match,
+        player=creator,
+        kind=kind,
+        title=title,
+        message=message,
+        payload=payload,
+    )
+
+    return {
+        'notifications_created': int(result.get('notifications_created', 0)),
+        'recipients_count': 1 if result.get('recipient_notified') else 0,
+    }
+
+
+def dispatch_match_cancellation_notifications(
+    db: Session,
+    *,
+    club_id: str,
+    club_timezone: str | None,
+    match_id: str,
+    cancelled_by_player_id: str,
+    cancelled_by_player_name: str | None,
+) -> dict:
+    match = db.scalar(
+        select(Match)
+        .options(
+            selectinload(Match.club),
+            selectinload(Match.court),
+            selectinload(Match.participants).selectinload(MatchPlayer.player).selectinload(Player.notification_preference),
+            selectinload(Match.participants).selectinload(MatchPlayer.player).selectinload(Player.push_subscriptions),
+        )
+        .where(Match.club_id == club_id, Match.id == match_id)
+        .limit(1)
+    )
+    if not match:
+        return {'notifications_created': 0, 'recipients_count': 0}
+
+    participant_count = len(match.participants)
+    actor_name = (cancelled_by_player_name or '').strip() or 'Il creator'
+    court_name = match.court.name if match.court else 'un campo del club'
+    title = 'Partita annullata'
+    message = f'{actor_name} ha annullato la partita su {court_name}.'
+    payload = _build_notification_payload(match, participant_count=participant_count)
+    payload.update({
+        'notification_scope': 'match_membership_update',
+        'event': 'match_cancelled',
+        'cancelled_by_player_id': cancelled_by_player_id,
+        'cancelled_by_player_name': actor_name,
+    })
+
+    notifications_created = 0
+    recipients_count = 0
+    for participant in match.participants:
+        player = participant.player
+        if not player or player.id == cancelled_by_player_id:
+            continue
+        result = _dispatch_match_update_to_player(
+            db,
+            club_id=club_id,
+            club_timezone=club_timezone,
+            match=match,
+            player=player,
+            kind=NotificationKind.MATCH_CANCELLED,
+            title=title,
+            message=message,
+            payload=payload,
+        )
+        notifications_created += int(result.get('notifications_created', 0))
+        if result.get('recipient_notified'):
+            recipients_count += 1
+
+    return {
+        'notifications_created': notifications_created,
+        'recipients_count': recipients_count,
+    }
 
 
 def _create_notification_log_if_absent(

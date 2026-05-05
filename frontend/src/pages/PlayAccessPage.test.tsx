@@ -229,4 +229,28 @@ describe('PlayAccessPage', () => {
     expect(otpInput).toHaveValue('');
     expect(await screen.findByText(/nuovo codice via email/i)).toBeInTheDocument();
   });
+
+  it('shows the explicit provider error when OTP emails cannot be delivered in this environment', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(startPlayAccessOtp).mockRejectedValue({
+      response: {
+        data: {
+          detail: 'Provider email non configurato in questo ambiente. Configura Resend o SMTP per inviare il codice OTP.',
+        },
+      },
+    });
+
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Entra o rientra nella community' });
+    await user.click(screen.getByRole('button', { name: 'Primo accesso' }));
+    await user.type(screen.getByLabelText('Nome profilo'), 'Giulia Matchinn');
+    await user.type(screen.getByLabelText('Telefono'), '+39 333 444 5566');
+    await user.type(screen.getByLabelText('Email'), 'giulia@example.com');
+    await user.click(screen.getByRole('checkbox', { name: /Accetto la privacy/i }));
+    await user.click(screen.getByRole('button', { name: 'Invia codice OTP' }));
+
+    expect(await screen.findByText('Provider email non configurato in questo ambiente. Configura Resend o SMTP per inviare il codice OTP.')).toBeInTheDocument();
+  });
 });

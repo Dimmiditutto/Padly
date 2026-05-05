@@ -115,7 +115,37 @@ def _seed_daily_cap_logs(*, player_id: str, club_id: str, reference_time: dateti
                     kind=NotificationKind.MATCH_TWO_OF_FOUR,
                     title='Cap log',
                     message='Gia notificato oggi',
-                    payload={'slot': index},
+                    payload={'slot': index, 'notification_scope': 'match_discovery'},
+                    created_at=reference_time + timedelta(minutes=index),
+                    sent_at=reference_time + timedelta(minutes=index),
+                )
+            )
+        db.commit()
+
+
+def _seed_creator_update_logs(*, player_id: str, club_id: str, reference_time: datetime) -> None:
+    with SessionLocal() as db:
+        for index, kind in enumerate(
+            [
+                NotificationKind.MATCH_TWO_OF_FOUR,
+                NotificationKind.MATCH_THREE_OF_FOUR,
+                NotificationKind.MATCH_COMPLETED,
+            ]
+        ):
+            db.add(
+                NotificationLog(
+                    club_id=club_id,
+                    player_id=player_id,
+                    match_id=f'creator-match-{index}',
+                    channel=NotificationChannel.IN_APP,
+                    kind=kind,
+                    title='Update creator',
+                    message='Qualcuno si e unito alla tua partita',
+                    payload={
+                        'event': 'participant_joined',
+                        'notification_scope': 'creator_match_update',
+                        'slot': index,
+                    },
                     created_at=reference_time + timedelta(minutes=index),
                     sent_at=reference_time + timedelta(minutes=index),
                 )
@@ -566,6 +596,64 @@ def test_play_notification_dispatch_for_two_of_four_respects_daily_cap_and_exclu
         assert candidate_ids[0] not in notified_players
         assert candidate_ids[-1] not in notified_players
         assert notified_players == set(candidate_ids[1:5])
+
+
+def test_play_notification_dispatch_daily_cap_ignores_creator_match_updates():
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Creator Update Cap', phone='3337600041')
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Creator Update Guest 1', phone='3337600042')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=17)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator_id,
+        participant_player_ids=[creator_id, guest_one],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='2 su 4 cap ignora creator updates',
+    )
+
+    candidate_id = seed_player(
+        club_id=DEFAULT_CLUB_ID,
+        profile_name='Creator Update Candidate',
+        phone='3337600043',
+    )
+    _seed_profile(
+        player_id=candidate_id,
+        club_id=DEFAULT_CLUB_ID,
+        start_at=start_at,
+        level=PlayLevel.INTERMEDIATE_HIGH,
+        useful_events_count=12,
+        engagement_score=12,
+    )
+    _seed_creator_update_logs(
+        player_id=candidate_id,
+        club_id=DEFAULT_CLUB_ID,
+        reference_time=datetime.now(UTC).replace(hour=9, minute=0, second=0, microsecond=0),
+    )
+
+    with SessionLocal() as db:
+        result = dispatch_play_notifications_for_match(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            club_timezone='Europe/Rome',
+            match_id=match_id,
+        )
+        db.commit()
+        assert result['matches_processed'] == 1
+
+    with SessionLocal() as db:
+        discovery_logs = db.scalars(
+            select(NotificationLog).where(
+                NotificationLog.player_id == candidate_id,
+                NotificationLog.match_id == match_id,
+            )
+        ).all()
+
+        assert len(discovery_logs) == 1
+        assert discovery_logs[0].kind == NotificationKind.MATCH_TWO_OF_FOUR
+        assert discovery_logs[0].payload['notification_scope'] == 'match_discovery'
 
 
 def test_play_notification_dispatch_ignores_duplicate_campaign_race(monkeypatch):
