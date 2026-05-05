@@ -32,6 +32,7 @@ vi.mock('../services/playApi', () => ({
 }));
 
 vi.mock('../utils/playPush', () => ({
+  getBrowserPlayPushSubscriptionPayload: vi.fn(),
   getBrowserPlayPushEndpoint: vi.fn(),
   isPlayPushSupported: vi.fn(() => true),
   subscribeBrowserToPlayPush: vi.fn(),
@@ -73,7 +74,7 @@ import {
   updatePlayNotificationPreferences,
   verifyPlayAccessOtp,
 } from '../services/playApi';
-import { getBrowserPlayPushEndpoint, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
+import { getBrowserPlayPushEndpoint, getBrowserPlayPushSubscriptionPayload, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 
 const basePlayer: PlayPlayerSummary = {
   id: 'player-1',
@@ -308,6 +309,7 @@ describe('Play phase 2 pages', () => {
       keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
       user_agent: 'Vitest Browser',
     });
+    vi.mocked(getBrowserPlayPushSubscriptionPayload).mockResolvedValue(null);
     vi.mocked(getBrowserPlayPushEndpoint).mockResolvedValue(null);
     vi.mocked(unsubscribeBrowserFromPlayPush).mockResolvedValue('https://push.example/sub-1');
     vi.mocked(getPlaySharedMatch).mockResolvedValue({
@@ -317,6 +319,7 @@ describe('Play phase 2 pages', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -388,6 +391,43 @@ describe('Play phase 2 pages', () => {
     const myCards = await screen.findAllByTestId('play-my-match-card');
     expect(myCards).toHaveLength(1);
     expect(within(myCards[0]).getByText('Mia partita 2')).toBeInTheDocument();
+  });
+
+  it('silently resyncs an existing browser web push subscription on load', async () => {
+    vi.mocked(getPlaySession).mockResolvedValue({
+      player: { ...basePlayer },
+      notification_settings: { ...baseNotificationSettings },
+    });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [],
+    });
+    vi.mocked(getBrowserPlayPushSubscriptionPayload).mockResolvedValue({
+      endpoint: 'https://push.example/mobile-sub',
+      keys: { p256dh: 'mobile-p256dh', auth: 'mobile-auth' },
+      user_agent: 'Mobile Browser',
+    });
+    vi.mocked(registerPlayPushSubscription).mockResolvedValue({
+      message: 'Subscription web push registrata.',
+      settings: {
+        ...baseNotificationSettings,
+        push: {
+          ...baseNotificationSettings.push,
+          has_active_subscription: true,
+          active_subscription_count: 1,
+        },
+      },
+    });
+
+    renderApp('/c/roma-club/play');
+
+    await screen.findByRole('heading', { name: 'Partite aperte' });
+    await waitFor(() => expect(registerPlayPushSubscription).toHaveBeenCalledWith({
+      endpoint: 'https://push.example/mobile-sub',
+      keys: { p256dh: 'mobile-p256dh', auth: 'mobile-auth' },
+      user_agent: 'Mobile Browser',
+    }, 'roma-club'));
   });
 
   it('shows the same slot-grid language as the public booking page and keeps occupied slots visible', async () => {

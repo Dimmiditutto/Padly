@@ -611,6 +611,51 @@ def test_play_fourth_join_completes_booking_and_blocks_further_joins(client):
         assert booking.expires_at is None
 
 
+def test_admin_cancelled_play_booking_disappears_from_user_play_matches(client):
+    creator = identify_as(client, profile_name='Creator Admin Cancel', phone='3337300011')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Admin Cancel 1', phone='3337300012')
+    guest_two = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Guest Admin Cancel 2', phone='3337300013')
+    fourth_player = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Fourth Admin Cancel', phone='3337300014')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=10)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_one, guest_two],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_HIGH,
+        note='match admin cancel visibility',
+    )
+
+    identify_as(client, profile_name='Fourth Admin Cancel', phone='3337300014')
+    completion_response = client.post(f'/api/play/matches/{match_id}/join')
+    assert completion_response.status_code == 200
+    booking_id = completion_response.json()['booking']['id']
+
+    before_cancel_response = client.get('/api/play/matches')
+    assert before_cancel_response.status_code == 200
+    assert match_id in {item['id'] for item in before_cancel_response.json()['my_matches']}
+
+    admin_login(client)
+    cancel_response = client.post(f'/api/admin/bookings/{booking_id}/cancel')
+    assert cancel_response.status_code == 200
+
+    identify_as(client, profile_name='Fourth Admin Cancel', phone='3337300014')
+    after_cancel_response = client.get('/api/play/matches')
+    assert after_cancel_response.status_code == 200
+    assert match_id not in {item['id'] for item in after_cancel_response.json()['my_matches']}
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        booking = db.get(Booking, booking_id)
+        assert match is not None
+        assert booking is not None
+        assert booking.status == BookingStatus.CANCELLED
+        assert match.status == MatchStatus.CANCELLED
+
+
 def test_play_fourth_join_requires_community_deposit_when_enabled(client):
     update_play_community_payment_settings(client, enabled=True, deposit_amount=12.5, payment_timeout_minutes=45)
 

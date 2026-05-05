@@ -28,6 +28,10 @@ function getApiErrorMessage(error: unknown, fallback: string) {
   return requestError?.response?.data?.detail || (error instanceof Error ? error.message : fallback);
 }
 
+function isPageVisible() {
+  return typeof document === 'undefined' || document.visibilityState === 'visible';
+}
+
 export function SharedMatchPage() {
   const { clubSlug, shareToken } = useParams();
   const [searchParams] = useSearchParams();
@@ -56,6 +60,14 @@ export function SharedMatchPage() {
     void loadSharedSurface(tenantSlug, shareToken);
   }, [shareToken, tenantSlug]);
 
+  function applySharedSurfaceState(
+    session: { player?: PlayPlayerSummary | null },
+    detail: { player?: PlayPlayerSummary | null; match: PlayMatchSummary },
+  ) {
+    setCurrentPlayer(session.player || detail.player || null);
+    setMatch(detail.match);
+  }
+
   async function loadSharedSurface(resolvedTenantSlug: string, resolvedShareToken: string) {
     setLoading(true);
     try {
@@ -64,8 +76,7 @@ export function SharedMatchPage() {
         getPlaySharedMatch(resolvedShareToken, resolvedTenantSlug),
         getPublicConfig(resolvedTenantSlug).catch(() => null),
       ]);
-      setCurrentPlayer(session.player || detail.player || null);
-      setMatch(detail.match);
+      applySharedSurfaceState(session, detail);
       if (publicConfig) {
         rememberClubPublicName(resolvedTenantSlug, publicConfig.public_name);
         setClubPublicName(publicConfig.public_name);
@@ -77,6 +88,61 @@ export function SharedMatchPage() {
       setLoading(false);
     }
   }
+
+  async function refreshSharedSurface(resolvedTenantSlug: string, resolvedShareToken: string) {
+    const [session, detail] = await Promise.all([
+      getPlaySession(resolvedTenantSlug),
+      getPlaySharedMatch(resolvedShareToken, resolvedTenantSlug),
+    ]);
+    applySharedSurfaceState(session, detail);
+  }
+
+  useEffect(() => {
+    if (!tenantSlug || !shareToken || loading) {
+      return;
+    }
+
+    const resolvedTenantSlug = tenantSlug;
+    const resolvedShareToken = shareToken;
+    let cancelled = false;
+
+    async function refreshIfVisible() {
+      if (cancelled || !isPageVisible()) {
+        return;
+      }
+      try {
+        await refreshSharedSurface(resolvedTenantSlug, resolvedShareToken);
+      } catch {
+        // Ignore background refresh failures on the shared page.
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshIfVisible();
+    }, 15000);
+
+    const handleVisibilityRefresh = () => {
+      void refreshIfVisible();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibilityRefresh);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibilityRefresh);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+      }
+    };
+  }, [loading, shareToken, tenantSlug]);
 
   async function performJoin(player = currentPlayer) {
     if (!tenantSlug || !match || !player) {

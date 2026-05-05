@@ -25,6 +25,8 @@ from app.models import (
     Court,
     Customer,
     EmailNotificationLog,
+    Match,
+    MatchStatus,
     PaymentProvider,
     PaymentStatus,
     RecurringBookingSeries,
@@ -747,6 +749,17 @@ def cancel_booking(db: Session, booking: Booking, *, actor: str, reason: str = '
     return booking
 
 
+def _cancel_linked_play_match_for_booking(db: Session, booking: Booking) -> None:
+    linked_match = db.scalar(
+        select(Match)
+        .where(Match.club_id == booking.club_id, Match.booking_id == booking.id)
+        .limit(1)
+    )
+    if linked_match is None or linked_match.status == MatchStatus.CANCELLED:
+        return
+    linked_match.status = MatchStatus.CANCELLED
+
+
 def update_booking_by_admin(
     db: Session,
     booking: Booking,
@@ -817,6 +830,8 @@ def update_booking_by_admin(
 
 def update_booking_status_by_admin(db: Session, booking: Booking, *, target_status: BookingStatus, actor: str) -> Booking:
     if target_status == booking.status:
+        if target_status == BookingStatus.CANCELLED:
+            _cancel_linked_play_match_for_booking(db, booking)
         return booking
 
     allowed_targets = ADMIN_ALLOWED_STATUS_TRANSITIONS.get(booking.status, set())
@@ -831,6 +846,7 @@ def update_booking_status_by_admin(db: Session, booking: Booking, *, target_stat
 
     if target_status == BookingStatus.CANCELLED:
         cancel_booking(db, booking, actor=actor, reason='Annullata da admin')
+        _cancel_linked_play_match_for_booking(db, booking)
         booking.completed_at = None
         booking.no_show_at = None
         booking.balance_paid_at = None

@@ -319,6 +319,54 @@ def test_play_notification_dispatch_selects_top_six_for_three_of_four():
         assert {item.channel for item in top_candidate_logs} == {NotificationChannel.IN_APP, NotificationChannel.WEB_PUSH}
 
 
+def test_play_notification_dispatch_uses_declared_level_for_cold_start_players():
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Cold Start Creator', phone='3337600024')
+    guest_one = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Cold Start Guest 1', phone='3337600025')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator_id,
+        participant_player_ids=[creator_id, guest_one],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='2 su 4 cold start dichiarato',
+    )
+
+    compatible_candidate_id = seed_player(
+        club_id=DEFAULT_CLUB_ID,
+        profile_name='Cold Start Candidate Compatible',
+        phone='3337600026',
+        declared_level=PlayLevel.INTERMEDIATE_MEDIUM,
+    )
+    incompatible_candidate_id = seed_player(
+        club_id=DEFAULT_CLUB_ID,
+        profile_name='Cold Start Candidate Incompatible',
+        phone='3337600027',
+        declared_level=PlayLevel.ADVANCED,
+    )
+
+    with SessionLocal() as db:
+        result = dispatch_play_notifications_for_match(
+            db,
+            club_id=DEFAULT_CLUB_ID,
+            club_timezone='Europe/Rome',
+            match_id=match_id,
+        )
+        db.commit()
+        assert result['matches_processed'] == 1
+        assert result['recipients_count'] == 1
+        assert result['notifications_created'] == 1
+
+    with SessionLocal() as db:
+        logs = db.scalars(select(NotificationLog).where(NotificationLog.match_id == match_id)).all()
+        assert {item.player_id for item in logs} == {compatible_candidate_id}
+        assert incompatible_candidate_id not in {item.player_id for item in logs}
+        assert {item.channel for item in logs} == {NotificationChannel.IN_APP}
+
+
 def test_play_match_search_players_route_dispatches_once_and_then_enforces_cooldown(client):
     creator = identify_as(client, profile_name='Search Trigger Creator', phone='3337600091')
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)

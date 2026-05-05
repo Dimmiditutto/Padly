@@ -32,7 +32,6 @@ from app.models import (
 PLAY_ACTIVITY_RETENTION_DAYS = 90
 PLAY_NOTIFICATION_RETENTION_DAYS = 90
 PLAY_NOTIFICATION_DAILY_CAP = 3
-PLAY_MIN_USEFUL_EVENTS = 5
 PLAY_PROFILE_DECAY_INTERVAL_DAYS = 14
 PLAY_PROFILE_DECAY_FACTOR = 0.85
 PLAY_SERVICE_WORKER_PATH = '/play-service-worker.js'
@@ -681,24 +680,51 @@ def _player_level_for_notifications(player: Player, profile: PlayerPlayProfile |
     return player.declared_level
 
 
+def _base_match_notification_score(kind: NotificationKind) -> int:
+    return {
+        NotificationKind.MATCH_THREE_OF_FOUR: 300,
+        NotificationKind.MATCH_TWO_OF_FOUR: 200,
+        NotificationKind.MATCH_ONE_OF_FOUR: 100,
+    }[kind]
+
+
+def _cold_start_match_notification_score(
+    *,
+    player: Player,
+    profile: PlayerPlayProfile | None,
+    match: Match,
+    kind: NotificationKind,
+) -> int:
+    candidate_level = _player_level_for_notifications(player, profile)
+    if candidate_level == match.level_requested:
+        return _base_match_notification_score(kind) + 5
+    if candidate_level == PlayLevel.NO_PREFERENCE or match.level_requested == PlayLevel.NO_PREFERENCE:
+        return _base_match_notification_score(kind) + 3
+    return _base_match_notification_score(kind)
+
+
 def _match_notification_score(
     *,
     player: Player,
-    profile: PlayerPlayProfile,
+    profile: PlayerPlayProfile | None,
     match: Match,
     kind: NotificationKind,
     club_timezone: str | None,
 ) -> int:
+    if profile is None:
+        return _cold_start_match_notification_score(
+            player=player,
+            profile=profile,
+            match=match,
+            kind=kind,
+        )
+
     local_start = _club_local_datetime(match.start_at, club_timezone=club_timezone)
     weekday_scores = _normalize_score_map(profile.weekday_scores, defaults=_default_weekday_scores())
     time_slot_scores = _normalize_time_slot_scores(profile.time_slot_scores)
     level_scores = _normalize_score_map(profile.level_compatibility_scores, defaults=_default_level_compatibility_scores())
 
-    base_score = {
-        NotificationKind.MATCH_THREE_OF_FOUR: 300,
-        NotificationKind.MATCH_TWO_OF_FOUR: 200,
-        NotificationKind.MATCH_ONE_OF_FOUR: 100,
-    }[kind]
+    base_score = _base_match_notification_score(kind)
     weekday_bonus = weekday_scores.get(str(local_start.weekday()), 0)
     time_slot_bonus = time_slot_scores.get(_time_slot_group(local_start), {}).get(_time_slot_bucket(local_start), 0)
     level_bonus = level_scores.get(match.level_requested.value, 0)
@@ -1155,14 +1181,12 @@ def dispatch_play_notifications_for_match(
         .order_by(Player.created_at.asc(), Player.id.asc())
     ).all()
 
-    scored_candidates: list[tuple[int, Player, PlayerPlayProfile, PlayerNotificationPreference | None]] = []
+    scored_candidates: list[tuple[int, Player, PlayerPlayProfile | None, PlayerNotificationPreference | None]] = []
     day_window_start, day_window_end = _daily_window_bounds(reference_time=now, club_timezone=club_timezone)
     participant_count = len(match.participants)
     for candidate in candidates:
         profile = candidate.play_profile
         preference = candidate.notification_preference
-        if not profile or profile.useful_events_count < PLAY_MIN_USEFUL_EVENTS:
-            continue
         if not _kind_enabled(preference, kind):
             continue
         if preference and not preference.in_app_enabled and not preference.web_push_enabled:
@@ -1191,7 +1215,7 @@ def dispatch_play_notifications_for_match(
             continue
         scored_candidates.append((score, candidate, profile, preference))
 
-    scored_candidates.sort(key=lambda item: (-item[0], -item[2].useful_events_count, item[1].created_at, item[1].id))
+    scored_candidates.sort(key=lambda item: (-item[0], -(item[2].useful_events_count if item[2] else 0), item[1].created_at, item[1].id))
     recipient_limit = {
         NotificationKind.MATCH_THREE_OF_FOUR: 6,
         NotificationKind.MATCH_TWO_OF_FOUR: 4,

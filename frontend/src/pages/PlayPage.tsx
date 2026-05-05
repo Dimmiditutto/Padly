@@ -1,6 +1,6 @@
 import { AxiosError } from 'axios';
 import { ArrowLeft, BellRing, UsersRound } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
@@ -42,7 +42,7 @@ import type {
   PlayPlayerSummary,
   PublicConfig,
 } from '../types';
-import { getBrowserPlayPushEndpoint, isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
+import { getBrowserPlayPushEndpoint, getBrowserPlayPushSubscriptionPayload, isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
 import {
   buildAbsolutePlayMatchUrl,
@@ -172,6 +172,10 @@ function formatMatchCount(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function isPageVisible() {
+  return typeof document === 'undefined' || document.visibilityState === 'visible';
+}
+
 function PlayMatchFilterBar({
   sectionLabel,
   dateOptions,
@@ -259,6 +263,7 @@ export function PlayPage() {
   const [myMatchDateFilter, setMyMatchDateFilter] = useState('');
   const [myMatchLevelFilter, setMyMatchLevelFilter] = useState<PlayMatchLevelFilter>('ALL');
   const browserSupportsPush = useMemo(() => isPlayPushSupported(), []);
+  const syncedBrowserPushKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -300,6 +305,44 @@ export function PlayPage() {
       cancelled = true;
     };
   }, [browserSupportsPush, currentPlayer, tenantSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!browserSupportsPush || !currentPlayer || !tenantSlug || !notificationSettings?.push.push_supported) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getBrowserPlayPushSubscriptionPayload()
+      .then(async (payload) => {
+        if (!payload || cancelled) {
+          return;
+        }
+
+        const syncKey = `${tenantSlug}:${currentPlayer.id}:${payload.endpoint}`;
+        if (syncedBrowserPushKeyRef.current === syncKey) {
+          return;
+        }
+
+        syncedBrowserPushKeyRef.current = syncKey;
+        const response = await registerPlayPushSubscription(payload, tenantSlug);
+        if (!cancelled) {
+          applyNotificationSettings(response.settings);
+          setBrowserPushEndpoint(payload.endpoint);
+        }
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [browserSupportsPush, currentPlayer, notificationSettings?.push.push_supported, tenantSlug]);
 
   useEffect(() => {
     setOpenMatchesExpanded(false);
@@ -353,6 +396,23 @@ export function PlayPage() {
     setNotificationDraft(nextSettings?.preferences || null);
   }
 
+  function applyPlaySurfaceState(
+    session: { player?: PlayPlayerSummary | null; notification_settings?: PlayNotificationSettings | null },
+    matches: PlayMatchesResponse,
+  ) {
+    setCurrentPlayer(session.player || matches.player || null);
+    setPlayData(matches);
+    setPendingPlayPayment(
+      matches.pending_payment
+        ? {
+          booking: matches.pending_payment.booking,
+          paymentAction: matches.pending_payment.payment_action,
+        }
+        : null,
+    );
+    applyNotificationSettings(session.notification_settings || null);
+  }
+
   async function loadPlaySurface(resolvedTenantSlug: string) {
     setLoading(true);
     try {
@@ -361,27 +421,71 @@ export function PlayPage() {
         getPlayMatches(resolvedTenantSlug),
         getPublicConfig(resolvedTenantSlug).catch(() => null),
       ]);
-      setCurrentPlayer(session.player || matches.player || null);
-      setPlayData(matches);
+      applyPlaySurfaceState(session, matches);
       if (publicConfig) {
         rememberClubPublicName(resolvedTenantSlug, publicConfig.public_name);
         setClubConfig(publicConfig);
       }
-      setPendingPlayPayment(
-        matches.pending_payment
-          ? {
-            booking: matches.pending_payment.booking,
-            paymentAction: matches.pending_payment.payment_action,
-          }
-          : null,
-      );
-      applyNotificationSettings(session.notification_settings || null);
     } catch {
       setFeedback({ tone: 'error', message: 'Non riesco a caricare la bacheca play del club.' });
     } finally {
       setLoading(false);
     }
   }
+
+  async function refreshPlaySurface(resolvedTenantSlug: string) {
+    const [session, matches] = await Promise.all([
+      getPlaySession(resolvedTenantSlug),
+      getPlayMatches(resolvedTenantSlug),
+    ]);
+    applyPlaySurfaceState(session, matches);
+  }
+
+  useEffect(() => {
+    if (!tenantSlug || loading) {
+      return;
+    }
+
+    const resolvedTenantSlug = tenantSlug;
+    let cancelled = false;
+
+    async function refreshIfVisible() {
+      if (cancelled || !isPageVisible()) {
+        return;
+      }
+      try {
+        await refreshPlaySurface(resolvedTenantSlug);
+      } catch {
+        // Ignore background refresh failures: the page already shows the last stable state.
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshIfVisible();
+    }, 15000);
+
+    const handleVisibilityRefresh = () => {
+      void refreshIfVisible();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibilityRefresh);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibilityRefresh);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+      }
+    };
+  }, [loading, tenantSlug]);
 
   function requireIdentity(action: PendingAction) {
     setPendingAction(action);

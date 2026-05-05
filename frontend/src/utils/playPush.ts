@@ -106,3 +106,34 @@ export async function unsubscribeBrowserFromPlayPush() {
   await subscription.unsubscribe();
   return endpoint;
 }
+
+
+export async function getBrowserPlayPushSubscriptionPayload(): Promise<PlayPushSubscriptionPayload | null> {
+  if (!isPlayPushSupported()) {
+    return null;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration) {
+    return null;
+  }
+
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    return null;
+  }
+
+  const serialized = subscription.toJSON();
+  if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys?.auth) {
+    return null;
+  }
+
+  return {
+    endpoint: serialized.endpoint,
+    keys: {
+      p256dh: serialized.keys.p256dh,
+      auth: serialized.keys.auth,
+    },
+    user_agent: navigator.userAgent,
+  };
+}
