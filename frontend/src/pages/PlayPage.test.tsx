@@ -1015,9 +1015,15 @@ describe('Play phase 2 pages', () => {
     await waitFor(() => expect(openMock).toHaveBeenCalled());
 
     const whatsAppUrl = openMock.mock.calls[0]?.[0];
-    expect(String(whatsAppUrl)).toContain('https://wa.me/?text=');
+    expect(String(whatsAppUrl)).toContain('https://web.whatsapp.com/send?text=');
     const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
+    expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
+    expect(decoded).toContain('📈 Livello Intermedio medio\n\nDove si gioca?\n📍 Roma Club');
+    expect(decoded).toContain('📍 Roma Club\n\n🎾 Player 1');
+    expect(decoded).toContain('🎾 Player 2\n\nChi gioca?');
     expect(decoded).toContain('Chi gioca?');
+    expect(decoded).toContain('📅 *');
+    expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('🎾 Player 1');
     expect(decoded).toContain('🎾 Player 2');
     expect(decoded).toContain('📍 Roma Club');

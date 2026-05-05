@@ -65,8 +65,17 @@ function formatShareWeekdayDate(dateValue: string, timeZone?: string | null): st
 }
 
 
+function shouldUseMobileWhatsAppLink(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /Android|iPhone|iPad|iPod|Windows Phone|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+}
+
+
 export function buildPlayMatchShareText({
   startAt,
+  endAt,
   levelRequested,
   shareUrl,
   clubName,
@@ -74,6 +83,7 @@ export function buildPlayMatchShareText({
   timeZone,
 }: {
   startAt: string;
+  endAt?: string | null;
   levelRequested: PlayLevel;
   shareUrl: string;
   clubName?: string | null;
@@ -84,29 +94,49 @@ export function buildPlayMatchShareText({
     .map((name) => String(name).trim())
     .filter(Boolean);
 
-  return [
+  const participantLines = normalizedParticipantNames.map((name) => `🎾 ${name}`);
+
+  const formattedStartTime = formatTimeValue(startAt, timeZone);
+  const formattedEndTime = endAt ? formatTimeValue(endAt, timeZone) : null;
+  const timeRangeLabel = formattedEndTime
+    ? `🕒 *Ore ${formattedStartTime}/${formattedEndTime}*`
+    : `🕒 *Ore ${formattedStartTime}*`;
+
+  const lines = [
     '🎾 Match aperto',
-    `📅 ${formatShareWeekdayDate(startAt, timeZone)}`,
-    `🕒 Ore ${formatTimeValue(startAt, timeZone)}`,
-    `📈 Livello ${formatPlayLevel(levelRequested)}`,
-    ...normalizedParticipantNames.map((name) => `🎾 ${name}`),
-    clubName ? `📍 ${clubName}` : null,
+    `📅 *${formatShareWeekdayDate(startAt, timeZone)}*`,
+    timeRangeLabel,
     '',
-    'Chi gioca?',
-    shareUrl,
-  ].filter((value): value is string => Boolean(value)).join('\n');
+    `📈 Livello ${formatPlayLevel(levelRequested)}`,
+  ];
+
+  if (clubName) {
+    lines.push(`📍 ${clubName}`);
+  }
+
+  if (participantLines.length > 0) {
+    lines.push('', ...participantLines);
+  }
+
+  lines.push('', 'Chi gioca?', shareUrl);
+
+  return lines.join('\n');
 }
 
 
 export function buildPlayMatchWhatsAppUrl(options: {
   startAt: string;
+  endAt?: string | null;
   levelRequested: PlayLevel;
   shareUrl: string;
   clubName?: string | null;
   participantNames?: string[];
   timeZone?: string | null;
 }): string {
-  return `https://wa.me/?text=${encodeURIComponent(buildPlayMatchShareText(options))}`;
+  const whatsAppBaseUrl = shouldUseMobileWhatsAppLink()
+    ? 'https://wa.me/?text='
+    : 'https://web.whatsapp.com/send?text=';
+  return `${whatsAppBaseUrl}${encodeURIComponent(buildPlayMatchShareText(options))}`;
 }
 
 

@@ -626,6 +626,7 @@ export function PlayPage() {
   const shareUrl = shareMatch?.share_token ? buildAbsolutePlayMatchUrl(tenantSlug, shareMatch.share_token) : null;
   const shareText = shareMatch && shareUrl ? buildPlayMatchShareText({
     startAt: shareMatch.start_at,
+    endAt: shareMatch.end_at,
     levelRequested: shareMatch.level_requested,
     participantNames: shareMatch.participants.map((participant) => participant.profile_name),
     clubName: clubDisplayName,
@@ -634,6 +635,7 @@ export function PlayPage() {
   }) : null;
   const whatsAppUrl = shareMatch && shareUrl ? buildPlayMatchWhatsAppUrl({
     startAt: shareMatch.start_at,
+    endAt: shareMatch.end_at,
     levelRequested: shareMatch.level_requested,
     participantNames: shareMatch.participants.map((participant) => participant.profile_name),
     clubName: clubDisplayName,
@@ -1037,7 +1039,7 @@ export function PlayPage() {
           <PlayShareDialog
             open={Boolean(shareMatch)}
             title='Condividi questa partita'
-            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto e il fallback su wa.me.'
+            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto.'
             shareUrl={shareUrl}
             shareText={shareText}
             whatsAppUrl={whatsAppUrl}

@@ -144,9 +144,15 @@ describe('SharedMatchPage', () => {
 
     const whatsAppUrl = windowOpenMock.mock.calls[0]?.[0];
     expect(typeof whatsAppUrl).toBe('string');
-    expect(String(whatsAppUrl)).toContain('https://wa.me/?text=');
+    expect(String(whatsAppUrl)).toContain('https://web.whatsapp.com/send?text=');
     const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
+    expect(decoded).toContain('🕒 *Ore 20:00/21:30*');
+    expect(decoded).toContain('📈 Livello Intermedio medio\n\nDove si gioca?\n📍 Roma Club');
+    expect(decoded).toContain('📍 Roma Club\n\n🎾 Luca Smash');
+    expect(decoded).toContain('🎾 Marco Topspin\n\nChi gioca?');
     expect(decoded).toContain('Chi gioca?');
+    expect(decoded).toContain('📅 *');
+    expect(decoded).toContain('📈 Livello Intermedio medio');
     expect(decoded).toContain('🎾 Luca Smash');
     expect(decoded).toContain('🎾 Marco Topspin');
     expect(decoded).toContain('📍 Roma Club');

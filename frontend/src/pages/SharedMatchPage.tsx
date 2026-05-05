@@ -147,6 +147,7 @@ export function SharedMatchPage() {
     }
     return buildPlayMatchShareText({
       startAt: match.start_at,
+      endAt: match.end_at,
       levelRequested: match.level_requested,
       participantNames: match.participants.map((participant) => participant.profile_name),
       clubName: clubDisplayName,
@@ -161,6 +162,7 @@ export function SharedMatchPage() {
     }
     return buildPlayMatchWhatsAppUrl({
       startAt: match.start_at,
+      endAt: match.end_at,
       levelRequested: match.level_requested,
       participantNames: match.participants.map((participant) => participant.profile_name),
       clubName: clubDisplayName,
@@ -250,7 +252,7 @@ export function SharedMatchPage() {
           <PlayShareDialog
             open={shareDialogOpen}
             title='Condividi questa partita'
-            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto e il fallback su wa.me.'
+            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto.'
             shareUrl={shareUrl}
             shareText={shareText}
             whatsAppUrl={whatsAppUrl}

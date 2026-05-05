@@ -22,6 +22,7 @@ export function PlayShareDialog({
   onClose: () => void;
 }) {
   const [feedback, setFeedback] = useState<ShareDialogFeedback>(null);
+  const whatsAppLinkLabel = whatsAppUrl.includes('web.whatsapp.com') ? 'Apri WhatsApp Web' : 'Apri link WhatsApp';
 
   useEffect(() => {
     if (open) {
@@ -106,7 +107,7 @@ export function PlayShareDialog({
           <div className='flex justify-end'>
             <a className='btn-secondary sm:w-auto' href={whatsAppUrl} target='_blank' rel='noreferrer'>
               <ExternalLink size={16} />
-              <span>Apri link wa.me</span>
+              <span>{whatsAppLinkLabel}</span>
             </a>
           </div>
         </div>

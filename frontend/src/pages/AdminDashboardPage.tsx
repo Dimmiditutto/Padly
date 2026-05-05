@@ -250,6 +250,7 @@ export function AdminDashboardPage() {
     }
     return buildPlayMatchShareText({
       startAt: selectedPlayShareMatch.start_at,
+      endAt: selectedPlayShareMatch.end_at,
       levelRequested: selectedPlayShareMatch.level_requested,
       participantNames: selectedPlayShareMatch.participant_names,
       clubName: adminClubName,
@@ -263,6 +264,7 @@ export function AdminDashboardPage() {
     }
     return buildPlayMatchWhatsAppUrl({
       startAt: selectedPlayShareMatch.start_at,
+      endAt: selectedPlayShareMatch.end_at,
       levelRequested: selectedPlayShareMatch.level_requested,
       participantNames: selectedPlayShareMatch.participant_names,
       clubName: adminClubName,
@@ -1409,7 +1411,7 @@ export function AdminDashboardPage() {
 
                     <div className='mt-6 rounded-2xl border border-slate-200 bg-white p-4'>
                       <p className='text-sm font-semibold text-slate-900'>Link partite Play</p>
-                      <p className='mt-1 text-sm leading-6 text-slate-600'>Il club puo riusare gli stessi link attivi dei match OPEN o FULL per copiare il link oppure aprire direttamente WhatsApp con fallback su wa.me.</p>
+                      <p className='mt-1 text-sm leading-6 text-slate-600'>Il club puo riusare gli stessi link attivi dei match OPEN o FULL per copiare il link oppure aprire direttamente WhatsApp con il testo gia pronto.</p>
                       <p className='mt-2 text-xs leading-5 text-slate-500'>Il link resta coerente con la pagina pubblica del match e con il funnel community gia presente in app.</p>
                       <div className='mt-4 space-y-3'>
                         {playShareableMatches.length === 0 ? (
@@ -1522,7 +1524,7 @@ export function AdminDashboardPage() {
           <PlayShareDialog
             open={Boolean(selectedPlayShareMatch)}
             title='Condividi partita Play del club'
-            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto e il fallback su wa.me.'
+            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto.'
             shareUrl={selectedPlayShareUrl}
             shareText={selectedPlayShareText}
             whatsAppUrl={selectedPlayShareWhatsAppUrl}
