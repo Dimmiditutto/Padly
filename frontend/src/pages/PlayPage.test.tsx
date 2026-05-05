@@ -21,6 +21,7 @@ vi.mock('../services/playApi', () => ({
   resendPlayAccessOtp: vi.fn(),
   registerPlayPushSubscription: vi.fn(),
   revokePlayMatchShareToken: vi.fn(),
+  searchPlayMatchPlayers: vi.fn(),
   startPlayAccessOtp: vi.fn(),
   rotatePlayMatchShareToken: vi.fn(),
   revokePlayPushSubscription: vi.fn(),
@@ -63,6 +64,7 @@ import {
   resendPlayAccessOtp,
   registerPlayPushSubscription,
   revokePlayMatchShareToken,
+  searchPlayMatchPlayers,
   startPlayAccessOtp,
   rotatePlayMatchShareToken,
   revokePlayPushSubscription,
@@ -981,6 +983,181 @@ describe('Play phase 2 pages', () => {
     await waitFor(() => expect(revokePlayMatchShareToken).toHaveBeenCalledWith('match-my-share', 'roma-club'));
     expect(await screen.findByText('Link partita disattivato.')).toBeInTheDocument();
     expect(await within((await screen.findAllByTestId('play-my-match-card'))[0]).findByText('Link disattivato')).toBeInTheDocument();
+  });
+
+  it('opens the share dialog from play cards and builds the WhatsApp fallback text', async () => {
+    const user = userEvent.setup();
+    const openMock = vi.fn();
+    const creatorMatch = {
+      ...buildMatch('match-my-share', 'da condividere', 2),
+      created_by_player_id: basePlayer.id,
+      creator_profile_name: basePlayer.profile_name,
+      joined_by_current_player: true,
+    };
+    vi.stubGlobal('open', openMock);
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [creatorMatch],
+    });
+
+    renderApp('/c/roma-club/play');
+
+    const card = (await screen.findAllByTestId('play-my-match-card'))[0];
+    await user.click(within(card).getByRole('button', { name: 'Condividi' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Condividi questa partita' })).toBeInTheDocument();
+    const shareLinkInput = screen.getByLabelText('Link partita') as HTMLInputElement;
+    expect(shareLinkInput.value).toContain('/c/roma-club/play/matches/share-match-my-share');
+
+    await user.click(screen.getByRole('button', { name: 'Apri WhatsApp' }));
+    await waitFor(() => expect(openMock).toHaveBeenCalled());
+
+    const whatsAppUrl = openMock.mock.calls[0]?.[0];
+    expect(String(whatsAppUrl)).toContain('https://wa.me/?text=');
+    const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
+    expect(decoded).toContain('Chi gioca?');
+    expect(decoded).toContain('🎾 Player 1');
+    expect(decoded).toContain('🎾 Player 2');
+    expect(decoded).toContain('📍 Roma Club');
+  });
+
+  it('lets a joined participant share the same match link and falls back to manual copy when clipboard is unavailable', async () => {
+    const user = userEvent.setup();
+    const clipboardWriteText = vi.fn().mockRejectedValueOnce(new Error('clipboard unavailable'));
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWriteText },
+    });
+    const participantMatch = {
+      ...buildMatch('match-my-share-participant', 'gia dentro', 2),
+      created_by_player_id: 'creator-other-player',
+      creator_profile_name: 'Club Captain',
+      joined_by_current_player: true,
+      participants: [
+        {
+          player_id: basePlayer.id,
+          profile_name: basePlayer.profile_name,
+          declared_level: basePlayer.declared_level,
+        },
+        {
+          player_id: 'creator-other-player',
+          profile_name: 'Club Captain',
+          declared_level: 'INTERMEDIATE_MEDIUM' as const,
+        },
+      ],
+    };
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [participantMatch],
+    });
+
+    renderApp('/c/roma-club/play');
+
+    const card = (await screen.findAllByTestId('play-my-match-card'))[0];
+    expect(within(card).getByRole('button', { name: 'Condividi' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Cerca giocatori' })).not.toBeInTheDocument();
+
+    await user.click(within(card).getByRole('button', { name: 'Condividi' }));
+
+    const shareLinkInput = screen.getByLabelText('Link partita') as HTMLInputElement;
+    await user.click(screen.getByRole('button', { name: 'Copia link' }));
+
+    await waitFor(() => expect(clipboardWriteText).toHaveBeenCalledWith(shareLinkInput.value));
+    expect(await screen.findByText('Copia manualmente il link qui sotto.')).toBeInTheDocument();
+  });
+
+  it('lets the creator trigger Cerca giocatori from personal match actions', async () => {
+    const user = userEvent.setup();
+    const creatorMatch = {
+      ...buildMatch('match-my-search', 'cerca player', 1),
+      created_by_player_id: basePlayer.id,
+      creator_profile_name: basePlayer.profile_name,
+      joined_by_current_player: true,
+    };
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [creatorMatch],
+    });
+    vi.mocked(searchPlayMatchPlayers).mockResolvedValue({
+      message: 'Abbiamo avvisato 3 player compatibili.',
+      notifications_created: 3,
+      cooldown_remaining_seconds: 0,
+      match: creatorMatch,
+    });
+
+    renderApp('/c/roma-club/play');
+
+    const card = (await screen.findAllByTestId('play-my-match-card'))[0];
+    await user.click(within(card).getByRole('button', { name: 'Cerca giocatori' }));
+
+    await waitFor(() => expect(searchPlayMatchPlayers).toHaveBeenCalledWith('match-my-search', 'roma-club'));
+    expect(await screen.findByText('Abbiamo avvisato 3 player compatibili.')).toBeInTheDocument();
+  });
+
+  it('shows an informative feedback when Cerca giocatori finds no new compatible players', async () => {
+    const user = userEvent.setup();
+    const creatorMatch = {
+      ...buildMatch('match-my-search-empty', 'nessun candidato', 1),
+      created_by_player_id: basePlayer.id,
+      creator_profile_name: basePlayer.profile_name,
+      joined_by_current_player: true,
+    };
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [creatorMatch],
+    });
+    vi.mocked(searchPlayMatchPlayers).mockResolvedValue({
+      message: 'Nessun nuovo player compatibile da avvisare in questo momento.',
+      notifications_created: 0,
+      cooldown_remaining_seconds: 0,
+      match: creatorMatch,
+    });
+
+    renderApp('/c/roma-club/play');
+
+    const card = (await screen.findAllByTestId('play-my-match-card'))[0];
+    await user.click(within(card).getByRole('button', { name: 'Cerca giocatori' }));
+
+    await waitFor(() => expect(searchPlayMatchPlayers).toHaveBeenCalledWith('match-my-search-empty', 'roma-club'));
+    expect(await screen.findByText('Nessun nuovo player compatibile da avvisare in questo momento.')).toBeInTheDocument();
+  });
+
+  it('shows the cooldown feedback when Cerca giocatori was triggered too recently', async () => {
+    const user = userEvent.setup();
+    const creatorMatch = {
+      ...buildMatch('match-my-search-cooldown', 'cooldown attivo', 2),
+      created_by_player_id: basePlayer.id,
+      creator_profile_name: basePlayer.profile_name,
+      joined_by_current_player: true,
+    };
+    vi.mocked(getPlaySession).mockResolvedValue({ player: { ...basePlayer }, notification_settings: { ...baseNotificationSettings } });
+    vi.mocked(getPlayMatches).mockResolvedValue({
+      player: { ...basePlayer },
+      open_matches: [],
+      my_matches: [creatorMatch],
+    });
+    vi.mocked(searchPlayMatchPlayers).mockResolvedValue({
+      message: 'Abbiamo gia cercato giocatori compatibili poco fa. Riprova tra qualche minuto.',
+      notifications_created: 0,
+      cooldown_remaining_seconds: 872,
+      match: creatorMatch,
+    });
+
+    renderApp('/c/roma-club/play');
+
+    const card = (await screen.findAllByTestId('play-my-match-card'))[0];
+    await user.click(within(card).getByRole('button', { name: 'Cerca giocatori' }));
+
+    await waitFor(() => expect(searchPlayMatchPlayers).toHaveBeenCalledWith('match-my-search-cooldown', 'roma-club'));
+    expect(await screen.findByText('Abbiamo gia cercato giocatori compatibili poco fa. Riprova tra qualche minuto.')).toBeInTheDocument();
   });
 
   it('saves notification preferences from the play panel', async () => {

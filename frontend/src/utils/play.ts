@@ -1,4 +1,5 @@
 import type { PlayLevel } from '../types';
+import { formatTimeValue } from './format';
 
 export const DEFAULT_PLAY_ALIAS_SLUG = 'default-club';
 const CLUB_PUBLIC_NAME_CACHE_PREFIX = 'play-club-name:';
@@ -40,6 +41,72 @@ export function buildPlayAccessPath(tenantSlug: string, groupToken?: string | nu
 
 export function buildPlayMatchPath(tenantSlug: string, matchId: string): string {
   return buildClubPlayPath(tenantSlug, `/matches/${encodeURIComponent(matchId)}`);
+}
+
+
+export function buildAbsoluteAppUrl(path: string): string {
+  return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+}
+
+
+export function buildAbsolutePlayMatchUrl(tenantSlug: string, shareToken: string): string {
+  return buildAbsoluteAppUrl(buildPlayMatchPath(tenantSlug, shareToken));
+}
+
+
+function formatShareWeekdayDate(dateValue: string, timeZone?: string | null): string {
+  const label = new Intl.DateTimeFormat('it-IT', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(dateValue));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+
+export function buildPlayMatchShareText({
+  startAt,
+  levelRequested,
+  shareUrl,
+  clubName,
+  participantNames = [],
+  timeZone,
+}: {
+  startAt: string;
+  levelRequested: PlayLevel;
+  shareUrl: string;
+  clubName?: string | null;
+  participantNames?: string[];
+  timeZone?: string | null;
+}): string {
+  const normalizedParticipantNames = participantNames
+    .map((name) => String(name).trim())
+    .filter(Boolean);
+
+  return [
+    '🎾 Match aperto',
+    `📅 ${formatShareWeekdayDate(startAt, timeZone)}`,
+    `🕒 Ore ${formatTimeValue(startAt, timeZone)}`,
+    `📈 Livello ${formatPlayLevel(levelRequested)}`,
+    ...normalizedParticipantNames.map((name) => `🎾 ${name}`),
+    clubName ? `📍 ${clubName}` : null,
+    '',
+    'Chi gioca?',
+    shareUrl,
+  ].filter((value): value is string => Boolean(value)).join('\n');
+}
+
+
+export function buildPlayMatchWhatsAppUrl(options: {
+  startAt: string;
+  levelRequested: PlayLevel;
+  shareUrl: string;
+  clubName?: string | null;
+  participantNames?: string[];
+  timeZone?: string | null;
+}): string {
+  return `https://wa.me/?text=${encodeURIComponent(buildPlayMatchShareText(options))}`;
 }
 
 

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.models import (
+    Admin,
     Booking,
     BookingEventLog,
     BookingSource,
@@ -27,6 +28,7 @@ from app.models import (
     PaymentProvider,
     PaymentStatus,
     Player,
+    PlayerActivityEvent,
     PlayerAccessToken,
     PlayerAccessChallenge,
     PlayLevel,
@@ -50,6 +52,7 @@ PLAY_ACCESS_OTP_TTL_MINUTES = 10
 PLAY_ACCESS_OTP_MAX_ATTEMPTS = 5
 PLAY_ACCESS_OTP_RESEND_COOLDOWN_SECONDS = 60
 PLAY_ACCESS_OTP_MAX_RESENDS = 5
+PLAY_MATCH_SEARCH_PLAYERS_COOLDOWN_SECONDS = 15 * 60
 
 
 def _utcnow() -> datetime:
@@ -921,11 +924,34 @@ def _is_future_match(match: Match) -> bool:
     return _as_utc(match.start_at) > _utcnow()
 
 
+def _is_future_shareable_match(match: Match) -> bool:
+    return match.status in {MatchStatus.OPEN, MatchStatus.FULL} and _is_future_match(match)
+
+
 def _require_future_open_match(match: Match) -> None:
     if match.status == MatchStatus.CANCELLED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La partita e annullata')
     if not _is_future_match(match):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La partita non e piu modificabile')
+
+
+def _require_searchable_match(match: Match, *, current_player: Player) -> None:
+    _require_future_open_match(match)
+    if match.booking_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='La partita e gia stata trasformata in prenotazione')
+    if match.created_by_player_id != current_player.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Solo il creator puo cercare nuovi giocatori')
+
+
+def _last_search_players_trigger_at(db: Session, *, club_id: str, match_id: str) -> datetime | None:
+    return db.scalar(
+        select(func.max(PlayerActivityEvent.event_at))
+        .where(
+            PlayerActivityEvent.club_id == club_id,
+            PlayerActivityEvent.match_id == match_id,
+            PlayerActivityEvent.event_type == PlayerActivityEventType.MATCH_SEARCH_TRIGGERED,
+        )
+    )
 
 
 def _normalize_match_note(note: str | None) -> str | None:
@@ -1263,6 +1289,37 @@ def _serialize_match(match: Match, *, current_player_id: str | None = None) -> d
     }
 
 
+def _serialize_shared_match(match: Match, *, current_player_id: str | None = None) -> dict:
+    payload = _serialize_match(match, current_player_id=current_player_id)
+    if payload['joined_by_current_player']:
+        return payload
+
+    payload['creator_profile_name'] = None
+    payload['note'] = None
+    payload['participants'] = []
+    return payload
+
+
+def _serialize_admin_shareable_match(match: Match, *, club_slug: str) -> dict | None:
+    share_token = _get_active_match_share_token(match)
+    if not share_token:
+        return None
+
+    participants = sorted(match.participants, key=lambda item: item.created_at)
+    return {
+        'id': match.id,
+        'share_token': share_token,
+        'share_path': f'/c/{club_slug}/play/matches/{share_token}',
+        'court_name': match.court.name if match.court else None,
+        'start_at': match.start_at,
+        'end_at': match.end_at,
+        'status': match.status,
+        'level_requested': match.level_requested,
+        'participant_count': len(participants),
+        'participant_names': [participant.player.profile_name for participant in participants if participant.player],
+    }
+
+
 def _serialize_public_match(match: Match) -> dict:
     participant_count = len(match.participants)
     available_spots = max(0, PLAY_MATCH_SIZE - participant_count)
@@ -1451,12 +1508,30 @@ def get_play_shared_match_detail(db: Session, *, club_id: str, share_token: str,
         )
         .limit(1)
     )
-    if not match:
+    if not match or not _is_future_shareable_match(match):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Link partita non disponibile')
     return {
         'player': current_player,
-        'match': _serialize_match(match, current_player_id=current_player.id if current_player else None),
+        'match': _serialize_shared_match(match, current_player_id=current_player.id if current_player else None),
     }
+
+
+def list_admin_shareable_play_matches(db: Session, *, admin: Admin) -> list[dict]:
+    now = _utcnow()
+    matches = db.scalars(
+        _match_query(db, club_id=admin.club_id)
+        .where(
+            Match.status.in_([MatchStatus.OPEN, MatchStatus.FULL]),
+            Match.start_at > now,
+        )
+        .order_by(Match.start_at.asc(), Match.created_at.asc())
+    ).all()
+    items: list[dict] = []
+    for match in matches:
+        serialized_item = _serialize_admin_shareable_match(match, club_slug=admin.club.slug)
+        if serialized_item is not None:
+            items.append(serialized_item)
+    return items
 
 
 def create_play_match(
@@ -1870,6 +1945,64 @@ def revoke_play_match_share_token(
         return {
             'action': 'REVOKED',
             'message': 'Link partita disattivato.',
+            'match': _serialize_match(match, current_player_id=current_player.id),
+        }
+
+
+def search_players_for_play_match(
+    db: Session,
+    *,
+    club_id: str,
+    club_timezone: str | None,
+    match_id: str,
+    current_player: Player,
+) -> dict:
+    court_id = _get_match_court_id(db, club_id=club_id, match_id=match_id)
+
+    with acquire_single_court_lock(db, court_id):
+        match = _load_match(db, club_id=club_id, match_id=match_id, for_update=True)
+        if not match:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Partita non trovata')
+        _require_searchable_match(match, current_player=current_player)
+
+        last_trigger_at = _last_search_players_trigger_at(db, club_id=club_id, match_id=match.id)
+        if last_trigger_at is not None:
+            elapsed_seconds = int((_utcnow() - _as_utc(last_trigger_at)).total_seconds())
+            if elapsed_seconds < PLAY_MATCH_SEARCH_PLAYERS_COOLDOWN_SECONDS:
+                return {
+                    'message': 'Abbiamo gia cercato giocatori compatibili poco fa. Riprova tra qualche minuto.',
+                    'notifications_created': 0,
+                    'cooldown_remaining_seconds': PLAY_MATCH_SEARCH_PLAYERS_COOLDOWN_SECONDS - max(0, elapsed_seconds),
+                    'match': _serialize_match(match, current_player_id=current_player.id),
+                }
+
+        result = dispatch_play_notifications_for_match(
+            db,
+            club_id=club_id,
+            club_timezone=club_timezone,
+            match_id=match.id,
+        )
+        recipients_count = int(result.get('recipients_count', 0))
+        record_player_activity(
+            db,
+            player=current_player,
+            club_timezone=club_timezone,
+            event_type=PlayerActivityEventType.MATCH_SEARCH_TRIGGERED,
+            match=match,
+            payload={
+                'notifications_created': int(result.get('notifications_created', 0)),
+                'recipients_count': recipients_count,
+            },
+            useful=False,
+        )
+        return {
+            'message': (
+                f'Abbiamo avvisato {recipients_count} player compatibili.'
+                if recipients_count > 0
+                else 'Nessun nuovo player compatibile da avvisare in questo momento.'
+            ),
+            'notifications_created': recipients_count,
+            'cooldown_remaining_seconds': 0,
             'match': _serialize_match(match, current_player_id=current_player.id),
         }
 

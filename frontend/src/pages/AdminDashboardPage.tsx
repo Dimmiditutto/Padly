@@ -1,5 +1,5 @@
 import { CalendarClock, ChevronDown, ChevronUp } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AdminNav } from '../components/AdminNav';
 import { AdminTimeSlotPicker } from '../components/AdminTimeSlotPicker';
@@ -9,6 +9,7 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
+import { PlayShareDialog } from '../components/play/PlayShareDialog';
 import {
   createAdminCourt,
   createAdminBooking,
@@ -22,6 +23,7 @@ import {
   getSubscriptionStatus,
   listAdminCommunityAccessLinks,
   listAdminCommunityInvites,
+  listAdminPlayMatchLinks,
   listAdminCourts,
   listBlackouts,
   logoutAdmin,
@@ -41,6 +43,7 @@ import type {
   AdminCommunityInviteStatus,
   AdminCommunityInviteSummary,
   AdminManualBookingPayload,
+  AdminPlayShareableMatchSummary,
   AdminSession,
   AdminSettings,
   BlackoutItem,
@@ -52,7 +55,7 @@ import type {
 } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
 import { formatCurrency, formatDate, formatDateTime, formatWeekdayLabel, toDateInputValue } from '../utils/format';
-import { PLAY_LEVEL_OPTIONS, formatPlayLevel } from '../utils/play';
+import { PLAY_LEVEL_OPTIONS, buildPlayMatchShareText, buildPlayMatchWhatsAppUrl, formatPlayLevel } from '../utils/play';
 
 const today = toDateInputValue(new Date());
 const DURATIONS = [60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -96,6 +99,12 @@ const COMMUNITY_ACCESS_LINK_STATUS_STYLES: Record<AdminCommunityAccessLinkStatus
   EXPIRED: 'bg-amber-100 text-amber-700',
   REVOKED: 'bg-slate-200 text-slate-700',
 };
+
+const PLAY_MATCH_STATUS_LABELS = {
+  OPEN: 'Aperta',
+  FULL: 'Completa',
+  CANCELLED: 'Annullata',
+} as const;
 
 function getRequestStatus(error: any) {
   return error?.response?.status;
@@ -147,6 +156,8 @@ export function AdminDashboardPage() {
   const [communityAccessLinkFeedback, setCommunityAccessLinkFeedback] = useState<FeedbackState>(null);
   const [communityInvites, setCommunityInvites] = useState<AdminCommunityInviteSummary[]>([]);
   const [communityAccessLinks, setCommunityAccessLinks] = useState<AdminCommunityAccessLinkSummary[]>([]);
+  const [playShareableMatches, setPlayShareableMatches] = useState<AdminPlayShareableMatchSummary[]>([]);
+  const [selectedPlayShareMatch, setSelectedPlayShareMatch] = useState<AdminPlayShareableMatchSummary | null>(null);
   const [communityInviteStatusFilter, setCommunityInviteStatusFilter] = useState<CommunityInviteStatusFilter>('ALL');
   const [communityInviteSearchQuery, setCommunityInviteSearchQuery] = useState('');
   const [communityInvitePage, setCommunityInvitePage] = useState(1);
@@ -227,6 +238,38 @@ export function AdminDashboardPage() {
   const communityInviteRangeEnd = filteredCommunityInvites.length === 0
     ? 0
     : Math.min(communityInvitePageStartIndex + COMMUNITY_INVITES_PAGE_SIZE, filteredCommunityInvites.length);
+  const selectedPlayShareUrl = useMemo(() => {
+    if (!selectedPlayShareMatch) {
+      return null;
+    }
+    return buildAbsoluteAppUrl(selectedPlayShareMatch.share_path);
+  }, [selectedPlayShareMatch]);
+  const selectedPlayShareText = useMemo(() => {
+    if (!selectedPlayShareMatch || !selectedPlayShareUrl) {
+      return null;
+    }
+    return buildPlayMatchShareText({
+      startAt: selectedPlayShareMatch.start_at,
+      levelRequested: selectedPlayShareMatch.level_requested,
+      participantNames: selectedPlayShareMatch.participant_names,
+      clubName: adminClubName,
+      shareUrl: selectedPlayShareUrl,
+      timeZone: adminTimezone,
+    });
+  }, [adminClubName, adminTimezone, selectedPlayShareMatch, selectedPlayShareUrl]);
+  const selectedPlayShareWhatsAppUrl = useMemo(() => {
+    if (!selectedPlayShareMatch || !selectedPlayShareUrl) {
+      return null;
+    }
+    return buildPlayMatchWhatsAppUrl({
+      startAt: selectedPlayShareMatch.start_at,
+      levelRequested: selectedPlayShareMatch.level_requested,
+      participantNames: selectedPlayShareMatch.participant_names,
+      clubName: adminClubName,
+      shareUrl: selectedPlayShareUrl,
+      timeZone: adminTimezone,
+    });
+  }, [adminClubName, adminTimezone, selectedPlayShareMatch, selectedPlayShareUrl]);
 
   useEffect(() => {
     void bootstrap();
@@ -270,7 +313,16 @@ export function AdminDashboardPage() {
     }
 
     try {
-      const results = await Promise.allSettled([loadReport(), loadBlackouts(), loadCourts(), loadSettings(), loadSubscription(), loadCommunityInvites(), loadCommunityAccessLinks()]);
+      const results = await Promise.allSettled([
+        loadReport(),
+        loadBlackouts(),
+        loadCourts(),
+        loadSettings(),
+        loadSubscription(),
+        loadCommunityInvites(),
+        loadCommunityAccessLinks(),
+        loadPlayShareableMatches(),
+      ]);
       const unauthorized = results.find((result) => result.status === 'rejected' && getRequestStatus(result.reason) === 401);
       if (unauthorized) {
         redirectToLogin();
@@ -331,10 +383,15 @@ export function AdminDashboardPage() {
     setCommunityAccessLinks(response.items);
   }
 
+  async function loadPlayShareableMatches() {
+    const response = await listAdminPlayMatchLinks();
+    setPlayShareableMatches(response.items);
+  }
+
   async function refreshDashboard() {
     setPageFeedback(null);
     try {
-      await Promise.all([loadReport(), loadBlackouts(), loadSettings(), loadCommunityInvites(), loadCommunityAccessLinks()]);
+      await Promise.all([loadReport(), loadBlackouts(), loadSettings(), loadCommunityInvites(), loadCommunityAccessLinks(), loadPlayShareableMatches()]);
     } catch (error: any) {
       if (getRequestStatus(error) === 401) {
         redirectToLogin();
@@ -517,6 +574,10 @@ export function AdminDashboardPage() {
 
   function buildAbsoluteCommunityAccessLinkUrl(item: AdminCommunityAccessLinkResponse) {
     return buildAbsoluteAppUrl(item.access_path);
+  }
+
+  function buildAbsolutePlayMatchUrl(item: AdminPlayShareableMatchSummary) {
+    return buildAbsoluteAppUrl(item.share_path);
   }
 
   async function copyCommunityAccessLink(item: AdminCommunityAccessLinkResponse) {
@@ -1345,6 +1406,43 @@ export function AdminDashboardPage() {
                         )}
                       </div>
                     </div>
+
+                    <div className='mt-6 rounded-2xl border border-slate-200 bg-white p-4'>
+                      <p className='text-sm font-semibold text-slate-900'>Link partite Play</p>
+                      <p className='mt-1 text-sm leading-6 text-slate-600'>Il club puo riusare gli stessi link attivi dei match OPEN o FULL per copiare il link oppure aprire direttamente WhatsApp con fallback su wa.me.</p>
+                      <p className='mt-2 text-xs leading-5 text-slate-500'>Il link resta coerente con la pagina pubblica del match e con il funnel community gia presente in app.</p>
+                      <div className='mt-4 space-y-3'>
+                        {playShareableMatches.length === 0 ? (
+                          <EmptyState icon={CalendarClock} title='Nessun match condivisibile disponibile' description='Qui compaiono solo match futuri OPEN o FULL con share token attivo.' />
+                        ) : (
+                          playShareableMatches.map((item) => (
+                            <div key={item.id} className='rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700'>
+                              <div className='flex flex-wrap items-start justify-between gap-3'>
+                                <div>
+                                  <p className='font-semibold text-slate-900'>{item.court_name || 'Campo del club'}</p>
+                                  <p className='mt-1 text-xs text-slate-500'>
+                                    {formatDate(item.start_at)} • {new Date(item.start_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', ...(adminTimezone ? { timeZone: adminTimezone } : {}) })} • {formatPlayLevel(item.level_requested)}
+                                  </p>
+                                </div>
+                                <div className='flex flex-wrap items-center gap-2'>
+                                  <span className='rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold text-cyan-900'>{item.participant_count}/4</span>
+                                  <span className='rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700'>{PLAY_MATCH_STATUS_LABELS[item.status]}</span>
+                                </div>
+                              </div>
+                              {item.participant_names.length > 0 ? (
+                                <p className='mt-3 text-xs leading-5 text-slate-500'>Player nel messaggio: {item.participant_names.join(', ')}</p>
+                              ) : null}
+                              <div className='mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                                <input className='text-input' readOnly value={buildAbsolutePlayMatchUrl(item)} aria-label={`Link match ${item.id}`} />
+                                <button className='btn-secondary sm:w-auto' type='button' onClick={() => setSelectedPlayShareMatch(item)}>
+                                  Condividi match
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
                     <p className='text-sm font-semibold text-slate-900'>Campi disponibili</p>
@@ -1419,6 +1517,18 @@ export function AdminDashboardPage() {
             </SectionCard>
           </div>
         </div>
+
+        {selectedPlayShareMatch && selectedPlayShareUrl && selectedPlayShareText && selectedPlayShareWhatsAppUrl ? (
+          <PlayShareDialog
+            open={Boolean(selectedPlayShareMatch)}
+            title='Condividi partita Play del club'
+            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto e il fallback su wa.me.'
+            shareUrl={selectedPlayShareUrl}
+            shareText={selectedPlayShareText}
+            whatsAppUrl={selectedPlayShareWhatsAppUrl}
+            onClose={() => setSelectedPlayShareMatch(null)}
+          />
+        ) : null}
 
       </div>
     </div>

@@ -331,6 +331,23 @@ class AdminCommunityAccessLinkRevokeResponse(BaseModel):
     item: AdminCommunityAccessLinkSummary
 
 
+class AdminPlayShareableMatchSummary(BaseModel):
+    id: str
+    share_token: str
+    share_path: str
+    court_name: str | None = None
+    start_at: datetime
+    end_at: datetime
+    status: MatchStatus
+    level_requested: PlayLevel
+    participant_count: int
+    participant_names: list[str] = Field(default_factory=list)
+
+
+class AdminPlayShareableMatchListResponse(BaseModel):
+    items: list[AdminPlayShareableMatchSummary] = Field(default_factory=list)
+
+
 class PlayMatchesResponse(BaseModel):
     player: PlayPlayerSummary | None = None
     open_matches: list[PlayMatchSummary] = Field(default_factory=list)
@@ -444,6 +461,13 @@ class PlayMatchUpdateRequest(BaseModel):
 class PlayMatchUpdateResponse(BaseModel):
     action: str
     message: str
+    match: PlayMatchSummary
+
+
+class PlayMatchSearchPlayersResponse(BaseModel):
+    message: str
+    notifications_created: int = Field(description='Numero di player unici avvisati dal trigger manuale Cerca giocatori.')
+    cooldown_remaining_seconds: int = 0
     match: PlayMatchSummary
 
 

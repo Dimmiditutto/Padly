@@ -16,6 +16,7 @@ from app.schemas.play import (
     AdminCommunityInviteListResponse,
     AdminCommunityInviteRevokeResponse,
     AdminCommunityInviteSummary,
+    AdminPlayShareableMatchListResponse,
 )
 from app.services.payment_service import is_paypal_checkout_available, is_stripe_checkout_available, list_available_checkout_providers
 from app.services.play_service import (
@@ -27,6 +28,7 @@ from app.services.play_service import (
     get_community_invite_status,
     list_community_access_links,
     list_community_invites,
+    list_admin_shareable_play_matches,
     revoke_community_access_link,
     revoke_community_invite,
 )
@@ -210,6 +212,14 @@ def list_settings_community_access_links(
 ) -> AdminCommunityAccessLinkListResponse:
     items = list_community_access_links(db, club_id=admin.club_id)
     return AdminCommunityAccessLinkListResponse(items=[_build_admin_community_access_link_summary(item) for item in items])
+
+
+@router.get('/play-match-links', response_model=AdminPlayShareableMatchListResponse)
+def list_settings_play_match_links(
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin_enforced),
+) -> AdminPlayShareableMatchListResponse:
+    return AdminPlayShareableMatchListResponse(items=list_admin_shareable_play_matches(db, admin=admin))
 
 
 @router.post('/community-access-links/{link_id}/revoke', response_model=AdminCommunityAccessLinkRevokeResponse)

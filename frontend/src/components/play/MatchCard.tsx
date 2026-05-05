@@ -73,17 +73,19 @@ export function MatchCard({
         </div>
       </div>
 
-      <div>
-        <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Giocatori attuali</p>
-        <div className='mt-3 flex flex-wrap gap-2'>
-          {match.participants.map((participant) => (
-            <span key={participant.player_id} className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700'>
-              <Users size={14} className='text-cyan-700' />
-              <span>{participant.profile_name}</span>
-            </span>
-          ))}
+      {match.participants.length > 0 ? (
+        <div>
+          <p className='text-sm font-semibold uppercase tracking-[0.14em] text-slate-500'>Giocatori attuali</p>
+          <div className='mt-3 flex flex-wrap gap-2'>
+            {match.participants.map((participant) => (
+              <span key={participant.player_id} className='inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700'>
+                <Users size={14} className='text-cyan-700' />
+                <span>{participant.profile_name}</span>
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {match.note ? (
         <div className='surface-muted'>
@@ -92,8 +94,8 @@ export function MatchCard({
         </div>
       ) : null}
 
-      <div className='mt-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-        <p className='text-sm text-slate-600'>Creata da {match.creator_profile_name || 'community del club'}</p>
+      <div className={`mt-auto flex flex-col gap-3 sm:flex-row sm:items-center ${match.creator_profile_name ? 'sm:justify-between' : 'sm:justify-end'}`}>
+        {match.creator_profile_name ? <p className='text-sm text-slate-600'>Creata da {match.creator_profile_name}</p> : null}
         <div className='action-cluster'>
           {onShare && match.share_token ? (
             <button type='button' className='btn-secondary' onClick={() => onShare(match)}>

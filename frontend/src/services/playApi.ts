@@ -19,6 +19,7 @@ import type {
   PlayMatchDetailResponse,
   PlayMatchJoinResponse,
   PlayMatchLeaveResponse,
+  PlayMatchSearchPlayersResponse,
   PlayMatchUpdatePayload,
   PlayMatchUpdateResponse,
   PlayMatchesResponse,
@@ -103,6 +104,14 @@ export async function rotatePlayMatchShareToken(matchId: string, tenantSlug?: st
 
 export async function revokePlayMatchShareToken(matchId: string, tenantSlug?: string | null) {
   const response = await api.post<PlayMatchUpdateResponse>(`/play/matches/${matchId}/share-token/revoke`, undefined, {
+    params: withTenantParams(tenantSlug),
+  });
+  return response.data;
+}
+
+
+export async function searchPlayMatchPlayers(matchId: string, tenantSlug?: string | null) {
+  const response = await api.post<PlayMatchSearchPlayersResponse>(`/play/matches/${matchId}/search-players`, undefined, {
     params: withTenantParams(tenantSlug),
   });
   return response.data;

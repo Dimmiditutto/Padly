@@ -11,6 +11,7 @@ import type {
   AdminCommunityInviteResponse,
   AdminCommunityInviteRevokeResponse,
   AdminDashboardFilters,
+  AdminPlayShareableMatchListResponse,
   AdminEvent,
   AdminManualBookingPayload,
   AdminSession,
@@ -208,6 +209,12 @@ export async function listAdminCommunityAccessLinks() {
 
 export async function revokeAdminCommunityAccessLink(linkId: string) {
   const response = await api.post<AdminCommunityAccessLinkRevokeResponse>(`/admin/settings/community-access-links/${linkId}/revoke`);
+  return response.data;
+}
+
+
+export async function listAdminPlayMatchLinks() {
+  const response = await api.get<AdminPlayShareableMatchListResponse>('/admin/settings/play-match-links');
   return response.data;
 }
 

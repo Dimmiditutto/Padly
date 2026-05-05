@@ -8,6 +8,7 @@ export function MyMatches({
   currentPlayerId,
   onOpen,
   onShare,
+  onSearchPlayers,
   onRotateShareToken,
   onRevokeShareToken,
   onLeave,
@@ -18,6 +19,7 @@ export function MyMatches({
   currentPlayerId: string;
   onOpen: (match: PlayMatchSummary) => void;
   onShare: (match: PlayMatchSummary) => void;
+  onSearchPlayers: (match: PlayMatchSummary) => void;
   onRotateShareToken: (match: PlayMatchSummary) => void;
   onRevokeShareToken: (match: PlayMatchSummary) => void;
   onLeave: (match: PlayMatchSummary) => void;
@@ -46,6 +48,7 @@ export function MyMatches({
             extraActions.push({ label: 'Lascia', onClick: onLeave });
           }
           if (canManageOpenMatch && isCreator) {
+            extraActions.push({ label: 'Cerca giocatori', onClick: onSearchPlayers });
             extraActions.push({ label: 'Rigenera link', onClick: onRotateShareToken });
             if (hasActiveShareToken) {
               extraActions.push({ label: 'Disattiva link', onClick: onRevokeShareToken, tone: 'danger' as const });

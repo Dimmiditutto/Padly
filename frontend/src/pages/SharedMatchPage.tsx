@@ -1,18 +1,27 @@
 import { AxiosError } from 'axios';
 import { ArrowLeft, Share2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { AlertBanner } from '../components/AlertBanner';
 import { LoadingBlock } from '../components/LoadingBlock';
 import { PageBrandBar } from '../components/PageBrandBar';
 import { CommunityMatchinnBrand } from '../components/play/CommunityMatchinnBrand';
 import { MatchCard } from '../components/play/MatchCard';
+import { PlayShareDialog } from '../components/play/PlayShareDialog';
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
 import { getPublicConfig } from '../services/publicApi';
 import { getPlaySession, getPlaySharedMatch, joinPlayMatch } from '../services/playApi';
 import type { PlayMatchSummary, PlayPlayerSummary } from '../types';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayMatchPath, rememberClubPublicName, resolveClubDisplayName } from '../utils/play';
+import {
+  buildAbsolutePlayMatchUrl,
+  buildClubPlayPath,
+  buildPlayMatchPath,
+  buildPlayMatchShareText,
+  buildPlayMatchWhatsAppUrl,
+  rememberClubPublicName,
+  resolveClubDisplayName,
+} from '../utils/play';
 
 function getApiErrorMessage(error: unknown, fallback: string) {
   const requestError = error as AxiosError<{ detail?: string }>;
@@ -29,10 +38,14 @@ export function SharedMatchPage() {
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [identifyOpen, setIdentifyOpen] = useState(false);
   const [clubPublicName, setClubPublicName] = useState<string | null>(null);
+  const [clubTimezone, setClubTimezone] = useState<string | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const clubDisplayName = tenantSlug ? resolveClubDisplayName(tenantSlug, clubPublicName) : null;
 
   useEffect(() => {
     setClubPublicName(null);
+    setClubTimezone(null);
+    setShareDialogOpen(false);
 
     if (!tenantSlug || !shareToken) {
       setLoading(false);
@@ -56,6 +69,7 @@ export function SharedMatchPage() {
       if (publicConfig) {
         rememberClubPublicName(resolvedTenantSlug, publicConfig.public_name);
         setClubPublicName(publicConfig.public_name);
+        setClubTimezone(publicConfig.timezone);
       }
     } catch (error) {
       setFeedback({ tone: 'error', message: getApiErrorMessage(error, 'Non riesco a caricare la partita condivisa.') });
@@ -100,20 +114,10 @@ export function SharedMatchPage() {
   }
 
   async function handleShare() {
-    if (!tenantSlug || !match || !match.share_token) {
+    if (!tenantSlug || !match?.share_token) {
       return;
     }
-
-    const absoluteUrl = typeof window !== 'undefined'
-      ? `${window.location.origin}${buildPlayMatchPath(tenantSlug, match.share_token)}`
-      : buildPlayMatchPath(tenantSlug, match.share_token);
-
-    try {
-      await navigator.clipboard.writeText(absoluteUrl);
-      setFeedback({ tone: 'success', message: 'Link partita copiato negli appunti.' });
-    } catch {
-      setFeedback({ tone: 'info', message: `Link pronto per la condivisione: ${absoluteUrl}` });
-    }
+    setShareDialogOpen(true);
   }
 
   async function handleIdentifySuccess(player: PlayPlayerSummary) {
@@ -129,6 +133,43 @@ export function SharedMatchPage() {
     }
     setFeedback({ tone: 'success', message: `Profilo play attivo. Ora il flusso shared match ti riconosce come ${player.profile_name}.` });
   }
+
+  const shareUrl = useMemo(() => {
+    if (!tenantSlug || !match?.share_token) {
+      return null;
+    }
+    return buildAbsolutePlayMatchUrl(tenantSlug, match.share_token);
+  }, [match?.share_token, tenantSlug]);
+
+  const shareText = useMemo(() => {
+    if (!match || !shareUrl) {
+      return null;
+    }
+    return buildPlayMatchShareText({
+      startAt: match.start_at,
+      levelRequested: match.level_requested,
+      participantNames: match.participants.map((participant) => participant.profile_name),
+      clubName: clubDisplayName,
+      shareUrl,
+      timeZone: clubTimezone,
+    });
+  }, [clubDisplayName, clubTimezone, match, shareUrl]);
+
+  const whatsAppUrl = useMemo(() => {
+    if (!match || !shareUrl) {
+      return null;
+    }
+    return buildPlayMatchWhatsAppUrl({
+      startAt: match.start_at,
+      levelRequested: match.level_requested,
+      participantNames: match.participants.map((participant) => participant.profile_name),
+      clubName: clubDisplayName,
+      shareUrl,
+      timeZone: clubTimezone,
+    });
+  }, [clubDisplayName, clubTimezone, match, shareUrl]);
+
+  const canJoinMatch = Boolean(match && match.status === 'OPEN' && !match.joined_by_current_player);
 
   return (
     <div className='min-h-screen text-slate-900'>
@@ -166,12 +207,16 @@ export function SharedMatchPage() {
             <AlertBanner tone='info'>Per unirti da questa pagina devi prima attivare il tuo profilo sul club corrente.</AlertBanner>
           )}
 
+          {!loading && match?.status === 'FULL' && !match.joined_by_current_player ? (
+            <AlertBanner tone='info'>Questa partita e gia completa. Puoi ancora condividerla su WhatsApp, ma non e piu disponibile per il join.</AlertBanner>
+          ) : null}
+
           {loading ? <LoadingBlock label='Carico la partita condivisa…' /> : null}
 
           {!loading && match ? (
             <MatchCard
               match={match}
-              onPrimaryAction={match.joined_by_current_player ? undefined : handleJoinAttempt}
+              onPrimaryAction={canJoinMatch ? handleJoinAttempt : undefined}
               primaryActionLabel={currentPlayer ? 'Unisciti' : 'Identificati per unirti'}
               onShare={handleShare}
               testId='play-shared-match-card'
@@ -198,6 +243,18 @@ export function SharedMatchPage() {
             description='Salvo il tuo profilo sul club corrente prima di completare il join della partita condivisa.'
             onClose={() => setIdentifyOpen(false)}
             onSuccess={handleIdentifySuccess}
+          />
+        ) : null}
+
+        {shareDialogOpen && shareUrl && shareText && whatsAppUrl ? (
+          <PlayShareDialog
+            open={shareDialogOpen}
+            title='Condividi questa partita'
+            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto e il fallback su wa.me.'
+            shareUrl={shareUrl}
+            shareText={shareText}
+            whatsAppUrl={whatsAppUrl}
+            onClose={() => setShareDialogOpen(false)}
           />
         ) : null}
       </div>

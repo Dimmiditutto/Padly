@@ -12,6 +12,7 @@ from app.schemas.play import (
     PlayMatchDetailResponse,
     PlayMatchJoinResponse,
     PlayMatchLeaveResponse,
+    PlayMatchSearchPlayersResponse,
     PlayNotificationReadResponse,
     PlayNotificationPreferenceUpdateRequest,
     PlayNotificationPreferenceUpdateResponse,
@@ -48,6 +49,7 @@ from app.services.play_service import (
     leave_play_match,
     list_play_matches,
     revoke_play_match_share_token,
+    search_players_for_play_match,
     rotate_play_match_share_token,
     start_play_booking_checkout,
     update_play_match,
@@ -412,6 +414,24 @@ def post_play_match_share_token_revoke(
     )
     db.commit()
     return PlayMatchUpdateResponse(**result)
+
+
+@router.post('/matches/{match_id}/search-players', response_model=PlayMatchSearchPlayersResponse)
+def post_play_match_search_players(
+    match_id: str,
+    current_club: Club = Depends(get_current_club),
+    current_player: Player = Depends(get_current_player_required),
+    db: Session = Depends(get_db),
+) -> PlayMatchSearchPlayersResponse:
+    result = search_players_for_play_match(
+        db,
+        club_id=current_club.id,
+        club_timezone=current_club.timezone,
+        match_id=match_id,
+        current_player=current_player,
+    )
+    db.commit()
+    return PlayMatchSearchPlayersResponse(**result)
 
 
 @router.post('/matches/{match_id}/cancel', response_model=PlayMatchLeaveResponse)

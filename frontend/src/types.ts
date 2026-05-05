@@ -611,6 +611,23 @@ export interface AdminCommunityAccessLinkRevokeResponse {
   item: AdminCommunityAccessLinkSummary;
 }
 
+export interface AdminPlayShareableMatchSummary {
+  id: string;
+  share_token: string;
+  share_path: string;
+  court_name?: string | null;
+  start_at: string;
+  end_at: string;
+  status: PlayMatchStatus;
+  level_requested: PlayLevel;
+  participant_count: number;
+  participant_names: string[];
+}
+
+export interface AdminPlayShareableMatchListResponse {
+  items: AdminPlayShareableMatchSummary[];
+}
+
 export interface AdminDashboardData {
   bookings: BookingSummary[];
   report: ReportResponse;
@@ -859,6 +876,14 @@ export interface PlayMatchUpdatePayload {
 export interface PlayMatchUpdateResponse {
   action: string;
   message: string;
+  match: PlayMatchSummary;
+}
+
+export interface PlayMatchSearchPlayersResponse {
+  message: string;
+  // Counts unique recipients notified by the manual search trigger, not raw channel/log fan-out.
+  notifications_created: number;
+  cooldown_remaining_seconds: number;
   match: PlayMatchSummary;
 }
 

@@ -10,9 +10,12 @@ vi.mock('../services/adminApi', () => ({
   createAdminCommunityAccessLink: vi.fn(),
   createAdminCommunityInvite: vi.fn(),
   createRecurring: vi.fn(),
+  getAdminReport: vi.fn(),
   getAdminSession: vi.fn(),
   getAdminSettings: vi.fn(),
+  getSubscriptionStatus: vi.fn(),
   listAdminCommunityAccessLinks: vi.fn(),
+  listAdminPlayMatchLinks: vi.fn(),
   listAdminCourts: vi.fn(),
   listAdminCommunityInvites: vi.fn(),
   listBlackouts: vi.fn(),
@@ -34,10 +37,13 @@ import {
   createAdminCommunityAccessLink,
   createAdminCommunityInvite,
   createRecurring,
+  getAdminReport,
   getAdminSession,
   getAdminSettings,
+  getSubscriptionStatus,
   listAdminCommunityAccessLinks,
   listAdminCommunityInvites,
+  listAdminPlayMatchLinks,
   listAdminCourts,
   listBlackouts,
   logoutAdmin,
@@ -143,7 +149,23 @@ describe('AdminDashboardPage', () => {
       expires_at: '2026-05-04T10:30:00Z',
     });
     vi.mocked(createRecurring).mockResolvedValue({ series_id: 'series-1', created_count: 1, skipped_count: 0, skipped: [] });
+    vi.mocked(getAdminReport).mockResolvedValue({
+      total_bookings: 0,
+      confirmed_bookings: 0,
+      pending_bookings: 0,
+      cancelled_bookings: 0,
+      collected_deposits: 0,
+    });
+    vi.mocked(getSubscriptionStatus).mockResolvedValue({
+      status: 'ACTIVE',
+      plan_code: 'basic',
+      plan_name: 'Basic',
+      trial_ends_at: null,
+      current_period_end: null,
+      is_access_blocked: false,
+    });
     vi.mocked(listAdminCommunityAccessLinks).mockResolvedValue({ items: [] });
+    vi.mocked(listAdminPlayMatchLinks).mockResolvedValue({ items: [] });
     vi.mocked(listAdminCourts).mockResolvedValue({ items: [] });
     vi.mocked(listAdminCommunityInvites).mockResolvedValue({ items: [] });
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
@@ -735,6 +757,48 @@ describe('AdminDashboardPage', () => {
     const revokedCard = screen.getByText('Gruppo WhatsApp Open Match').closest('div.rounded-2xl');
     expect(revokedCard).not.toBeNull();
     expect(within(revokedCard as HTMLElement).getByText('Revocato')).toBeInTheDocument();
+  });
+
+  it('lists shareable Play matches for the club and opens the WhatsApp share dialog', async () => {
+    const openMock = vi.fn();
+    vi.stubGlobal('open', openMock);
+    vi.mocked(listAdminPlayMatchLinks).mockResolvedValue({
+      items: [
+        {
+          id: 'play-match-1',
+          share_token: 'share-match-1',
+          share_path: '/c/default-club/play/matches/share-match-1',
+          court_name: 'Campo Centrale',
+          start_at: '2026-05-10T18:00:00Z',
+          end_at: '2026-05-10T19:30:00Z',
+          status: 'OPEN',
+          level_requested: 'INTERMEDIATE_MEDIUM',
+          participant_count: 2,
+          participant_names: ['Luca Smash', 'Marco Topspin'],
+        },
+      ],
+    });
+
+    renderDashboard();
+
+    await screen.findByText('Dashboard admin');
+    fireEvent.click(screen.getByRole('button', { name: 'Espandi Profilo tenant e regole operative' }));
+
+    expect(await screen.findByText('Link partite Play')).toBeInTheDocument();
+    expect(screen.getByDisplayValue(`${window.location.origin}/c/default-club/play/matches/share-match-1`)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Condividi match' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Condividi partita Play del club' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Apri WhatsApp' }));
+
+    await waitFor(() => expect(openMock).toHaveBeenCalled());
+    const whatsAppUrl = openMock.mock.calls[0]?.[0];
+    expect(String(whatsAppUrl)).toContain('https://wa.me/?text=');
+    const decoded = decodeURIComponent(String(whatsAppUrl).split('text=')[1] || '');
+    expect(decoded).toContain('📍 PadelBooking');
+    expect(decoded).toContain('🎾 Luca Smash');
+    expect(decoded).toContain('🎾 Marco Topspin');
   });
 
   it('filters and searches community invites by status, name and phone', async () => {

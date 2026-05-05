@@ -11,6 +11,7 @@ import { CreateMatchForm, type PlayCreateIntent } from '../components/play/Creat
 import { JoinConfirmModal } from '../components/play/JoinConfirmModal';
 import { MatchBoard } from '../components/play/MatchBoard';
 import { MyMatches } from '../components/play/MyMatches';
+import { PlayShareDialog } from '../components/play/PlayShareDialog';
 import { getPublicConfig } from '../services/publicApi';
 import {
   cancelPlayMatch,
@@ -24,6 +25,7 @@ import {
   revokePlayMatchShareToken,
   revokePlayPushSubscription,
   rotatePlayMatchShareToken,
+  searchPlayMatchPlayers,
   startPlayBookingCheckout,
   updatePlayMatch,
   updatePlayNotificationPreferences,
@@ -42,7 +44,17 @@ import type {
 } from '../types';
 import { getBrowserPlayPushEndpoint, isPlayPushSupported, subscribeBrowserToPlayPush, unsubscribeBrowserFromPlayPush } from '../utils/playPush';
 import { getTenantSlugFromSearchParams, normalizeTenantSlug, withTenantPath } from '../utils/tenantContext';
-import { buildClubPlayPath, buildPlayAccessPath, buildPlayMatchPath, PLAY_LEVEL_OPTIONS, rememberClubPublicName, resolveClubDisplayName } from '../utils/play';
+import {
+  buildAbsolutePlayMatchUrl,
+  buildClubPlayPath,
+  buildPlayAccessPath,
+  buildPlayMatchPath,
+  buildPlayMatchShareText,
+  buildPlayMatchWhatsAppUrl,
+  PLAY_LEVEL_OPTIONS,
+  rememberClubPublicName,
+  resolveClubDisplayName,
+} from '../utils/play';
 
 type FeedbackTone = 'info' | 'success' | 'warning' | 'error';
 type InlineFeedback = { tone: FeedbackTone; message: string };
@@ -93,11 +105,13 @@ export function PlayPage() {
   const [managedLevel, setManagedLevel] = useState<PlayLevel>('NO_PREFERENCE');
   const [managedNote, setManagedNote] = useState('');
   const [savingManageAction, setSavingManageAction] = useState(false);
+  const [shareMatch, setShareMatch] = useState<PlayMatchSummary | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<PlayNotificationSettings | null>(null);
   const [notificationDraft, setNotificationDraft] = useState<PlayNotificationPreferenceSummary | null>(null);
   const [savingNotificationPreferences, setSavingNotificationPreferences] = useState(false);
   const [updatingPushSubscription, setUpdatingPushSubscription] = useState(false);
   const [readingNotificationId, setReadingNotificationId] = useState<string | null>(null);
+  const [searchingPlayersMatchId, setSearchingPlayersMatchId] = useState<string | null>(null);
   const [browserPushEndpoint, setBrowserPushEndpoint] = useState<string | null>(null);
   const browserSupportsPush = useMemo(() => isPlayPushSupported(), []);
 
@@ -446,18 +460,31 @@ export function PlayPage() {
   }
 
   async function handleShare(match: PlayMatchSummary) {
-    if (!tenantSlug || !match.share_token) {
+    if (!match.share_token) {
+      return;
+    }
+    setShareMatch(match);
+  }
+
+  async function handleSearchPlayers(match: PlayMatchSummary) {
+    if (!tenantSlug || searchingPlayersMatchId) {
       return;
     }
 
-    const sharePath = buildPlayMatchPath(tenantSlug, match.share_token);
-    const absoluteUrl = typeof window !== 'undefined' ? `${window.location.origin}${sharePath}` : sharePath;
-
+    setSearchingPlayersMatchId(match.id);
     try {
-      await navigator.clipboard.writeText(absoluteUrl);
-      setFeedback({ tone: 'success', message: 'Link partita copiato negli appunti.' });
-    } catch {
-      setFeedback({ tone: 'info', message: `Link pronto per la condivisione: ${absoluteUrl}` });
+      const response = await searchPlayMatchPlayers(match.id, tenantSlug);
+      setFeedback({
+        tone: response.cooldown_remaining_seconds > 0 ? 'warning' : response.notifications_created > 0 ? 'success' : 'info',
+        message: response.message,
+      });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Non riesco ad avviare la ricerca giocatori per questo match.',
+      });
+    } finally {
+      setSearchingPlayersMatchId(null);
     }
   }
 
@@ -596,6 +623,23 @@ export function PlayPage() {
   const clubDisplayName = resolveClubDisplayName(tenantSlug, clubConfig?.public_name);
   const accessPath = buildPlayAccessPath(tenantSlug);
   const unreadNotificationsCount = notificationSettings?.unread_notifications_count ?? 0;
+  const shareUrl = shareMatch?.share_token ? buildAbsolutePlayMatchUrl(tenantSlug, shareMatch.share_token) : null;
+  const shareText = shareMatch && shareUrl ? buildPlayMatchShareText({
+    startAt: shareMatch.start_at,
+    levelRequested: shareMatch.level_requested,
+    participantNames: shareMatch.participants.map((participant) => participant.profile_name),
+    clubName: clubDisplayName,
+    shareUrl,
+    timeZone: clubConfig?.timezone,
+  }) : null;
+  const whatsAppUrl = shareMatch && shareUrl ? buildPlayMatchWhatsAppUrl({
+    startAt: shareMatch.start_at,
+    levelRequested: shareMatch.level_requested,
+    participantNames: shareMatch.participants.map((participant) => participant.profile_name),
+    clubName: clubDisplayName,
+    shareUrl,
+    timeZone: clubConfig?.timezone,
+  }) : null;
 
   function scrollToSection(sectionId: string) {
     if (typeof document === 'undefined') {
@@ -705,6 +749,7 @@ export function PlayPage() {
                     currentPlayerId={currentPlayer.id}
                     onOpen={handleOpenShared}
                     onShare={handleShare}
+                    onSearchPlayers={(match) => void handleSearchPlayers(match)}
                     onRotateShareToken={(match) => void handleRotateShareToken(match)}
                     onRevokeShareToken={(match) => void handleRevokeShareToken(match)}
                     onLeave={(match) => void handleLeave(match)}
@@ -987,6 +1032,18 @@ export function PlayPage() {
           onClose={() => setPendingAction(null)}
           onSuccess={handleIdentifySuccess}
         />
+
+        {shareMatch && shareUrl && shareText && whatsAppUrl ? (
+          <PlayShareDialog
+            open={Boolean(shareMatch)}
+            title='Condividi questa partita'
+            description='Puoi copiare il link oppure aprire WhatsApp con il testo gia pronto e il fallback su wa.me.'
+            shareUrl={shareUrl}
+            shareText={shareText}
+            whatsAppUrl={whatsAppUrl}
+            onClose={() => setShareMatch(null)}
+          />
+        ) : null}
       </div>
     </div>
   );

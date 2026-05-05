@@ -953,9 +953,11 @@ def dispatch_play_notifications_for_match(
     }[kind]
 
     notifications_created = 0
+    recipients_count = 0
     for _, candidate, _, preference in scored_candidates[:recipient_limit]:
         title, message = _notification_copy_for_match(match, kind=kind, participant_count=participant_count)
         payload = _build_notification_payload(match, participant_count=participant_count)
+        candidate_notified = False
         if preference is None or preference.in_app_enabled:
             if _create_notification_log_if_absent(
                 db,
@@ -971,6 +973,7 @@ def dispatch_play_notifications_for_match(
                 sent_at=now,
             ):
                 notifications_created += 1
+                candidate_notified = True
 
         if (preference is None or preference.web_push_enabled) and _active_push_subscriptions_for_player(candidate):
             web_push_status = _deliver_web_push_notification(
@@ -995,11 +998,16 @@ def dispatch_play_notifications_for_match(
                 sent_at=now,
             ):
                 notifications_created += 1
+                candidate_notified = True
+
+        if candidate_notified:
+            recipients_count += 1
 
     db.flush()
     return {
         'matches_processed': 1,
         'notifications_created': notifications_created,
+        'recipients_count': recipients_count,
     }
 
 

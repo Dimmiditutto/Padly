@@ -289,6 +289,82 @@ def test_play_notification_dispatch_selects_top_six_for_three_of_four():
         assert {item.channel for item in top_candidate_logs} == {NotificationChannel.IN_APP, NotificationChannel.WEB_PUSH}
 
 
+def test_play_match_search_players_route_dispatches_once_and_then_enforces_cooldown(client):
+    creator = identify_as(client, profile_name='Search Trigger Creator', phone='3337600091')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Search Trigger Guest', phone='3337600092')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=16)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='2 su 4 cerca giocatori',
+    )
+
+    candidate_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Search Trigger Candidate', phone='3337600093')
+    _seed_profile(
+        player_id=candidate_id,
+        club_id=DEFAULT_CLUB_ID,
+        start_at=start_at,
+        level=PlayLevel.INTERMEDIATE_MEDIUM,
+        useful_events_count=10,
+        engagement_score=10,
+        notify_one_of_four=True,
+    )
+
+    first_response = client.post(f'/api/play/matches/{match_id}/search-players')
+    assert first_response.status_code == 200
+    first_payload = first_response.json()
+    assert first_payload['notifications_created'] == 1
+    assert first_payload['cooldown_remaining_seconds'] == 0
+    assert first_payload['message'] == 'Abbiamo avvisato 1 player compatibili.'
+
+    second_response = client.post(f'/api/play/matches/{match_id}/search-players')
+    assert second_response.status_code == 200
+    second_payload = second_response.json()
+    assert second_payload['notifications_created'] == 0
+    assert second_payload['cooldown_remaining_seconds'] > 0
+    assert 'Riprova tra qualche minuto' in second_payload['message']
+
+    with SessionLocal() as db:
+        logs = db.scalars(select(NotificationLog).where(NotificationLog.match_id == match_id)).all()
+        assert {item.player_id for item in logs} == {candidate_id}
+        events = db.scalars(
+            select(PlayerActivityEvent).where(
+                PlayerActivityEvent.match_id == match_id,
+                PlayerActivityEvent.event_type == PlayerActivityEventType.MATCH_SEARCH_TRIGGERED,
+            )
+        ).all()
+        assert len(events) == 1
+
+
+def test_play_match_search_players_route_rejects_non_creator(client):
+    creator = identify_as(client, profile_name='Search Trigger Creator Guard', phone='3337600094')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    guest_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Search Trigger Guest Guard', phone='3337600095')
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=17)
+    match_id = seed_match_at(
+        club_id=DEFAULT_CLUB_ID,
+        court_id=default_court_id,
+        creator_player_id=creator['id'],
+        participant_player_ids=[creator['id'], guest_id],
+        start_at=start_at,
+        end_at=end_at,
+        level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+        note='2 su 4 guard permessi cerca giocatori',
+    )
+
+    identify_as(client, profile_name='Search Trigger Guest Guard', phone='3337600095')
+    response = client.post(f'/api/play/matches/{match_id}/search-players')
+
+    assert response.status_code == 403
+    assert response.json()['detail'] == 'Solo il creator puo cercare nuovi giocatori'
+
+
 def test_play_web_push_dispatch_marks_sent_when_provider_succeeds(monkeypatch):
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
     creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Push Success Creator', phone='3337600024')

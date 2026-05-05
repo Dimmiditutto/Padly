@@ -259,6 +259,83 @@ def test_play_shared_match_uses_real_share_token_and_rejects_invalid_token(clien
     assert invalid_response.status_code == 404
 
 
+def test_play_shared_match_hides_personal_fields_for_non_participant(client):
+    creator = identify_as(client, profile_name='Luca Shared Privacy', phone='3337100091')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    booking_date, start_time, slot_id, _, _ = build_future_slot(booking_date_offset_days=8)
+
+    create_response = client.post(
+        '/api/play/matches',
+        json={
+            'booking_date': booking_date,
+            'court_id': default_court_id,
+            'start_time': start_time,
+            'slot_id': slot_id,
+            'duration_minutes': 90,
+            'level_requested': 'INTERMEDIATE_MEDIUM',
+            'note': 'Nota solo per partecipanti',
+            'force_create': True,
+        },
+    )
+    assert create_response.status_code == 200
+    shared_match = create_response.json()['match']
+    share_token = shared_match['share_token']
+
+    identify_as(client, profile_name='Viewer Shared Privacy', phone='3337100092')
+    outsider_response = client.get(f'/api/play/shared/{share_token}')
+
+    assert outsider_response.status_code == 200
+    outsider_payload = outsider_response.json()['match']
+    assert outsider_payload['joined_by_current_player'] is False
+    assert outsider_payload['creator_profile_name'] is None
+    assert outsider_payload['note'] is None
+    assert outsider_payload['participants'] == []
+
+    identify_as(client, profile_name='Luca Shared Privacy', phone='3337100091')
+    participant_response = client.get(f'/api/play/shared/{share_token}')
+
+    assert participant_response.status_code == 200
+    participant_payload = participant_response.json()['match']
+    assert participant_payload['joined_by_current_player'] is True
+    assert participant_payload['creator_profile_name'] == creator['profile_name']
+    assert participant_payload['note'] == 'Nota solo per partecipanti'
+    assert len(participant_payload['participants']) == 1
+
+
+def test_admin_settings_lists_shareable_play_match_links(client):
+    identify_as(client, profile_name='Admin Shared Match Creator', phone='3337100093')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    booking_date, start_time, slot_id, _, _ = build_future_slot(booking_date_offset_days=9)
+
+    create_response = client.post(
+        '/api/play/matches',
+        json={
+            'booking_date': booking_date,
+            'court_id': default_court_id,
+            'start_time': start_time,
+            'slot_id': slot_id,
+            'duration_minutes': 90,
+            'level_requested': 'INTERMEDIATE_HIGH',
+            'note': 'Lista admin link play',
+            'force_create': True,
+        },
+    )
+    assert create_response.status_code == 200
+    created_match = create_response.json()['match']
+
+    admin_login(client)
+    list_response = client.get('/api/admin/settings/play-match-links')
+
+    assert list_response.status_code == 200
+    items = list_response.json()['items']
+    assert len(items) == 1
+    assert items[0]['id'] == created_match['id']
+    assert items[0]['share_token'] == created_match['share_token']
+    assert items[0]['share_path'].endswith(created_match['share_token'])
+    assert items[0]['participant_count'] == 1
+    assert items[0]['participant_names'] == ['Admin Shared Match Creator']
+
+
 def test_play_share_token_rotate_invalidates_legacy_link_and_issues_new_active_link(client):
     creator = identify_as(client, profile_name='Luca Rotate', phone='3337100002')
     default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
@@ -906,6 +983,38 @@ def test_play_cancel_endpoint_marks_match_cancelled(client):
         match = db.get(Match, match_id)
         assert match is not None
         assert match.status == MatchStatus.CANCELLED
+
+
+def test_play_shared_match_returns_not_found_after_cancel(client):
+    identify_as(client, profile_name='Creator Shared Cancel', phone='3337500023')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    booking_date, start_time, slot_id, _, _ = build_future_slot(booking_date_offset_days=15)
+
+    create_response = client.post(
+        '/api/play/matches',
+        json={
+            'booking_date': booking_date,
+            'court_id': default_court_id,
+            'start_time': start_time,
+            'slot_id': slot_id,
+            'duration_minutes': 90,
+            'level_requested': 'INTERMEDIATE_MEDIUM',
+            'note': 'match shared da annullare',
+            'force_create': True,
+        },
+    )
+    assert create_response.status_code == 200
+    created_match = create_response.json()['match']
+    share_token = created_match['share_token']
+
+    assert client.get(f'/api/play/shared/{share_token}').status_code == 200
+
+    cancel_response = client.post(f"/api/play/matches/{created_match['id']}/cancel")
+
+    assert cancel_response.status_code == 200
+    cancelled_lookup = client.get(f'/api/play/shared/{share_token}')
+    assert cancelled_lookup.status_code == 404
+    assert cancelled_lookup.json()['detail'] == 'Link partita non disponibile'
 
 
 def test_play_cancel_endpoint_propagates_club_timezone(client, monkeypatch):
