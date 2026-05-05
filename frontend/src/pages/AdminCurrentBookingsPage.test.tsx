@@ -5,13 +5,15 @@ import { AdminCurrentBookingsPage } from './AdminCurrentBookingsPage';
 
 vi.mock('../services/adminApi', () => ({
   cancelRecurringSeries: vi.fn(),
+  deleteAdminBooking: vi.fn(),
+  deleteRecurringSeries: vi.fn(),
   getAdminSession: vi.fn(),
   listAdminBookings: vi.fn(),
   logoutAdmin: vi.fn(),
   updateAdminBookingStatus: vi.fn(),
 }));
 
-import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
+import { cancelRecurringSeries, deleteAdminBooking, deleteRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
 import type { BookingSummary } from '../types';
 
 const adminSession = {
@@ -87,6 +89,19 @@ const cancelledBooking: BookingSummary = {
   cancelled_at: '2026-04-22T10:00:00Z',
 };
 
+const cancelledRecurringBooking: BookingSummary = {
+  ...currentRecurringBooking,
+  id: 'booking-recurring-cancelled',
+  public_reference: 'PB-WEEK-SERIES-CANCELLED',
+  status: 'CANCELLED',
+  booking_date_local: '2026-04-24',
+  start_at: '2026-04-24T18:00:00Z',
+  end_at: '2026-04-24T19:30:00Z',
+  recurring_series_id: 'series-cancelled',
+  recurring_series_label: 'Allenamento cancellato',
+  cancelled_at: '2026-04-23T18:00:00Z',
+};
+
 const januaryBooking: BookingSummary = {
   ...currentWeekBooking,
   id: 'booking-january',
@@ -121,6 +136,8 @@ describe('AdminCurrentBookingsPage', () => {
     vi.mocked(logoutAdmin).mockResolvedValue({ message: 'ok' });
     vi.mocked(updateAdminBookingStatus).mockResolvedValue({ ...currentWeekBooking, status: 'CANCELLED', cancelled_at: '2026-04-20T12:05:00Z' });
     vi.mocked(cancelRecurringSeries).mockResolvedValue({ message: 'ok', cancelled_count: 3, skipped_count: 0, booking_ids: ['booking-current-2'], series_id: 'series-42' });
+    vi.mocked(deleteAdminBooking).mockResolvedValue({ message: 'Prenotazione eliminata definitivamente.' });
+    vi.mocked(deleteRecurringSeries).mockResolvedValue({ message: 'Serie ricorrente eliminata definitivamente.' });
     vi.mocked(listAdminBookings).mockImplementation(async (filters) => {
       if (filters.start_date === '2027-01-11' && filters.end_date === '2027-01-17') {
         return { items: [januaryBooking], total: 1 };
@@ -150,11 +167,11 @@ describe('AdminCurrentBookingsPage', () => {
     expect(screen.getAllByRole('link', { name: 'Elenco Prenotazioni' })[0]).toHaveAttribute('href', '/admin/prenotazioni');
     expect(screen.getByRole('button', { name: 'Aggiorna pagina' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeInTheDocument();
-    expect(screen.getByText('Luca Bianchi')).toBeInTheDocument();
+    expect(screen.getAllByText('Luca Bianchi')).toHaveLength(2);
     expect(screen.getByText('Marco Verdi')).toBeInTheDocument();
     expect(screen.getByText('Allenamento del mercoledi')).toBeInTheDocument();
     expect(screen.getByText('Serie ricorrente')).toBeInTheDocument();
-    expect(screen.queryByText('PB-WEEK-CANCELLED')).not.toBeInTheDocument();
+    expect(screen.getByText('PB-WEEK-CANCELLED')).toBeInTheDocument();
   });
 
   it('allows cancelling a single saved booking from the weekly calendar', async () => {
@@ -175,6 +192,28 @@ describe('AdminCurrentBookingsPage', () => {
 
     await waitFor(() => expect(cancelRecurringSeries).toHaveBeenCalledWith('series-42'));
     expect(screen.getByText('Serie aggiornata: 3 occorrenze future annullate, 0 saltate.')).toBeInTheDocument();
+  });
+
+  it('allows deleting a cancelled single booking from the weekly calendar', async () => {
+    renderPage();
+
+    await screen.findByText('Calendario settimanale prenotazioni');
+    fireEvent.click(screen.getByLabelText('Elimina PB-WEEK-CANCELLED'));
+
+    await waitFor(() => expect(deleteAdminBooking).toHaveBeenCalledWith('booking-cancelled'));
+    expect(screen.getByText('Prenotazione eliminata definitivamente.')).toBeInTheDocument();
+  });
+
+  it('allows deleting a cancelled recurring series from the weekly calendar', async () => {
+    vi.mocked(listAdminBookings).mockResolvedValue({ items: [cancelledRecurringBooking], total: 1 });
+
+    renderPage();
+
+    await screen.findByText('Allenamento cancellato');
+    fireEvent.click(screen.getByLabelText('Elimina serie Allenamento cancellato'));
+
+    await waitFor(() => expect(deleteRecurringSeries).toHaveBeenCalledWith('series-cancelled'));
+    expect(screen.getByText('Serie ricorrente eliminata definitivamente.')).toBeInTheDocument();
   });
 
   it('limits quick navigation to two weeks back from the current week', async () => {

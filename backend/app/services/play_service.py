@@ -1442,6 +1442,7 @@ def list_public_open_matches(
         _public_match_query(db, club_id=club_id)
         .where(
             Match.status == MatchStatus.OPEN,
+            Match.booking_id.is_(None),
             Match.start_at > now,
             Match.start_at <= window_end,
         )
@@ -1459,7 +1460,7 @@ def list_play_matches(db: Session, *, club_id: str, current_player: Player | Non
     now = _utcnow()
     open_matches = db.scalars(
         _match_query(db, club_id=club_id)
-        .where(Match.status == MatchStatus.OPEN, Match.start_at > now)
+        .where(Match.status == MatchStatus.OPEN, Match.booking_id.is_(None), Match.start_at > now)
         .order_by(Match.start_at.asc(), Match.created_at.asc())
     ).all()
     open_match_items = sorted(

@@ -8,10 +8,10 @@ import { LoadingBlock } from '../components/LoadingBlock';
 import { PageBrandBar } from '../components/PageBrandBar';
 import { SectionCard } from '../components/SectionCard';
 import { StatusBadge } from '../components/StatusBadge';
-import { cancelRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
+import { cancelRecurringSeries, deleteAdminBooking, deleteRecurringSeries, getAdminSession, listAdminBookings, logoutAdmin, updateAdminBookingStatus } from '../services/adminApi';
 import type { AdminDashboardFilters, AdminSession, BookingSummary } from '../types';
 import { getTenantSlugFromSearchParams, withTenantPath } from '../utils/tenantContext';
-import { canCancelBooking } from '../utils/adminBookingActions';
+import { canCancelBooking, canDeleteBookingPermanently } from '../utils/adminBookingActions';
 import { formatTimeValue, toDateInputValue } from '../utils/format';
 
 const MONTH_LABELS = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -147,9 +147,7 @@ export function AdminCurrentBookingsPage() {
   );
 
   const visibleBookings = useMemo(
-    () => bookings
-      .filter((booking) => booking.status !== 'CANCELLED' && booking.status !== 'EXPIRED')
-      .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime()),
+    () => bookings.sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime()),
     [bookings]
   );
 
@@ -313,6 +311,57 @@ export function AdminCurrentBookingsPage() {
     }
   }
 
+  async function handleDeleteBooking(booking: BookingSummary) {
+    if (!canDeleteBookingPermanently(booking.status)) {
+      return;
+    }
+
+    if (!window.confirm(`Confermi l'eliminazione definitiva della prenotazione ${booking.public_reference}?`)) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      const response = await deleteAdminBooking(booking.id);
+      setFeedback({ tone: 'success', message: response.message });
+      await loadWeek(viewWeekStart, false);
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate(withTenantPath('/admin/login', tenantSlug));
+        return;
+      }
+
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Eliminazione prenotazione non riuscita.') });
+    }
+  }
+
+  async function handleDeleteSeries(booking: BookingSummary) {
+    if (!booking.recurring_series_id || !canDeleteBookingPermanently(booking.status)) {
+      return;
+    }
+
+    const seriesLabel = booking.recurring_series_label || booking.public_reference;
+    if (!window.confirm(`Confermi l'eliminazione definitiva della serie "${seriesLabel}"?`)) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      const response = await deleteRecurringSeries(booking.recurring_series_id);
+      setFeedback({ tone: 'success', message: response.message });
+      await loadWeek(viewWeekStart, false);
+    } catch (error: any) {
+      if (getRequestStatus(error) === 401) {
+        navigate(withTenantPath('/admin/login', tenantSlug));
+        return;
+      }
+
+      setFeedback({ tone: 'error', message: getRequestMessage(error, 'Eliminazione serie ricorrente non riuscita.') });
+    }
+  }
+
   async function logout() {
     await logoutAdmin(tenantSlug);
     navigate(withTenantPath('/admin/login', tenantSlug));
@@ -426,6 +475,7 @@ export function AdminCurrentBookingsPage() {
                               const label = booking.customer_name || booking.recurring_series_label || booking.public_reference;
                               const showStatus = booking.status !== 'CONFIRMED';
                               const canCancel = canCancelBooking(booking.status);
+                              const canDelete = canDeleteBookingPermanently(booking.status);
 
                               return (
                                 <article
@@ -464,6 +514,16 @@ export function AdminCurrentBookingsPage() {
                                         Annulla
                                       </button>
                                     ) : null}
+                                    {canDelete ? (
+                                      <button
+                                        type='button'
+                                        aria-label={`Elimina ${booking.public_reference}`}
+                                        className='text-sm font-semibold text-slate-700 transition hover:text-slate-950'
+                                        onClick={() => void handleDeleteBooking(booking)}
+                                      >
+                                        Elimina
+                                      </button>
+                                    ) : null}
                                     {booking.recurring_series_id ? (
                                       <button
                                         type='button'
@@ -472,6 +532,16 @@ export function AdminCurrentBookingsPage() {
                                         onClick={() => void handleCancelSeries(booking)}
                                       >
                                         Annulla serie
+                                      </button>
+                                    ) : null}
+                                    {booking.recurring_series_id && canDelete ? (
+                                      <button
+                                        type='button'
+                                        aria-label={`Elimina serie ${booking.recurring_series_label || booking.public_reference}`}
+                                        className='text-sm font-semibold text-slate-700 transition hover:text-slate-950'
+                                        onClick={() => void handleDeleteSeries(booking)}
+                                      >
+                                        Elimina serie
                                       </button>
                                     ) : null}
                                   </div>

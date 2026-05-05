@@ -656,6 +656,56 @@ def test_admin_cancelled_play_booking_disappears_from_user_play_matches(client):
         assert match.status == MatchStatus.CANCELLED
 
 
+def test_play_matches_excludes_open_matches_with_linked_booking(client):
+    identify_as(client, profile_name='Open Linked Booking Viewer', phone='3337300015')
+    creator_id = seed_player(club_id=DEFAULT_CLUB_ID, profile_name='Open Linked Booking Creator', phone='3337300016')
+    default_court_id = first_court_id_for_club(DEFAULT_CLUB_ID)
+    _, _, _, start_at, end_at = build_future_slot(booking_date_offset_days=12)
+
+    with SessionLocal() as db:
+        booking = Booking(
+            club_id=DEFAULT_CLUB_ID,
+            court_id=default_court_id,
+            start_at=start_at,
+            end_at=end_at,
+            booking_date_local=start_at.astimezone(ZoneInfo('Europe/Rome')).date(),
+            duration_minutes=90,
+            status=BookingStatus.CONFIRMED,
+            payment_provider=PaymentProvider.NONE,
+            payment_status=PaymentStatus.UNPAID,
+            created_by='test',
+            public_reference='PB-OPEN-LINKED',
+        )
+        db.add(booking)
+        db.flush()
+
+        match = Match(
+            club_id=DEFAULT_CLUB_ID,
+            court_id=default_court_id,
+            created_by_player_id=creator_id,
+            booking_id=booking.id,
+            start_at=start_at,
+            end_at=end_at,
+            duration_minutes=90,
+            status=MatchStatus.OPEN,
+            level_requested=PlayLevel.INTERMEDIATE_MEDIUM,
+            note='open con booking collegata da nascondere',
+            public_share_token_hash='',
+        )
+        db.add(match)
+        db.flush()
+        match.public_share_token_hash = play_service_module.hash_play_token(
+            play_service_module.build_public_match_share_token(club_id=DEFAULT_CLUB_ID, match_id=match.id)
+        )
+        db.add(MatchPlayer(match_id=match.id, player_id=creator_id))
+        db.commit()
+        stale_match_id = match.id
+
+    response = client.get('/api/play/matches')
+    assert response.status_code == 200
+    assert stale_match_id not in {item['id'] for item in response.json()['open_matches']}
+
+
 def test_play_fourth_join_requires_community_deposit_when_enabled(client):
     update_play_community_payment_settings(client, enabled=True, deposit_amount=12.5, payment_timeout_minutes=45)
 
